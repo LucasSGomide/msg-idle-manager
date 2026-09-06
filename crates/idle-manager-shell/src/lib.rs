@@ -51,6 +51,22 @@ pub fn register_resources() -> Result<(), ResourceError> {
     Ok(())
 }
 
+/// Applies the engine-wide settings the whole application shares. Call once,
+/// after GTK is initialised and before the first web view is built.
+///
+/// Sets [`webkit6::CacheModel::DocumentViewer`], the lowest of the three cache
+/// models and the one `WebKit` associates with keeping no cache of terminated
+/// rendering processes, so a parked account's memory returns to the operating
+/// system rather than staying with the engine (`FR.5.3`). It is a global on the
+/// shared web context, never a per-session setting.
+pub fn configure_web_engine() {
+    let Some(context) = webkit6::WebContext::default() else {
+        tracing::warn!("no default WebKitWebContext; cache model left at its default");
+        return;
+    };
+    context.set_cache_model(webkit6::CacheModel::DocumentViewer);
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

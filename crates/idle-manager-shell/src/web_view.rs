@@ -1,4 +1,5 @@
-//! One account's engine objects, built in the order `WebKit` forces.
+//! One account's engine objects. The network session and the account's settings
+//! outlive the view; the view itself is disposable and rebuilt on every start.
 
 use std::path::Path;
 
@@ -7,7 +8,7 @@ use webkit6::prelude::*;
 use webkit6::{
     CookiePersistentStorage, NavigationAction, NetworkSession, PermissionRequest, ScriptDialog,
     URIRequest, UserContentInjectedFrames, UserContentManager, UserScript, UserScriptInjectionTime,
-    WebResource, WebView,
+    WebProcessTerminationReason, WebResource, WebView,
 };
 
 /// The cookie database file, kept inside the account's data directory so it
@@ -21,7 +22,7 @@ const PAGE_CONSOLE_HANDLER: &str = "pageConsole";
 
 /// Compiled in rather than loaded from the `GResource` bundle: this is the only
 /// caller, it needs the source before any widget exists, and `include_str!`
-/// keeps the read infallible so [`build`] needs no error path for it.
+/// keeps the read infallible so the holder needs no error path for it.
 const PAGE_CONSOLE_JS: &str = include_str!("../resources/js/page-console.js");
 
 /// The size an authentication popup opens at before its own page resizes it.
@@ -29,19 +30,88 @@ const POPUP_WIDTH: i32 = 480;
 /// The size an authentication popup opens at before its own page resizes it.
 const POPUP_HEIGHT: i32 = 680;
 
-/// Builds a [`WebView`] with its own persistent, isolated network session
-/// rooted at `data_dir` and `cache_dir`, and starts loading `start_address`.
+/// One account's engine objects, held so the view can be destroyed and rebuilt
+/// without losing the account's storage.
 ///
-/// The construction order is forced and cannot be rearranged:
+/// The [`NetworkSession`] and the start address are permanent; the [`WebView`]
+/// is present only while the account is running. Build one with
+/// [`SessionView::new`], read the current view with [`SessionView::view`], and
+/// move between running and parked with [`SessionView::stop`] and
+/// [`SessionView::start`].
+#[derive(Debug)]
+pub struct SessionView {
+    network_session: NetworkSession,
+    start_address: String,
+    view: Option<WebView>,
+}
+
+impl SessionView {
+    /// Builds the holder with its own persistent, isolated network session
+    /// rooted at `data_dir` and `cache_dir`, then builds and starts its first
+    /// view loading `start_address`.
+    #[must_use]
+    pub fn new(data_dir: &Path, cache_dir: &Path, start_address: &str) -> Self {
+        let mut holder = Self {
+            network_session: build_network_session(data_dir, cache_dir),
+            start_address: start_address.to_owned(),
+            view: None,
+        };
+        holder.start();
+        holder
+    }
+
+    /// The account's live view, or `None` while it is parked.
+    #[must_use]
+    pub fn view(&self) -> Option<&WebView> {
+        self.view.as_ref()
+    }
+
+    /// Parks the account: ends the rendering process, then drops the view.
+    ///
+    /// The two happen in this order and it cannot be reversed. Dropping the
+    /// view first leaves the engine to decide when — and whether — the process
+    /// dies, which is the difference between memory returned to the system and
+    /// memory handed to `WebKit`'s process cache (`FR.5.2`, code-standards
+    /// rule 18). A no-op if the account is already parked.
+    // The first call site lands in task 03 (parking a running account); until
+    // then `--deny warnings` would reject the unused method (code-standards
+    // rule 27).
+    #[allow(dead_code)]
+    pub fn stop(&mut self) {
+        let Some(view) = self.view.take() else {
+            return;
+        };
+        view.terminate_web_process();
+    }
+
+    /// Starts the account: builds a fresh view bound to the kept network
+    /// session, applies the shared settings, and loads the start address.
+    /// Returns the new view. Replaces any view already held.
+    ///
+    /// A new view, never a revived one: `network-session` is construct-only
+    /// (`webkit6` 0.6.1, `web_view.rs:141`), so the binding to the kept storage
+    /// area cannot be remade on the old view (`FR.5.4`, code-standards
+    /// rule 18).
+    pub fn start(&mut self) -> &WebView {
+        let view = WebView::builder()
+            .network_session(&self.network_session)
+            .user_content_manager(&page_console_bridge())
+            .build();
+
+        configure(&view);
+        view.load_uri(&self.start_address);
+
+        self.view.insert(view)
+    }
+}
+
+/// Builds the persistent, isolated network session for one account.
 ///
-/// 1. the [`NetworkSession`] takes both directories at construction and cannot
-///    be told about them afterwards;
-/// 2. its cookie manager is switched to on-disk storage before the first load,
-///    or the login is only in memory and is lost on exit;
-/// 3. the [`WebView`] binds `network_session` and `user_content_manager` as
-///    construct-only builder properties, so both must already exist.
-#[must_use]
-pub fn build(data_dir: &Path, cache_dir: &Path, start_address: &str) -> WebView {
+/// The construction order is forced: the [`NetworkSession`] takes both
+/// directories at construction and cannot be told about them afterwards, and
+/// its cookie manager is switched to on-disk storage before the first load, or
+/// the login is only in memory and is lost on exit.
+fn build_network_session(data_dir: &Path, cache_dir: &Path) -> NetworkSession {
     let data = data_dir.to_str().expect("profile data path is valid UTF-8");
     let cache = cache_dir
         .to_str()
@@ -60,17 +130,7 @@ pub fn build(data_dir: &Path, cache_dir: &Path, start_address: &str) -> WebView 
         CookiePersistentStorage::Sqlite,
     );
 
-    // `network-session` and `user-content-manager` are both construct-only
-    // (webkit6 0.6, web_view.rs:141 and :163): neither can be swapped later, so
-    // both are bound here at build time (code-standards rule 18).
-    let view = WebView::builder()
-        .network_session(&session)
-        .user_content_manager(&page_console_bridge())
-        .build();
-
-    configure(&view);
-    view.load_uri(start_address);
-    view
+    session
 }
 
 /// Applies the settings, popup handling and diagnostics every view in one
@@ -178,7 +238,16 @@ fn wire_diagnostics(view: &WebView) {
     view.connect_permission_request(log_permission_request);
 
     view.connect_web_process_terminated(|_, reason| {
-        tracing::error!(?reason, "web process terminated");
+        // Item 08 attaches its automatic crash reload to this same signal. A
+        // deliberate park raises it with `TerminatedByApi`, which must read as
+        // routine here or the reload would fight the park (code-standards
+        // rule 18).
+        match reason {
+            WebProcessTerminationReason::TerminatedByApi => {
+                tracing::debug!("web process terminated by API (parked)");
+            }
+            other => tracing::error!(reason = ?other, "web process terminated"),
+        }
     });
 }
 

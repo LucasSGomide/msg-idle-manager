@@ -41,6 +41,7 @@ fn run() -> anyhow::Result<ExitCode> {
 
     app.connect_activate(move |app| {
         tracing::info!("activated; presenting the main window");
+        idle_manager_shell::configure_web_engine();
         let window = Window::new(app, Rc::clone(&locator));
         window.present();
     });

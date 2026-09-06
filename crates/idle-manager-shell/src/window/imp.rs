@@ -2,6 +2,7 @@
 //! domain intent and the result back into a redraw (architecture rules 8, 12).
 
 use std::cell::RefCell;
+use std::collections::HashMap;
 use std::rc::Rc;
 
 use gtk::CompositeTemplate;
@@ -16,7 +17,7 @@ use idle_manager_core::{Layout, ProfileLocator, SessionBook, SessionId};
 use crate::add_game_dialog::AddGameDialog;
 use crate::session_grid::SessionGrid;
 use crate::session_sidebar::SessionSidebar;
-use crate::web_view;
+use crate::web_view::SessionView;
 
 /// The composite-template backing object for [`super::Window`].
 #[derive(Default, CompositeTemplate)]
@@ -47,6 +48,11 @@ pub struct Window {
     sidebar: SessionSidebar,
     book: RefCell<SessionBook>,
     locator: RefCell<Option<Rc<dyn ProfileLocator>>>,
+    /// One holder per account, owning its network session for the account's
+    /// whole life and its view only while it is running. The grid holds its own
+    /// reference to the same view; this map is what a later slice asks to stop
+    /// or start.
+    holders: RefCell<HashMap<SessionId, SessionView>>,
 }
 
 impl std::fmt::Debug for Window {
@@ -201,8 +207,13 @@ impl Window {
             }
         };
 
-        let view = web_view::build(&directories.data, &directories.cache, address);
-        self.grid.add_session(&id, name, &view);
+        let holder = SessionView::new(&directories.data, &directories.cache, address);
+        let Some(view) = holder.view() else {
+            tracing::error!(session = %id, "the new account's view was not built");
+            return;
+        };
+        self.grid.add_session(&id, name, view);
+        self.holders.borrow_mut().insert(id, holder);
         self.redraw();
     }
 
