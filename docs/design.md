@@ -37,3 +37,12 @@ citations, so append rather than reorder.
    style rather than a second faded look the eye has to learn. When both apply
    (parked and current), dimming wins: an account that is not running is not
    "current" in any sense the bold was meant to carry.
+
+4. **Stand in for an absent game with a plain centred panel on the window's
+   background — the account's name, one line of state text, one action button —
+   never a busy card.** The panel sits among slots that do hold live games and
+   must not pull the eye from them; keeping it to three stacked elements with
+   generous space also leaves item 08's failure panel — the same widget with
+   different words and a different button — nothing to redesign. The state line
+   and the button label are widget properties, not markup, so the two panels
+   cannot drift apart.

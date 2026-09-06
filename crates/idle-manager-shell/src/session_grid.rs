@@ -63,10 +63,19 @@ impl SessionGrid {
     }
 
     /// Puts a restarted account's new view back into the slot it still holds,
-    /// with the cover-until-painted wiring the first view had. A no-op if the
-    /// grid has no entry for `session`.
+    /// behind the placeholder panel, which stays up reading `Starting` until
+    /// the page paints. A no-op if the grid has no entry for `session`.
     pub fn attach_view(&self, session: &SessionId, view: &WebView) {
         self.imp().attach_view(session, view);
+    }
+
+    /// Registers `handler` to run with an account's id when that account's slot
+    /// placeholder button is pressed — the same start intent the sidebar row's
+    /// button sends. Replaces any previous handler.
+    pub fn connect_start_requested(&self, handler: impl Fn(SessionId) + 'static) {
+        self.imp()
+            .on_start_requested
+            .replace(Some(Box::new(handler)));
     }
 
     /// Registers `handler` to run whenever the user clicks a slot to focus it.

@@ -122,6 +122,15 @@ impl ObjectImpl for Window {
             }
         });
 
+        // The parked slot's own Start button routes through the same intent, so
+        // the row and the panel never run two starts (architecture rule 8).
+        let window = self.obj().downgrade();
+        self.grid.connect_start_requested(move |id| {
+            if let Some(window) = window.upgrade() {
+                window.imp().toggle_parking(&id);
+            }
+        });
+
         for button in [self.add_game_button.get(), self.add_first_game_button.get()] {
             let window = self.obj().downgrade();
             button.connect_clicked(move |_| {

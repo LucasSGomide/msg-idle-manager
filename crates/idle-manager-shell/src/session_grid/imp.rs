@@ -22,16 +22,24 @@ use idle_manager_core::{Layout, SessionBook, SessionId, SlotId, Visibility};
 use webkit6::prelude::*;
 use webkit6::{LoadEvent, WebView};
 
+use crate::slot_placeholder::SlotPlaceholder;
+
 /// A handler run when the user clicks a slot to focus it.
 type SlotFocusHandler = Box<dyn Fn(SlotId)>;
+
+/// A handler run with an account's id when its slot placeholder's button is
+/// pressed. Same intent the sidebar row's button sends (task 05).
+type StartHandler = Box<dyn Fn(SessionId)>;
 
 /// One session's view and where it currently sits.
 struct SlotEntry {
     id: SessionId,
     overlay: gtk::Overlay,
-    /// The name cover drawn under the view until the page paints, and shown
-    /// again on its own when a parked account's view is dropped.
+    /// The name cover drawn under the view until the page paints.
     cover: gtk::Box,
+    /// The parked-account panel, an overlay kept for the slot's whole life and
+    /// shown only while the account is parked or starting in this slot.
+    placeholder: SlotPlaceholder,
     placement: Visibility,
 }
 
@@ -43,6 +51,7 @@ pub struct SessionGrid {
     layout: Cell<Layout>,
     focused: Cell<usize>,
     pub(super) on_slot_focused: RefCell<Option<SlotFocusHandler>>,
+    pub(super) on_start_requested: RefCell<Option<StartHandler>>,
 }
 
 #[glib::object_subclass]
@@ -120,12 +129,31 @@ impl SessionGrid {
         overlay.add_overlay(&cover);
         hide_cover_once_painted(view, &cover);
 
+        let placeholder = SlotPlaceholder::new();
+        placeholder.set_name(display_name);
+        placeholder.set_state_text("Parked");
+        placeholder.set_button_label("Start");
+        placeholder.set_visible(false);
+        overlay.add_overlay(&placeholder);
+
+        let grid = self.obj().downgrade();
+        let session = id.clone();
+        placeholder.connect_start_requested(move || {
+            let Some(grid) = grid.upgrade() else {
+                return;
+            };
+            if let Some(handler) = grid.imp().on_start_requested.borrow().as_ref() {
+                handler(session.clone());
+            }
+        });
+
         overlay.set_parent(&*self.obj());
 
         self.slots.borrow_mut().push(SlotEntry {
             id: id.clone(),
             overlay,
             cover,
+            placeholder,
             placement: Visibility::OffGrid,
         });
 
@@ -152,22 +180,27 @@ impl SessionGrid {
         }
     }
 
-    /// Drops the parked account's view out of its slot overlay, leaving the
-    /// name cover showing underneath. The `SlotEntry` keeps its placement, so
+    /// Drops the parked account's view out of its slot overlay and shows the
+    /// placeholder panel in its place. The `SlotEntry` keeps its placement, so
     /// the slot stays the account's and switching layouts still moves it. A
-    /// no-op for an account the grid has no view for.
+    /// no-op for an account the grid has no entry for.
     pub(super) fn release_view(&self, id: &SessionId) {
         let slots = self.slots.borrow();
         let Some(entry) = slots.iter().find(|entry| &entry.id == id) else {
             return;
         };
         entry.overlay.set_child(None::<&gtk::Widget>);
-        entry.cover.set_visible(true);
-        tracing::debug!(session = %id, "released the parked account's view");
+        entry.cover.set_visible(false);
+        entry.placeholder.set_state_text("Parked");
+        entry.placeholder.set_button_label("Start");
+        entry.placeholder.set_button_sensitive(true);
+        entry.placeholder.set_visible(true);
+        tracing::debug!(session = %id, "parked: showing the slot placeholder");
     }
 
-    /// Puts a freshly started account's view back into the slot it still holds,
-    /// under the same cover-until-painted wiring the first view had. The
+    /// Puts a freshly started account's view back into the slot it still holds.
+    /// The placeholder stays up, now reading `Starting` with its button
+    /// disabled, and covers the blank loading view until the page paints. The
     /// `SlotEntry` and its placement are unchanged. A no-op for an account the
     /// grid has no entry for.
     pub(super) fn attach_view(&self, id: &SessionId, view: &WebView) {
@@ -176,9 +209,17 @@ impl SessionGrid {
             return;
         };
         entry.overlay.set_child(Some(view));
-        entry.cover.set_visible(true);
-        hide_cover_once_painted(view, &entry.cover);
-        tracing::debug!(session = %id, "attached the restarted account's view");
+        entry.cover.set_visible(false);
+        entry.placeholder.set_state_text("Starting");
+        entry.placeholder.set_button_sensitive(false);
+
+        let placeholder = entry.placeholder.clone();
+        view.connect_load_changed(move |_, event| {
+            if matches!(event, LoadEvent::Committed | LoadEvent::Finished) {
+                placeholder.set_visible(false);
+            }
+        });
+        tracing::debug!(session = %id, "starting: view attached behind the placeholder");
         self.obj().queue_allocate();
     }
 
