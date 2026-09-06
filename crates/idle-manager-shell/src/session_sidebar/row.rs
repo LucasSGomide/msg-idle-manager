@@ -46,23 +46,27 @@ impl Row {
         self.set_status(status_key(liveness, visibility, current));
         self.set_name_markup(name_markup(display_name, liveness, visibility, current));
         self.set_action_label(action_label(liveness));
+        self.set_action_sensitive(action_sensitive(liveness));
     }
 }
 
 /// The state a row's trailing marker names, as a stable key.
 ///
 /// The single place a domain state becomes a marker. Item 03 added `"parked"`
-/// here and item 08 adds `"unresponsive"`, so the factory that builds each row
-/// — and `sidebar.css`, which styles one dot class per key — grow one arm,
-/// never a branch (design rule 1). Parked wins over every place: an account
-/// that is not running says so first, whatever slot it still holds.
+/// here, item 04 `"starting"`, and item 08 adds `"unresponsive"`, so the
+/// factory that builds each row — and `sidebar.css`, which styles one dot class
+/// per key — grow one arm, never a branch (design rule 1). Liveness wins over
+/// every place: an account that is not simply running says so first, whatever
+/// slot it still holds.
 pub(super) fn status_key(
     liveness: Liveness,
     visibility: Visibility,
     current: bool,
 ) -> &'static str {
-    if matches!(liveness, Liveness::Parked) {
-        return "parked";
+    match liveness {
+        Liveness::Parked => return "parked",
+        Liveness::Starting => return "starting",
+        Liveness::Live => {}
     }
     match visibility {
         Visibility::InSlot(_) if current => "current",
@@ -78,6 +82,7 @@ pub(super) fn status_label(key: &str) -> &'static str {
         "visible" => "Visible",
         "background" => "Background",
         "parked" => "Parked",
+        "starting" => "Starting",
         _ => "",
     }
 }
@@ -90,6 +95,14 @@ pub(super) fn action_label(liveness: Liveness) -> &'static str {
         Liveness::Live => "Park",
         Liveness::Parked | Liveness::Starting => "Start",
     }
+}
+
+/// Whether the row's action button is pressable. Insensitive only while the
+/// account is starting, so an impatient second press cannot build a second
+/// view for one account (the domain models `Starting`, so this holds in every
+/// caller at once).
+pub(super) fn action_sensitive(liveness: Liveness) -> bool {
+    !matches!(liveness, Liveness::Starting)
 }
 
 /// The name label's Pango markup. Dimmed for an account that is not on screen
@@ -134,6 +147,34 @@ mod tests {
         assert_eq!(
             (current, visible, background),
             ("current", "visible", "background")
+        );
+    }
+
+    #[test]
+    fn a_starting_account_keys_as_starting_whatever_its_visibility() {
+        let in_slot = status_key(Liveness::Starting, Visibility::InSlot(SlotId::FIRST), true);
+        let off_grid = status_key(Liveness::Starting, Visibility::OffGrid, false);
+
+        assert_eq!((in_slot, off_grid), ("starting", "starting"));
+    }
+
+    #[test]
+    fn the_action_label_inverts_with_liveness() {
+        let live = action_label(Liveness::Live);
+        let parked = action_label(Liveness::Parked);
+
+        assert_eq!((live, parked), ("Park", "Start"));
+    }
+
+    #[test]
+    fn the_action_button_is_insensitive_only_while_starting() {
+        let while_starting = action_sensitive(Liveness::Starting);
+        let while_live = action_sensitive(Liveness::Live);
+        let while_parked = action_sensitive(Liveness::Parked);
+
+        assert_eq!(
+            (while_starting, while_live, while_parked),
+            (false, true, true)
         );
     }
 }

@@ -42,3 +42,12 @@
   background-color: #9a9996;
   box-shadow: none;
 }
+
+/* Starting: unparked, no page painted yet. Blue with a glow — a transient
+ * working state, on its way to green. */
+.status-dot.status-starting {
+  background-color: #62a0ea;
+  box-shadow:
+    0 0 4px 1px alpha(#62a0ea, 0.9),
+    0 0 9px 3px alpha(#62a0ea, 0.45);
+}

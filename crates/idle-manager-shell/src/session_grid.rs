@@ -62,6 +62,13 @@ impl SessionGrid {
         self.imp().release_view(session);
     }
 
+    /// Puts a restarted account's new view back into the slot it still holds,
+    /// with the cover-until-painted wiring the first view had. A no-op if the
+    /// grid has no entry for `session`.
+    pub fn attach_view(&self, session: &SessionId, view: &WebView) {
+        self.imp().attach_view(session, view);
+    }
+
     /// Registers `handler` to run whenever the user clicks a slot to focus it.
     pub fn connect_slot_focused(&self, handler: impl Fn(SlotId) + 'static) {
         self.imp().on_slot_focused.replace(Some(Box::new(handler)));

@@ -73,10 +73,6 @@ impl SessionView {
     /// dies, which is the difference between memory returned to the system and
     /// memory handed to `WebKit`'s process cache (`FR.5.2`, code-standards
     /// rule 18). A no-op if the account is already parked.
-    // The first call site lands in task 03 (parking a running account); until
-    // then `--deny warnings` would reject the unused method (code-standards
-    // rule 27).
-    #[allow(dead_code)]
     pub fn stop(&mut self) {
         let Some(view) = self.view.take() else {
             return;

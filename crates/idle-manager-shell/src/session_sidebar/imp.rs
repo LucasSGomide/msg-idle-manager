@@ -20,11 +20,12 @@ use super::row::{Row, status_label};
 
 /// The status-dot keys `sidebar.css` styles, one class each. Cleared and
 /// re-applied on every bind because the list recycles row widgets.
-const STATUS_CLASSES: [&str; 4] = [
+const STATUS_CLASSES: [&str; 5] = [
     "status-current",
     "status-visible",
     "status-background",
     "status-parked",
+    "status-starting",
 ];
 
 /// A handler run with the activated account's id when the user clicks a row.
@@ -257,6 +258,7 @@ fn row_factory(sidebar: &super::SessionSidebar) -> gtk::SignalListItemFactory {
         }
         dot.add_css_class(&format!("status-{key}"));
         action.set_label(&data.action_label());
+        action.set_sensitive(data.action_sensitive());
     });
 
     factory

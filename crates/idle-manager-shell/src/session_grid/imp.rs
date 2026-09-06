@@ -118,15 +118,7 @@ impl SessionGrid {
 
         let cover = build_cover(display_name);
         overlay.add_overlay(&cover);
-
-        // The name shows on the window's own background until the page commits
-        // its first bytes, then the live page covers it.
-        let cover_for_load = cover.clone();
-        view.connect_load_changed(move |_, event| {
-            if matches!(event, LoadEvent::Committed | LoadEvent::Finished) {
-                cover_for_load.set_visible(false);
-            }
-        });
+        hide_cover_once_painted(view, &cover);
 
         overlay.set_parent(&*self.obj());
 
@@ -172,6 +164,22 @@ impl SessionGrid {
         entry.overlay.set_child(None::<&gtk::Widget>);
         entry.cover.set_visible(true);
         tracing::debug!(session = %id, "released the parked account's view");
+    }
+
+    /// Puts a freshly started account's view back into the slot it still holds,
+    /// under the same cover-until-painted wiring the first view had. The
+    /// `SlotEntry` and its placement are unchanged. A no-op for an account the
+    /// grid has no entry for.
+    pub(super) fn attach_view(&self, id: &SessionId, view: &WebView) {
+        let slots = self.slots.borrow();
+        let Some(entry) = slots.iter().find(|entry| &entry.id == id) else {
+            return;
+        };
+        entry.overlay.set_child(Some(view));
+        entry.cover.set_visible(true);
+        hide_cover_once_painted(view, &entry.cover);
+        tracing::debug!(session = %id, "attached the restarted account's view");
+        self.obj().queue_allocate();
     }
 
     pub(super) fn sync(&self, book: &SessionBook) {
@@ -303,6 +311,17 @@ fn grid_dimensions(layout: Layout) -> (usize, usize) {
         Layout::SideBySide => (2, 1),
         Layout::Grid => (2, 2),
     }
+}
+
+/// Hides `cover` the first time `view` commits a page — the name shows on the
+/// window's own background until then, and the live page covers it after.
+fn hide_cover_once_painted(view: &WebView, cover: &gtk::Box) {
+    let cover = cover.clone();
+    view.connect_load_changed(move |_, event| {
+        if matches!(event, LoadEvent::Committed | LoadEvent::Finished) {
+            cover.set_visible(false);
+        }
+    });
 }
 
 /// An opaque cover carrying the account's name, shown until the page paints.

@@ -1,7 +1,7 @@
 //! The list row's backing object: an account's identity and the two strings a
 //! bound list item renders (architecture rule 12).
 
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
 
 use gtk::glib;
 use gtk::prelude::*;
@@ -21,8 +21,8 @@ pub struct Row {
     #[property(get, set)]
     display_name: RefCell<String>,
     /// The status key for the trailing marker: `current`, `visible`,
-    /// `background` or `parked`. Names both the word shown and the dot's CSS
-    /// class.
+    /// `background`, `parked` or `starting`. Names both the word shown and the
+    /// dot's CSS class.
     #[property(get, set)]
     status: RefCell<String>,
     /// The Pango markup for the name label — bold, dimmed or plain.
@@ -32,6 +32,10 @@ pub struct Row {
     /// `Start` once it is parked. The factory binds it and never branches.
     #[property(get, set)]
     action_label: RefCell<String>,
+    /// Whether the trailing action button is pressable. `false` only while the
+    /// account is starting, so a second press cannot build a second view.
+    #[property(get, set)]
+    action_sensitive: Cell<bool>,
 }
 
 impl std::fmt::Debug for Row {

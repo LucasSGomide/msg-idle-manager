@@ -11,6 +11,8 @@ use gtk::glib;
 use gtk::prelude::*;
 use gtk::subclass::prelude::*;
 use gtk4 as gtk;
+use webkit6::LoadEvent;
+use webkit6::prelude::WebViewExt;
 
 use idle_manager_core::{Layout, Liveness, ProfileLocator, Session, SessionBook, SessionId};
 
@@ -241,10 +243,12 @@ impl Window {
             .find(|session| session.id() == id)
             .map(Session::liveness);
 
-        // Parked -> start lands in task 04; Starting keeps its button
-        // insensitive, so a press that still arrives is a stale event.
-        if liveness == Some(Liveness::Live) {
-            self.park_session(id);
+        match liveness {
+            Some(Liveness::Live) => self.park_session(id),
+            Some(Liveness::Parked) => self.start_session(id),
+            // Starting keeps its button insensitive, so a press that still
+            // arrives is a stale event; an unknown id has nothing to toggle.
+            Some(Liveness::Starting) | None => {}
         }
     }
 
@@ -258,6 +262,62 @@ impl Window {
             holder.stop();
         }
         self.grid.release_view(id);
+        self.redraw();
+    }
+
+    /// Starts a parked account, in the order the roadmap item's second diagram
+    /// fixes: unpark in the book (which returns `Starting`, since no page has
+    /// painted), redraw so the row shows it and the button goes insensitive,
+    /// then build a new view against the kept network session and hand it to
+    /// the grid (architecture rule 8).
+    fn start_session(&self, id: &SessionId) {
+        self.book.borrow_mut().unpark(id);
+        self.redraw();
+
+        let view = {
+            let mut holders = self.holders.borrow_mut();
+            let Some(holder) = holders.get_mut(id) else {
+                tracing::error!(session = %id, "no holder to start");
+                return;
+            };
+            holder.start().clone()
+        };
+
+        self.grid.attach_view(id, &view);
+
+        // The starting interval ends at the new view's first commit — the same
+        // signal the grid uses to drop the cover. Which load event counts as
+        // "first paint" is the roadmap item's fourth blocker and has to be
+        // checked against a real game.
+        let window = self.obj().downgrade();
+        let id = id.clone();
+        view.connect_load_changed(move |_, event| {
+            if !matches!(event, LoadEvent::Committed | LoadEvent::Finished) {
+                return;
+            }
+            if let Some(window) = window.upgrade() {
+                window.imp().finish_starting(&id);
+            }
+        });
+    }
+
+    /// The shell reports a started account's first paint: end its starting
+    /// interval in the book and redraw. A no-op unless the account is actually
+    /// starting, so a later navigation's load event does not churn the sidebar.
+    fn finish_starting(&self, id: &SessionId) {
+        let starting = self
+            .book
+            .borrow()
+            .sessions()
+            .iter()
+            .find(|session| session.id() == id)
+            .map(Session::liveness)
+            == Some(Liveness::Starting);
+        if !starting {
+            return;
+        }
+
+        self.book.borrow_mut().mark_started(id);
         self.redraw();
     }
 

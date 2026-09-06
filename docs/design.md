@@ -19,7 +19,9 @@ citations, so append rather than reorder.
    — green dot with a neon glow, name bold; `visible` (on screen, not focused) —
    green dot, no glow; `background` (running out of sight) — amber dot with a
    glow, name dimmed to 55% alpha; `parked` (not running, whatever place it
-   still holds) — grey unlit dot, name dimmed to 55% alpha.
+   still holds) — grey unlit dot, name dimmed to 55% alpha; `starting`
+   (unparked, no page painted yet) — blue dot with a glow, and the row's action
+   button insensitive so the start cannot be pressed twice.
 
 2. **Give a list row one action button whose label and effect invert with the
    row's state, not two buttons or a menu.** The row action here is always "move
