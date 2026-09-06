@@ -3,7 +3,7 @@
 
 use std::collections::HashMap;
 
-use crate::layout::{Layout, SlotId, arrange};
+use crate::layout::{Layout, Placement, SlotId, arrange, bring_into_focus};
 
 /// The identifier the program mints for a session.
 ///
@@ -206,6 +206,38 @@ impl SessionBook {
         }
     }
 
+    /// Bring `session` into the focused slot and report where every session now
+    /// sits.
+    ///
+    /// If `session` already holds a slot, focus moves there and nothing else
+    /// changes. If the focused slot is empty, `session` fills it. If it is
+    /// taken, `session` and the slot's occupant trade places, the occupant
+    /// going off-grid. A `session` not in the book leaves the book untouched.
+    /// See [`crate::Outcome`] for the three cases the returned [`Placement`]
+    /// distinguishes.
+    pub fn focus_session(&mut self, session: &SessionId) -> Placement {
+        let current: HashMap<SessionId, Visibility> = self
+            .sessions
+            .iter()
+            .map(|s| (s.id.clone(), s.visibility))
+            .collect();
+
+        let placement = bring_into_focus(&current, self.focused, session);
+
+        self.focused = placement.focused();
+        for s in &mut self.sessions {
+            let Some(visibility) = placement.visibility().get(&s.id).copied() else {
+                continue;
+            };
+            s.visibility = visibility;
+            if let Visibility::InSlot(slot) = visibility {
+                self.remembered.insert(s.id.clone(), slot);
+            }
+        }
+
+        placement
+    }
+
     fn occupied_slots(&self) -> Vec<SlotId> {
         self.sessions
             .iter()
@@ -380,6 +412,45 @@ mod tests {
             .find(|session| session.id() == &third)
             .expect("session present");
         assert_eq!(placed.visibility(), Visibility::InSlot(SlotId::new(2)));
+    }
+
+    #[test]
+    fn focusing_a_visible_session_moves_the_books_focus_to_its_slot() {
+        let mut book = SessionBook::new();
+        book.set_layout(Layout::SideBySide);
+        book.add("One", "https://example.test/one");
+        let two = book.add("Two", "https://example.test/two");
+
+        book.focus_session(&two);
+
+        assert_eq!(book.focused(), SlotId::new(1));
+    }
+
+    #[test]
+    fn focusing_an_off_grid_session_swaps_it_into_the_focused_slot_in_the_book() {
+        let mut book = SessionBook::new();
+        book.set_layout(Layout::SideBySide);
+        let first = book.add("One", "https://example.test/one");
+        book.add("Two", "https://example.test/two");
+        book.set_focused(SlotId::new(0));
+        let third = book.add("Three", "https://example.test/three");
+
+        book.focus_session(&first);
+
+        let seats: Vec<Visibility> = [&first, &third]
+            .into_iter()
+            .map(|id| {
+                book.sessions()
+                    .iter()
+                    .find(|session| session.id() == id)
+                    .expect("session present")
+                    .visibility()
+            })
+            .collect();
+        assert_eq!(
+            seats,
+            vec![Visibility::InSlot(SlotId::new(0)), Visibility::OffGrid],
+        );
     }
 
     #[test]

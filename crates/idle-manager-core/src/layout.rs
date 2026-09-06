@@ -110,6 +110,116 @@ pub fn arrange<S: std::hash::BuildHasher>(
     placement
 }
 
+/// What a [`bring_into_focus`] call did, beyond the placement it produced.
+///
+/// An enum of the three things that can happen, never a boolean beside an
+/// optional displaced id — that would make a fourth, meaningless state
+/// representable (code standards rule 1).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Outcome {
+    /// The session was off-grid and the focused slot was taken: `displaced` is
+    /// the session that gave the slot up and is now off-grid.
+    Swapped {
+        /// The session pushed out of the focused slot.
+        displaced: SessionId,
+    },
+    /// The session was off-grid and the focused slot was empty: it moved in and
+    /// nothing was pushed out.
+    Filled,
+    /// The session already held a slot: focus moved to that slot and every
+    /// visibility is unchanged.
+    Focused,
+}
+
+/// Where every session sits after one is brought into the focused slot, and
+/// which of the three things that took.
+///
+/// Total by design: [`Self::visibility`] carries every session the call was
+/// given, not just the one or two that moved, so the sidebar and the grid can
+/// each redraw from it without their pictures drifting apart.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Placement {
+    visibility: HashMap<SessionId, Visibility>,
+    focused: SlotId,
+    outcome: Outcome,
+}
+
+impl Placement {
+    /// The visibility of every session after the call, keyed by id.
+    #[must_use]
+    pub fn visibility(&self) -> &HashMap<SessionId, Visibility> {
+        &self.visibility
+    }
+
+    /// The slot that is focused after the call.
+    #[must_use]
+    pub fn focused(&self) -> SlotId {
+        self.focused
+    }
+
+    /// Which of the three things the call did.
+    #[must_use]
+    pub fn outcome(&self) -> &Outcome {
+        &self.outcome
+    }
+}
+
+/// Bring `session` into `focused`, given where every session currently sits.
+///
+/// One outcome per [`Outcome`] variant: `session` already holds a slot, so only
+/// the focus moves and no visibility changes; `session` is off-grid and
+/// `focused` is empty, so it fills it; `session` is off-grid and `focused` is
+/// taken, so the two trade places. The returned [`Placement`] always names
+/// every session in `current`. A `session` absent from `current` is left alone.
+/// Reads no clock and no randomness.
+#[must_use]
+pub(crate) fn bring_into_focus<S: std::hash::BuildHasher>(
+    current: &HashMap<SessionId, Visibility, S>,
+    focused: SlotId,
+    session: &SessionId,
+) -> Placement {
+    let mut visibility: HashMap<SessionId, Visibility> = current
+        .iter()
+        .map(|(id, seat)| (id.clone(), *seat))
+        .collect();
+
+    match current.get(session).copied() {
+        // Already on screen: the focus follows it there, the seats do not move.
+        Some(Visibility::InSlot(slot)) => Placement {
+            visibility,
+            focused: slot,
+            outcome: Outcome::Focused,
+        },
+        // Out of sight: it takes the focused slot, trading with whoever holds it.
+        Some(Visibility::OffGrid) => {
+            let displaced = current
+                .iter()
+                .find_map(|(id, seat)| (*seat == Visibility::InSlot(focused)).then(|| id.clone()));
+
+            visibility.insert(session.clone(), Visibility::InSlot(focused));
+            let outcome = match displaced {
+                Some(id) => {
+                    visibility.insert(id.clone(), Visibility::OffGrid);
+                    Outcome::Swapped { displaced: id }
+                }
+                None => Outcome::Filled,
+            };
+
+            Placement {
+                visibility,
+                focused,
+                outcome,
+            }
+        }
+        // Not a session in this book: nothing to do.
+        None => Placement {
+            visibility,
+            focused,
+            outcome: Outcome::Focused,
+        },
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -184,5 +294,127 @@ mod tests {
         let second = arrange(Layout::Grid, &order, &remembered);
 
         assert_eq!(first, second);
+    }
+
+    #[test]
+    fn bringing_an_off_grid_session_into_an_occupied_focused_slot_swaps_the_two() {
+        let order = ids(&["a", "b"]);
+        let current = HashMap::from([
+            (order[0].clone(), Visibility::OffGrid),
+            (order[1].clone(), Visibility::InSlot(SlotId::new(0))),
+        ]);
+
+        let placement = bring_into_focus(&current, SlotId::new(0), &order[0]);
+
+        assert_eq!(
+            (
+                placement.visibility()[&order[0]],
+                placement.visibility()[&order[1]],
+            ),
+            (Visibility::InSlot(SlotId::new(0)), Visibility::OffGrid),
+        );
+    }
+
+    #[test]
+    fn a_swap_leaves_every_other_sessions_visibility_untouched() {
+        let order = ids(&["a", "b", "c", "d"]);
+        let current = HashMap::from([
+            (order[0].clone(), Visibility::OffGrid),
+            (order[1].clone(), Visibility::InSlot(SlotId::new(0))),
+            (order[2].clone(), Visibility::InSlot(SlotId::new(1))),
+            (order[3].clone(), Visibility::InSlot(SlotId::new(2))),
+        ]);
+
+        let placement = bring_into_focus(&current, SlotId::new(0), &order[0]);
+
+        assert_eq!(
+            (
+                placement.visibility()[&order[2]],
+                placement.visibility()[&order[3]],
+            ),
+            (
+                Visibility::InSlot(SlotId::new(1)),
+                Visibility::InSlot(SlotId::new(2)),
+            ),
+        );
+    }
+
+    #[test]
+    fn bringing_an_off_grid_session_into_an_empty_focused_slot_moves_no_other_session() {
+        let order = ids(&["a", "b"]);
+        let current = HashMap::from([
+            (order[0].clone(), Visibility::OffGrid),
+            (order[1].clone(), Visibility::InSlot(SlotId::new(0))),
+        ]);
+
+        let placement = bring_into_focus(&current, SlotId::new(1), &order[0]);
+
+        assert_eq!(
+            (
+                placement.visibility()[&order[0]],
+                placement.visibility()[&order[1]],
+            ),
+            (
+                Visibility::InSlot(SlotId::new(1)),
+                Visibility::InSlot(SlotId::new(0)),
+            ),
+        );
+    }
+
+    #[test]
+    fn activating_a_visible_session_moves_focus_to_its_slot() {
+        let order = ids(&["a", "b"]);
+        let current = HashMap::from([
+            (order[0].clone(), Visibility::InSlot(SlotId::new(0))),
+            (order[1].clone(), Visibility::InSlot(SlotId::new(1))),
+        ]);
+
+        let placement = bring_into_focus(&current, SlotId::new(0), &order[1]);
+
+        assert_eq!(placement.focused(), SlotId::new(1));
+    }
+
+    #[test]
+    fn activating_a_visible_session_changes_no_visibility() {
+        let order = ids(&["a", "b"]);
+        let current = HashMap::from([
+            (order[0].clone(), Visibility::InSlot(SlotId::new(0))),
+            (order[1].clone(), Visibility::InSlot(SlotId::new(1))),
+        ]);
+
+        let placement = bring_into_focus(&current, SlotId::new(0), &order[1]);
+
+        assert_eq!(placement.visibility(), &current);
+    }
+
+    #[test]
+    fn the_placement_names_every_session_and_an_outcome_for_each_case() {
+        let order = ids(&["a", "b", "c"]);
+        let seats = HashMap::from([
+            (order[0].clone(), Visibility::OffGrid),
+            (order[1].clone(), Visibility::InSlot(SlotId::new(0))),
+            (order[2].clone(), Visibility::InSlot(SlotId::new(1))),
+        ]);
+
+        let swap = bring_into_focus(&seats, SlotId::new(0), &order[0]);
+        let fill = bring_into_focus(&seats, SlotId::new(2), &order[0]);
+        let focus = bring_into_focus(&seats, SlotId::new(0), &order[1]);
+
+        assert_eq!(
+            (
+                swap.visibility().len(),
+                swap.outcome().clone(),
+                fill.outcome().clone(),
+                focus.outcome().clone(),
+            ),
+            (
+                3,
+                Outcome::Swapped {
+                    displaced: order[1].clone(),
+                },
+                Outcome::Filled,
+                Outcome::Focused,
+            ),
+        );
     }
 }
