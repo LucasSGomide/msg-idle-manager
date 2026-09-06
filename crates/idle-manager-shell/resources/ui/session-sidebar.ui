@@ -1,0 +1,42 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<interface>
+  <requires lib="gtk" version="4.0"/>
+  <template class="IdleManagerSessionSidebar" parent="GtkBox">
+    <property name="orientation">vertical</property>
+    <property name="width-request">220</property>
+    <property name="vexpand">true</property>
+    <style>
+      <class name="navigation-sidebar"/>
+    </style>
+    <child>
+      <object class="GtkScrolledWindow" id="scroller">
+        <property name="hscrollbar-policy">never</property>
+        <property name="vexpand">true</property>
+        <child>
+          <object class="GtkListView" id="list_view">
+            <property name="single-click-activate">true</property>
+          </object>
+        </child>
+      </object>
+    </child>
+    <child>
+      <object class="GtkLabel" id="empty_label">
+        <property name="label">No accounts yet — add one to get started.</property>
+        <property name="wrap">true</property>
+        <property name="justify">center</property>
+        <property name="vexpand">true</property>
+        <property name="margin-start">12</property>
+        <property name="margin-end">12</property>
+        <property name="visible">false</property>
+        <style>
+          <class name="dim-label"/>
+        </style>
+      </object>
+    </child>
+    <child>
+      <object class="GtkBox" id="footer">
+        <property name="visible">false</property>
+      </object>
+    </child>
+  </template>
+</interface>

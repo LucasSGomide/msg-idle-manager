@@ -3,6 +3,8 @@
   <gresource prefix="/org/idlemanager/IdleManager">
     <file compressed="true" preprocess="xml-stripblanks">ui/window.ui</file>
     <file compressed="true" preprocess="xml-stripblanks">ui/session-grid.ui</file>
+    <file compressed="true" preprocess="xml-stripblanks">ui/session-sidebar.ui</file>
+    <file compressed="true">css/sidebar.css</file>
     <file compressed="true" preprocess="xml-stripblanks">ui/add-game-dialog.ui</file>
   </gresource>
 </gresources>

@@ -10,10 +10,11 @@ use gtk::prelude::*;
 use gtk::subclass::prelude::*;
 use gtk4 as gtk;
 
-use idle_manager_core::{Layout, ProfileLocator, SessionBook};
+use idle_manager_core::{Layout, ProfileLocator, SessionBook, SessionId};
 
 use crate::add_game_dialog::AddGameDialog;
 use crate::session_grid::SessionGrid;
+use crate::session_sidebar::SessionSidebar;
 use crate::web_view;
 
 /// The composite-template backing object for [`super::Window`].
@@ -31,11 +32,16 @@ pub struct Window {
     #[template_child]
     layout_grid: TemplateChild<gtk::ToggleButton>,
     #[template_child]
+    sidebar_toggle: TemplateChild<gtk::ToggleButton>,
+    #[template_child]
+    sidebar_revealer: TemplateChild<gtk::Revealer>,
+    #[template_child]
     content: TemplateChild<gtk::Box>,
     #[template_child]
     empty_state: TemplateChild<gtk::Box>,
 
     grid: SessionGrid,
+    sidebar: SessionSidebar,
     book: RefCell<SessionBook>,
     locator: RefCell<Option<Rc<dyn ProfileLocator>>>,
 }
@@ -72,7 +78,29 @@ impl ObjectImpl for Window {
         let window = self.obj().downgrade();
         self.grid.connect_slot_focused(move |slot| {
             if let Some(window) = window.upgrade() {
-                window.imp().book.borrow_mut().set_focused(slot);
+                let imp = window.imp();
+                imp.book.borrow_mut().set_focused(slot);
+                // The sidebar marks the focused-slot row as current, so a focus
+                // change made in the grid has to reach it too.
+                imp.redraw();
+            }
+        });
+
+        // A GtkRevealer unrealises its child when folded. session_grid.rs must
+        // not do that — WebKit throttles a view it believes hidden and an idle
+        // game loses progress — but the sidebar holds only labels, so dropping
+        // and rebuilding them on each fold costs nothing (code standards
+        // rule 18).
+        self.sidebar_revealer.set_child(Some(&self.sidebar));
+        self.sidebar_toggle
+            .bind_property("active", &*self.sidebar_revealer, "reveal-child")
+            .sync_create()
+            .build();
+
+        let window = self.obj().downgrade();
+        self.sidebar.connect_row_activated(move |id| {
+            if let Some(window) = window.upgrade() {
+                window.imp().focus_session(&id);
             }
         });
 
@@ -151,9 +179,15 @@ impl Window {
         self.redraw();
     }
 
+    fn focus_session(&self, id: &SessionId) {
+        self.book.borrow_mut().focus_session(id);
+        self.redraw();
+    }
+
     fn redraw(&self) {
         let book = self.book.borrow();
         self.grid.sync(&book);
+        self.sidebar.sync(&book);
 
         let empty = book.sessions().is_empty();
         self.empty_state.set_visible(empty);

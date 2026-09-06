@@ -14,6 +14,13 @@
           </object>
         </child>
         <child type="end">
+          <object class="GtkToggleButton" id="sidebar_toggle">
+            <property name="icon-name">sidebar-show-symbolic</property>
+            <property name="active">true</property>
+            <property name="tooltip-text">Show or hide the account list</property>
+          </object>
+        </child>
+        <child type="end">
           <object class="GtkBox" id="layout_toggles">
             <property name="tooltip-text">Choose how many games are visible</property>
             <style>
@@ -43,9 +50,14 @@
     </child>
     <child>
       <object class="GtkBox" id="content">
-        <property name="orientation">vertical</property>
         <property name="hexpand">true</property>
         <property name="vexpand">true</property>
+        <child>
+          <object class="GtkRevealer" id="sidebar_revealer">
+            <property name="transition-type">slide-right</property>
+            <property name="reveal-child">true</property>
+          </object>
+        </child>
         <child>
           <object class="GtkBox" id="empty_state">
             <property name="orientation">vertical</property>

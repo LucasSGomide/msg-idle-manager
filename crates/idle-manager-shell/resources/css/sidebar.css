@@ -1,0 +1,37 @@
+/* Sidebar row status marker (design rule 1). One dot class per status key in
+ * session_sidebar/row.rs; items 03 and 08 add more keys and more rules here. */
+
+.sidebar-status {
+  font-size: 0.82em;
+  opacity: 0.7;
+  margin-right: 2px;
+}
+
+.status-dot {
+  min-width: 10px;
+  min-height: 10px;
+  border-radius: 9999px;
+  margin-right: 4px;
+  background-color: alpha(currentColor, 0.35);
+}
+
+/* On screen and holding the focused slot: green, glowing. */
+.status-dot.status-current {
+  background-color: #33d17a;
+  box-shadow:
+    0 0 4px 1px alpha(#33d17a, 0.9),
+    0 0 9px 3px alpha(#33d17a, 0.45);
+}
+
+/* On screen but not focused: green, calm. */
+.status-dot.status-visible {
+  background-color: #33d17a;
+}
+
+/* Running out of sight: amber, glowing. */
+.status-dot.status-background {
+  background-color: #f5c211;
+  box-shadow:
+    0 0 4px 1px alpha(#f5c211, 0.9),
+    0 0 9px 3px alpha(#f5c211, 0.45);
+}

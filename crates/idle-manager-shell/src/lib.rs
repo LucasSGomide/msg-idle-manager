@@ -14,6 +14,7 @@
 
 mod add_game_dialog;
 mod session_grid;
+mod session_sidebar;
 mod web_view;
 mod window;
 
