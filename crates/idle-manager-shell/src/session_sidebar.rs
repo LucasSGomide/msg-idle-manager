@@ -44,6 +44,16 @@ impl SessionSidebar {
     pub fn connect_row_activated(&self, handler: impl Fn(SessionId) + 'static) {
         self.imp().on_activated.replace(Some(Box::new(handler)));
     }
+
+    /// Registers `handler` to run with an account's id when its row's
+    /// park/start button is pressed. The window decides which direction the
+    /// press means from the account's current liveness; the row carries no
+    /// state of its own (architecture rule 8). Replaces any previous handler.
+    pub fn connect_parking_toggled(&self, handler: impl Fn(SessionId) + 'static) {
+        self.imp()
+            .on_parking_toggled
+            .replace(Some(Box::new(handler)));
+    }
 }
 
 impl Default for SessionSidebar {

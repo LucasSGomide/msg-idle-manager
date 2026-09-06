@@ -12,7 +12,7 @@ use gtk::prelude::*;
 use gtk::subclass::prelude::*;
 use gtk4 as gtk;
 
-use idle_manager_core::{Layout, ProfileLocator, SessionBook, SessionId};
+use idle_manager_core::{Layout, Liveness, ProfileLocator, Session, SessionBook, SessionId};
 
 use crate::add_game_dialog::AddGameDialog;
 use crate::session_grid::SessionGrid;
@@ -110,6 +110,13 @@ impl ObjectImpl for Window {
         self.sidebar.connect_row_activated(move |id| {
             if let Some(window) = window.upgrade() {
                 window.imp().focus_session(&id);
+            }
+        });
+
+        let window = self.obj().downgrade();
+        self.sidebar.connect_parking_toggled(move |id| {
+            if let Some(window) = window.upgrade() {
+                window.imp().toggle_parking(&id);
             }
         });
 
@@ -219,6 +226,38 @@ impl Window {
 
     fn focus_session(&self, id: &SessionId) {
         self.book.borrow_mut().focus_session(id);
+        self.redraw();
+    }
+
+    /// The park/start button was pressed. The direction is the book's to
+    /// decide from the account's current liveness — the row carries none
+    /// (architecture rule 8).
+    fn toggle_parking(&self, id: &SessionId) {
+        let liveness = self
+            .book
+            .borrow()
+            .sessions()
+            .iter()
+            .find(|session| session.id() == id)
+            .map(Session::liveness);
+
+        // Parked -> start lands in task 04; Starting keeps its button
+        // insensitive, so a press that still arrives is a stale event.
+        if liveness == Some(Liveness::Live) {
+            self.park_session(id);
+        }
+    }
+
+    /// Parks a running account, in the order the roadmap item's first diagram
+    /// fixes: the domain records the park, then the engine is made to match
+    /// (architecture rule 8). The account keeps its slot; the slot falls back
+    /// to the name cover until it is started again.
+    fn park_session(&self, id: &SessionId) {
+        self.book.borrow_mut().park(id);
+        if let Some(holder) = self.holders.borrow_mut().get_mut(id) {
+            holder.stop();
+        }
+        self.grid.release_view(id);
         self.redraw();
     }
 

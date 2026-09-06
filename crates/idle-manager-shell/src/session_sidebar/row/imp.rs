@@ -20,13 +20,18 @@ pub struct Row {
     /// from `name-markup`.
     #[property(get, set)]
     display_name: RefCell<String>,
-    /// The status key for the trailing marker: `current`, `visible` or
-    /// `background`. Names both the word shown and the dot's CSS class.
+    /// The status key for the trailing marker: `current`, `visible`,
+    /// `background` or `parked`. Names both the word shown and the dot's CSS
+    /// class.
     #[property(get, set)]
     status: RefCell<String>,
     /// The Pango markup for the name label — bold, dimmed or plain.
     #[property(get, set)]
     name_markup: RefCell<String>,
+    /// The trailing action button's label — `Park` while the account runs,
+    /// `Start` once it is parked. The factory binds it and never branches.
+    #[property(get, set)]
+    action_label: RefCell<String>,
 }
 
 impl std::fmt::Debug for Row {

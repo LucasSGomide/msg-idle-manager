@@ -35,3 +35,10 @@
     0 0 4px 1px alpha(#f5c211, 0.9),
     0 0 9px 3px alpha(#f5c211, 0.45);
 }
+
+/* Parked: not running at all. Grey and unlit — the dot for a state that costs
+ * nothing, distinct from the amber of a game still ticking out of sight. */
+.status-dot.status-parked {
+  background-color: #9a9996;
+  box-shadow: none;
+}

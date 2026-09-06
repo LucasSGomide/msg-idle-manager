@@ -29,6 +29,9 @@ type SlotFocusHandler = Box<dyn Fn(SlotId)>;
 struct SlotEntry {
     id: SessionId,
     overlay: gtk::Overlay,
+    /// The name cover drawn under the view until the page paints, and shown
+    /// again on its own when a parked account's view is dropped.
+    cover: gtk::Box,
     placement: Visibility,
 }
 
@@ -118,9 +121,10 @@ impl SessionGrid {
 
         // The name shows on the window's own background until the page commits
         // its first bytes, then the live page covers it.
+        let cover_for_load = cover.clone();
         view.connect_load_changed(move |_, event| {
             if matches!(event, LoadEvent::Committed | LoadEvent::Finished) {
-                cover.set_visible(false);
+                cover_for_load.set_visible(false);
             }
         });
 
@@ -129,6 +133,7 @@ impl SessionGrid {
         self.slots.borrow_mut().push(SlotEntry {
             id: id.clone(),
             overlay,
+            cover,
             placement: Visibility::OffGrid,
         });
 
@@ -153,6 +158,20 @@ impl SessionGrid {
             tracing::debug!(session = %entry.id, "reloading the focused view");
             view.reload();
         }
+    }
+
+    /// Drops the parked account's view out of its slot overlay, leaving the
+    /// name cover showing underneath. The `SlotEntry` keeps its placement, so
+    /// the slot stays the account's and switching layouts still moves it. A
+    /// no-op for an account the grid has no view for.
+    pub(super) fn release_view(&self, id: &SessionId) {
+        let slots = self.slots.borrow();
+        let Some(entry) = slots.iter().find(|entry| &entry.id == id) else {
+            return;
+        };
+        entry.overlay.set_child(None::<&gtk::Widget>);
+        entry.cover.set_visible(true);
+        tracing::debug!(session = %id, "released the parked account's view");
     }
 
     pub(super) fn sync(&self, book: &SessionBook) {

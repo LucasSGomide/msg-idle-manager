@@ -55,6 +55,13 @@ impl SessionGrid {
         self.imp().reload_focused();
     }
 
+    /// Drops a parked account's view out of its slot, leaving the name cover
+    /// showing. The slot stays the account's. A no-op if the grid has no view
+    /// for `session`.
+    pub fn release_view(&self, session: &SessionId) {
+        self.imp().release_view(session);
+    }
+
     /// Registers `handler` to run whenever the user clicks a slot to focus it.
     pub fn connect_slot_focused(&self, handler: impl Fn(SlotId) + 'static) {
         self.imp().on_slot_focused.replace(Some(Box::new(handler)));

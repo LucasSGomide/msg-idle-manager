@@ -20,10 +20,20 @@ use super::row::{Row, status_label};
 
 /// The status-dot keys `sidebar.css` styles, one class each. Cleared and
 /// re-applied on every bind because the list recycles row widgets.
-const STATUS_CLASSES: [&str; 3] = ["status-current", "status-visible", "status-background"];
+const STATUS_CLASSES: [&str; 4] = [
+    "status-current",
+    "status-visible",
+    "status-background",
+    "status-parked",
+];
 
 /// A handler run with the activated account's id when the user clicks a row.
 type ActivateHandler = Box<dyn Fn(SessionId)>;
+
+/// A handler run with an account's id when its row's park/start button is
+/// pressed. The direction — park or start — is the window's to decide from the
+/// account's current liveness, not the row's (architecture rule 8).
+type ParkingHandler = Box<dyn Fn(SessionId)>;
 
 /// The composite-template backing object for [`super::SessionSidebar`].
 #[derive(Default, CompositeTemplate)]
@@ -40,6 +50,7 @@ pub struct SessionSidebar {
 
     store: OnceCell<gio::ListStore>,
     pub(super) on_activated: RefCell<Option<ActivateHandler>>,
+    pub(super) on_parking_toggled: RefCell<Option<ParkingHandler>>,
 }
 
 impl std::fmt::Debug for SessionSidebar {
@@ -77,7 +88,7 @@ impl ObjectImpl for SessionSidebar {
         let selection = gtk::NoSelection::new(Some(store.clone()));
 
         self.list_view.set_model(Some(&selection));
-        self.list_view.set_factory(Some(&row_factory()));
+        self.list_view.set_factory(Some(&row_factory(&self.obj())));
 
         let sidebar = self.obj().downgrade();
         self.list_view.connect_activate(move |list_view, position| {
@@ -116,6 +127,7 @@ impl SessionSidebar {
             store.append(&Row::new(
                 session.id(),
                 session.display_name(),
+                session.liveness(),
                 session.visibility(),
                 current,
             ));
@@ -149,14 +161,15 @@ fn install_styles() {
     });
 }
 
-/// Builds the factory that turns each [`Row`] into a name label and a trailing
-/// status marker — a word and a coloured dot. The word and the dot's class both
-/// come from the row's status key, derived once in [`super::row`], so items 03
-/// and 08 extend that and never this.
-fn row_factory() -> gtk::SignalListItemFactory {
+/// Builds the factory that turns each [`Row`] into a name label, a trailing
+/// status marker — a word and a coloured dot — and a park/start button. The
+/// word and the dot's class both come from the row's status key, derived once
+/// in [`super::row`], so items 03 and 08 extend that and never this.
+fn row_factory(sidebar: &super::SessionSidebar) -> gtk::SignalListItemFactory {
     let factory = gtk::SignalListItemFactory::new();
 
-    factory.connect_setup(|_, item| {
+    let sidebar = sidebar.downgrade();
+    factory.connect_setup(move |_, item| {
         let item = item
             .downcast_ref::<gtk::ListItem>()
             .expect("a list item factory is handed ListItems");
@@ -178,6 +191,9 @@ fn row_factory() -> gtk::SignalListItemFactory {
             .build();
         dot.add_css_class("status-dot");
 
+        let action = gtk::Button::builder().valign(gtk::Align::Center).build();
+        action.add_css_class("flat");
+
         let row = gtk::Box::builder()
             .orientation(gtk::Orientation::Horizontal)
             .spacing(6)
@@ -185,8 +201,29 @@ fn row_factory() -> gtk::SignalListItemFactory {
         row.append(&name);
         row.append(&status);
         row.append(&dot);
+        row.append(&action);
 
         item.set_child(Some(&row));
+
+        // One handler for the life of the recycled widget: it reads whichever
+        // Row is bound at click time, so the list recycling a row never needs
+        // the handler reconnected (code standards rule 18).
+        let sidebar = sidebar.clone();
+        let item = item.downgrade();
+        action.connect_clicked(move |_| {
+            let Some(item) = item.upgrade() else {
+                return;
+            };
+            let Some(data) = item.item().and_downcast::<Row>() else {
+                return;
+            };
+            let Some(sidebar) = sidebar.upgrade() else {
+                return;
+            };
+            if let Some(handler) = sidebar.imp().on_parking_toggled.borrow().as_ref() {
+                handler(SessionId::new(data.id()));
+            }
+        });
     });
 
     factory.connect_bind(|_, item| {
@@ -205,7 +242,10 @@ fn row_factory() -> gtk::SignalListItemFactory {
         let Some(status) = name.next_sibling().and_downcast::<gtk::Label>() else {
             return;
         };
-        let Some(dot) = row.last_child() else {
+        let Some(dot) = status.next_sibling() else {
+            return;
+        };
+        let Some(action) = row.last_child().and_downcast::<gtk::Button>() else {
             return;
         };
 
@@ -216,6 +256,7 @@ fn row_factory() -> gtk::SignalListItemFactory {
             dot.remove_css_class(class);
         }
         dot.add_css_class(&format!("status-{key}"));
+        action.set_label(&data.action_label());
     });
 
     factory
