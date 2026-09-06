@@ -90,12 +90,12 @@ a small object beside it holding the private implementation.
       button, centred on the window's background
 - [x] `(manual)` pressing the panel's `Start` starts the account, and the new
       view replaces the panel once the page paints
-- [ ] `(manual)` while the account is starting, the panel's line reads
+- [x] `(manual)` while the account is starting, the panel's line reads
       `Starting` and its button is insensitive, matching the row
-- [ ] `(manual)` the panel's state line and button label are properties: setting
+- [x] `(manual)` the panel's state line and button label are properties: setting
       them to item 08's wording changes the panel with no markup change
       (`GTK_DEBUG=interactive` shows both properties on the widget)
-- [ ] `(manual)` moving a parked account between slots carries its panel with
+- [x] `(manual)` moving a parked account between slots carries its panel with
       it, and moving it out of sight leaves the slot it held empty
 
 ## References

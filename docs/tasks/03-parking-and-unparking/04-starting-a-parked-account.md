@@ -86,10 +86,10 @@ a place and the new view appears in that same place.
       "Park" for a live account and "Start" for a parked one
 - [x] `(manual)` a parked account's row button reads `Start` and a running
       account's reads `Park`
-- [ ] `(manual)` pressing `Start` loads the game already logged in — no login
+- [x] `(manual)` pressing `Start` loads the game already logged in — no login
       prompt appears, proving the account's data directory survived the park
       (`FR.2.3`)
-- [ ] `(manual)` from the press until the page paints, the marker reads
+- [x] `(manual)` from the press until the page paints, the marker reads
       `Starting` with its own dot and the button is insensitive, so a second
       press does nothing
 - [x] `(manual)` once the page paints, the marker reads as running plus the

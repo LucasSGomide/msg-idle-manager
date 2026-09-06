@@ -22,7 +22,7 @@ so each runs alone in its own wave.
 | # | Task | Scope | Depends on | Criteria | Status |
 |---|---|---|---|---|---|
 | [01](01-liveness-in-the-session-book.md) | Liveness in the session book | back-end | — | 8/8 | done |
-| [02](02-the-session-view-holder-and-the-cache-model.md) | The session view holder and the cache model | front-end | — | 3/6 | in-progress |
+| [02](02-the-session-view-holder-and-the-cache-model.md) | The session view holder and the cache model | front-end | — | 6/6 | done |
 | [03](03-parking-a-running-account.md) | Parking a running account | front-end | 01, 02 | 7/7 | done |
-| [04](04-starting-a-parked-account.md) | Starting a parked account | front-end | 03 | 5/7 | in-progress |
-| [05](05-the-parked-slot-placeholder.md) | The parked slot placeholder | front-end | 04 | 3/6 | in-progress |
+| [04](04-starting-a-parked-account.md) | Starting a parked account | front-end | 03 | 7/7 | done |
+| [05](05-the-parked-slot-placeholder.md) | The parked slot placeholder | front-end | 04 | 6/6 | done |

@@ -1,6 +1,6 @@
 # 03 — Parking and unparking a session
 
-**Depends on:** 02 · **Status:** in-progress · **Estimate:** 8
+**Depends on:** 02 · **Status:** done · **Estimate:** 8
 
 ## Context
 

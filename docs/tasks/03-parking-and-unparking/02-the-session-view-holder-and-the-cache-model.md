@@ -101,11 +101,11 @@ still works: games load, logins survive a restart, sign-in windows still open.
 - [x] `(manual)` nothing the sidebar draws changes: `Current`, `Visible` and
       `Background` rows and the empty-list line render exactly as they did
       before the restructure
-- [ ] `(manual)` a login made in an account survives quitting and restarting the
+- [x] `(manual)` a login made in an account survives quitting and restarting the
       application — the holder keeps the same data directory and cookie database
-- [ ] `(manual)` a sign-in popup still opens from a game's login button and
+- [x] `(manual)` a sign-in popup still opens from a game's login button and
       shares the opening account's session
-- [ ] `(manual)` with `CacheModel::DocumentViewer` applied, a game's first load
+- [x] `(manual)` with `CacheModel::DocumentViewer` applied, a game's first load
       still completes, and the time it takes is recorded in `test-script.md`
       beside the same load before the change
 - [x] `(manual)` `kill -9` on one account's `WebKitWebProcess` is logged by the

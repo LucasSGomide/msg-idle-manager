@@ -49,17 +49,16 @@ patterns as new and says what rule the design doc owes once the code exists. Ite
 
 | # | Item | Est | Depends on | Status |
 |---|---|---|---|---|
-| [03](03-parking-and-unparking/README.md) | Parking and unparking a session | 8 | 02 | in-progress |
 | [04](04-keep-awake/README.md) | Keep-awake for hidden games | 5 | 02 | not-started |
+| [05](05-memory-accounting/README.md) | Memory accounting | 5 | 02, 03 | not-started |
+| [08](08-crash-recovery/README.md) | Surviving a crashed game | 5 | 03 | not-started |
 
 ## Blocked
 
 | # | Item | Est | Depends on | Status |
 |---|---|---|---|---|
 | [07](07-workspace-restore/README.md) | Restoring the workspace on launch | 8 | 03, 04, 06 | not-started |
-| [05](05-memory-accounting/README.md) | Memory accounting | 5 | 02, 03 | not-started |
 | [06](06-presets-and-adding-accounts/README.md) | Presets and adding an account | 5 | 01, 04 | not-started |
-| [08](08-crash-recovery/README.md) | Surviving a crashed game | 5 | 03 | not-started |
 
 ## Parked
 
@@ -71,3 +70,4 @@ _(none)_
 |---|---|---|---|---|
 | [01](01-isolated-accounts-and-layouts/README.md) | Isolated game accounts in one splittable window | 13 | — | done |
 | [02](02-session-sidebar/README.md) | The session sidebar | 5 | 01 | done |
+| [03](03-parking-and-unparking/README.md) | Parking and unparking a session | 8 | 02 | done |

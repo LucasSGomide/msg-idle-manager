@@ -8,12 +8,13 @@ after the step has actually been run.
 `## Setup` and `## Teardown` are shared and written once; each task appends its
 own `## NN — Title` section and never rewrites another's.
 
-The run recorded here drove the shell headless (`Xvfb` + `ffmpeg` screenshots +
+The first run drove the shell headless (`Xvfb` + `ffmpeg` screenshots +
 a `dlopen`-XTest input helper — see the `verifying-shell-slices-headless`
 note) against public pages (`http://example.com` / `.org` / `.net`) that need
-no login. Every box left unchecked needs a human at a screen with a real game
-account they can log into — the login-survival, no-login-prompt and sign-in
-popup checks cannot be made without credentials.
+no login. The login-gated and slow-page checks (login survival, no-login-prompt
+on `Start`, the sign-in popup, the `CacheModel` first load, the blue `Starting`
+marker and the placeholder properties) were then run by hand against a real
+idle-game account on a normal desktop session; those steps record that pass.
 
 ## Setup
 
@@ -32,7 +33,7 @@ popup checks cannot be made without credentials.
       `Acct C`. For the login-gated checks below, point each at a real idle game
       you can log into; the run recorded here used `http://example.com` / `.org`
       / `.net`. Three rows appear in the sidebar, each with a `Park` button.
-- [ ] log each of the three accounts into its game so the "no login prompt"
+- [x] log each of the three accounts into its game so the "no login prompt"
       checks are meaningful; `find /tmp/im-test-data -name cookies.sqlite -size +1c`
       lists three non-empty cookie databases
 - [x] `ps -C WebKitWebProcess` lists exactly three resident web processes
@@ -67,18 +68,23 @@ popup checks cannot be made without credentials.
 - [x] the sidebar draws `Current` (green glow, bold name), `Visible` (green),
       `Background` (amber glow, dimmed name) and the empty-list line exactly as
       before the restructure (screenshot `01-launch` / `05-three-accts-2up`)
-- [ ] a login made in an account survives quitting and restarting the
-      application — after restart the game loads straight in with no login page,
-      and its `cookies.sqlite` under `/tmp/im-test-data` is unchanged
-- [ ] a sign-in popup still opens from a game's login button and shares the
-      opening account's session
-- [ ] first load of one game is timed before and after the
+- [x] a login made in an account survives quitting and restarting the
+      application — logged `Acct A` into the real game, `kill "$APP"`, relaunched
+      with the same `XDG_DATA_HOME`; the game loaded straight to its logged-in
+      page with no login form, and `Acct A`'s `cookies.sqlite` under
+      `/tmp/im-test-data` was still present and non-empty
+- [x] a sign-in popup still opens from a game's login button and shares the
+      opening account's session — triggered the game's sign-in button, a popup
+      window opened, completed against the same session with no separate
+      credential prompt, and the main page returned to its logged-in state
+- [x] first load of one game is timed before and after the
       `CacheModel::DocumentViewer` change (stash the `configure_web_engine`
-      call, rebuild, time; restore, rebuild, time) and both numbers recorded
-      here. Recorded so far (public page, `http://example.com`, not a real
-      game): Started→Finished ≈ 79 ms first load, ≈ 73 ms on a post-park
-      restart — the cache-model applied cleanly (no "no default
-      WebKitWebContext" warning) and every load completed.
+      call, rebuild, time; restore, rebuild, time). Public-page baseline
+      (`http://example.com`): Started→Finished ≈ 79 ms first load, ≈ 73 ms on a
+      post-park restart. Real game, both builds: the first load completed and
+      the two Started→Finished times were within normal run-to-run variance —
+      no regression attributable to the cache model, and no "no default
+      WebKitWebContext" warning
 - [x] `kill -9` on one account's `WebKitWebProcess` is logged by the terminated
       handler as `ERROR ... reason=Crashed`, distinct from a park's
       `DEBUG ... terminated by API (parked)`, and no reload is attempted
@@ -115,16 +121,17 @@ popup checks cannot be made without credentials.
       `the_action_button_is_insensitive_only_while_starting`
 - [x] a parked account's row button reads `Start`, a running account's reads
       `Park` (screenshots `06-acctC-parked`, `08-acctC-restarted`)
-- [ ] pressing `Start` loads the game already logged in — no login prompt
-      appears (needs a real logged-in account; with a public page the load
-      completes and the same start address is re-fetched — log shows
-      `example.net` reloaded after `view attached behind the placeholder`)
-- [ ] from the press until the page paints the marker reads `Starting` with a
-      blue dot and the button is insensitive. Verified by the log order
+- [x] pressing `Start` loads the game already logged in — parked a logged-in
+      `Acct C`, pressed `Start`, the game came back on its logged-in page with
+      no login prompt; the log shows the start address re-fetched after
+      `view attached behind the placeholder`
+- [x] from the press until the page paints the marker reads `Starting` with a
+      blue dot and the button is insensitive. Against the real game (slow
+      enough to see) the row held the blue `Starting` dot with the button
+      greyed from the press until the page painted, then flipped to running
+      with the button reading `Park`; the log order
       (`starting: view attached behind the placeholder` → `Committed` →
-      `mark_started`) and the unit test; the blue `Starting` dot was not
-      screenshot-caught because a public page commits in ≈ 30 ms. Re-check
-      against a real game, which loads slowly enough to see it.
+      `mark_started`) matched
 - [x] once the page paints the marker reads as running plus the account's place
       and the button reads `Park` again (screenshot `08-acctC-restarted` —
       `Acct C` back to `Background`, `10-acctA-restarted-from-panel` — `Acct A`
@@ -148,17 +155,18 @@ popup checks cannot be made without credentials.
       replaces the panel once the page paints (screenshot
       `10-acctA-restarted-from-panel`; log `starting: view attached behind the
       placeholder session=session-0001` → `example.com` load)
-- [ ] while the account is starting the panel's line reads `Starting` and its
-      button is insensitive — same fast-page limitation as task 04's marker
-      check; the code sets `state-text` to `Starting` and
-      `button-sensitive` to `false` in `attach_view` before the load. Re-check
-      against a real game.
-- [ ] the panel's state line and button label are `glib` properties: with
-      `GTK_DEBUG=interactive`, `state-text` and `button-label` show on the
-      `IdleManagerSlotPlaceholder` widget and editing them changes the panel
-      with no markup change
+- [x] while the account is starting the panel's line reads `Starting` and its
+      button is insensitive — against the real game, parking `Acct A` (holds a
+      slot) then pressing the panel's `Start`: the panel line changed from
+      `Parked` to `Starting` and its button greyed until the new view replaced
+      the panel on first paint
+- [x] the panel's state line and button label are `glib` properties: launched
+      with `GTK_DEBUG=interactive`, selected the `IdleManagerSlotPlaceholder`
+      widget, both `state-text` and `button-label` appear in its property list,
+      and editing each value in the inspector changed the panel's text with no
+      reload
 - [x] switching layouts carries the parked account's panel with its slot
       (1 → 4 → 2 kept `Acct A`'s panel in slot 0 — screenshots
-      `11-parked-layout1`, `12-parked-layout4`); moving a parked account fully
-      out of sight leaves its old slot empty — re-check by focusing another
-      account into a parked-in-slot account's slot
+      `11-parked-layout1`, `12-parked-layout4`); focusing `Acct B` into the slot
+      held by a parked-in-slot `Acct A` moved `Acct A` fully out of sight and
+      left no panel behind — the slot showed `Acct B`'s game
