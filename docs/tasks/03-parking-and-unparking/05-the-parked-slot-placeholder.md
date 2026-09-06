@@ -83,12 +83,12 @@ a small object beside it holding the private implementation.
 
 ## Acceptance criteria
 
-- [ ] `(unit)` `ui/slot-placeholder.ui` resolves from the registered `GResource`
+- [x] `(unit)` `ui/slot-placeholder.ui` resolves from the registered `GResource`
       bundle, the way `window.ui` already does
-- [ ] `(manual)` parking an account that holds a slot replaces its game with a
+- [x] `(manual)` parking an account that holds a slot replaces its game with a
       panel showing the account's name, a line reading `Parked` and a `Start`
       button, centred on the window's background
-- [ ] `(manual)` pressing the panel's `Start` starts the account, and the new
+- [x] `(manual)` pressing the panel's `Start` starts the account, and the new
       view replaces the panel once the page paints
 - [ ] `(manual)` while the account is starting, the panel's line reads
       `Starting` and its button is insensitive, matching the row

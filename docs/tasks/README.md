@@ -12,4 +12,4 @@ item's header carries `Landed:` or `Merged:`. Items 01 and 02 are `done`.
 
 | # | Roadmap item | Tasks | Progress | Status |
 |---|---|---|---|---|
-| [03](03-parking-and-unparking/) | Parking and unparking a session | 5 | 1/5 | in-progress |
+| [03](03-parking-and-unparking/) | Parking and unparking a session | 5 | 2/5 | in-progress |

@@ -96,9 +96,9 @@ still works: games load, logins survive a restart, sign-in windows still open.
 
 ## Acceptance criteria
 
-- [ ] `(manual)` the application starts and every account loads its game as
+- [x] `(manual)` the application starts and every account loads its game as
       before, with exactly one `WebKitWebProcess` per account in `ps`
-- [ ] `(manual)` nothing the sidebar draws changes: `Current`, `Visible` and
+- [x] `(manual)` nothing the sidebar draws changes: `Current`, `Visible` and
       `Background` rows and the empty-list line render exactly as they did
       before the restructure
 - [ ] `(manual)` a login made in an account survives quitting and restarting the
@@ -108,7 +108,7 @@ still works: games load, logins survive a restart, sign-in windows still open.
 - [ ] `(manual)` with `CacheModel::DocumentViewer` applied, a game's first load
       still completes, and the time it takes is recorded in `test-script.md`
       beside the same load before the change
-- [ ] `(manual)` `kill -9` on one account's `WebKitWebProcess` is logged by the
+- [x] `(manual)` `kill -9` on one account's `WebKitWebProcess` is logged by the
       terminated handler as `Crashed`, distinct from a park's
       `TerminatedByApi`, and no reload is attempted
 

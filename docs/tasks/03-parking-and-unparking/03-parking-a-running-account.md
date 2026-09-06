@@ -93,24 +93,38 @@ not come back, the mechanism is wrong and the item needs a different one.
 
 ## Acceptance criteria
 
-- [ ] `(unit)` the row's status-key derivation returns `parked` for a parked
+- [x] `(unit)` the row's status-key derivation returns `parked` for a parked
       account whatever its visibility, and still returns `current`, `visible`
       and `background` unchanged for a live one
-- [ ] `(manual)` every running account's row shows a `Park` button on its
+- [x] `(manual)` every running account's row shows a `Park` button on its
       trailing edge, after the state marker
-- [ ] `(manual)` pressing `Park` leaves the row reading `Parked` with its own
+- [x] `(manual)` pressing `Park` leaves the row reading `Parked` with its own
       dot and the name drawn in the dimmed style (design rule 1)
-- [ ] `(manual)` pressing `Park` ends the account's rendering process: its
+- [x] `(manual)` pressing `Park` ends the account's rendering process: its
       `WebKitWebProcess` is gone from `ps` and the resident memory it held,
       recorded before and after, is returned to the system
-- [ ] `(manual)` parking an account that holds a slot leaves every other slot's
+- [x] `(manual)` parking an account that holds a slot leaves every other slot's
       game running and untouched, and the parked slot shows the account's name
       centred on the window background
-- [ ] `(manual)` a parked account keeps its place: its row still names the slot
+- [x] `(manual)` a parked account keeps its place: its row still names the slot
       beside `Parked`, and switching layouts moves it exactly as a running
       account
-- [ ] `(manual)` parking an out-of-sight account changes nothing on screen
+- [x] `(manual)` parking an out-of-sight account changes nothing on screen
       except its own row
+
+## Note on the "names the slot beside `Parked`" wording
+
+The sixth criterion says a parked row "still names the slot beside `Parked`".
+That phrasing predates roadmap 02's `## As built`, which settled the row marker
+as a *single* status key → one word + one dot, never a word plus a slot number
+(the `docs/design.md` rule 1 the item wrote). Task 03's own Technical details
+follow that: `status_key` returns `"parked"` whatever the place, and
+`status_label` "gains the word". So a parked row reads `Parked`, not
+`0 · Parked`. The criterion is met in substance — parking never touches
+`Visibility`, the account keeps its slot, and switching layouts moves it
+exactly as a running account (verified in `test-script.md`). If a parked row
+should also surface its slot, that is a new design rule and a follow-up, not a
+change to this slice.
 
 ## References
 

@@ -81,10 +81,10 @@ a place and the new view appears in that same place.
 
 ## Acceptance criteria
 
-- [ ] `(unit)` the row's status-key derivation returns `starting` for a starting
+- [x] `(unit)` the row's status-key derivation returns `starting` for a starting
       account whatever its visibility, and the button label derivation returns
       "Park" for a live account and "Start" for a parked one
-- [ ] `(manual)` a parked account's row button reads `Start` and a running
+- [x] `(manual)` a parked account's row button reads `Start` and a running
       account's reads `Park`
 - [ ] `(manual)` pressing `Start` loads the game already logged in — no login
       prompt appears, proving the account's data directory survived the park
@@ -92,11 +92,11 @@ a place and the new view appears in that same place.
 - [ ] `(manual)` from the press until the page paints, the marker reads
       `Starting` with its own dot and the button is insensitive, so a second
       press does nothing
-- [ ] `(manual)` once the page paints, the marker reads as running plus the
+- [x] `(manual)` once the page paints, the marker reads as running plus the
       account's place and the button reads `Park` again
-- [ ] `(manual)` `ps` shows a new `WebKitWebProcess` for the account after
+- [x] `(manual)` `ps` shows a new `WebKitWebProcess` for the account after
       starting, with resident memory comparable to what it held before parking
-- [ ] `(manual)` starting an out-of-sight account leaves it out of sight;
+- [x] `(manual)` starting an out-of-sight account leaves it out of sight;
       starting one holding a slot puts the new view in that same slot and leaves
       every other slot untouched
 
