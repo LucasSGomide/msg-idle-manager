@@ -1,0 +1,56 @@
+[workspace]
+resolver = "3"
+members = ["crates/*"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.98"
+publish = false
+
+[workspace.dependencies]
+idle-manager-core = { path = "crates/idle-manager-core" }
+idle-manager-metrics = { path = "crates/idle-manager-metrics" }
+idle-manager-shell = { path = "crates/idle-manager-shell" }
+idle-manager-store = { path = "crates/idle-manager-store" }
+
+gio = "0.22"
+glib = "0.22"
+# webkit6 0.6 names gtk::Accessible unconditionally, and gtk4 gates that type
+# behind v4_10 without enabling it itself. v4_10 (March 2023) is therefore the
+# real floor for the app, and stays the lowest GTK we can be built against.
+gtk4 = { version = "0.11", features = ["v4_10"] }
+webkit6 = "0.6"
+
+anyhow = "1.0"
+directories = "6.0"
+serde = { version = "1.0", features = ["derive"] }
+thiserror = "2.0"
+toml = "1.1"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+insta = "1.48"
+rstest = "0.26"
+
+[workspace.lints.rust]
+missing_debug_implementations = "warn"
+missing_docs = "warn"
+rust_2018_idioms = { level = "warn", priority = -1 }
+unreachable_pub = "warn"
+unsafe_code = "deny"
+
+[workspace.lints.clippy]
+all = { level = "warn", priority = -1 }
+pedantic = { level = "warn", priority = -1 }
+dbg_macro = "deny"
+todo = "warn"
+unwrap_used = "deny"
+
+[profile.dev.package."*"]
+opt-level = 2
+
+[profile.release]
+codegen-units = 1
+lto = "thin"
+strip = "symbols"
