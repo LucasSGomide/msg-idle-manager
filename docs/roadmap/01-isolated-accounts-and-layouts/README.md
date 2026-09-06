@@ -1,6 +1,6 @@
 # 01 — Isolated game accounts in one splittable window
 
-**Depends on:** — · **Status:** done · **Estimate:** 13
+**Depends on:** — · **Status:** done · **Estimate:** 13 · **Landed:** 2026-09-06
 
 ## Context
 
@@ -356,12 +356,34 @@ require a display server.
   with a custom `LayoutManager` this gives an out-of-view child that is still
   realised — the requirement `GtkStack` cannot meet.
 
+## As built
+
+- The plan gave a view no way to reload. A game's page carries no browser
+  chrome, and the two-same-address-account criterion can only be proven by
+  reloading each view and seeing neither session drop — so a
+  `view-refresh-symbolic` button on the header bar's leading edge and an
+  `F5` / `Ctrl`+`R` `EventControllerKey` on the window, both calling
+  `SessionGrid::reload_focused`, were added. The controller sits in the capture
+  phase on purpose: a game that binds those keys on its own canvas (lorvath.com
+  does) would otherwise consume them before the window sees them.
+- One web process per view and one shared network process is the engine's
+  default, exactly as `FR.1.3` assumed — measured at 1 network + N web for N of
+  2 and 5. The blocker that would have grown the item if that were wrong closed
+  with no code.
+- The two same-address-account criteria (isolation across a reload, one distinct
+  non-empty cookie DB per account) need a real game login, so they were kept out
+  of `make verify` and closed by hand against two lorvath.com accounts at
+  finalization; `test-script.md ## 06` carries the observed cookie-DB hashes.
+- The user-agent reversal predicted in Context held under a real login: setting
+  no user agent is what lets the hosted Google sign-in open its window and the
+  bot check clear. `FR.10.5` stands.
+
 ## Blockers
 
-- `docs/design.md` contains no numbered rules, so nothing in this item can cite
-  one and both of its patterns are new. Either the first rules are written from
-  this item's real code once it lands, or every later front-end item inherits
-  the same gap.
+- ~~`docs/design.md` contains no numbered rules, so nothing in this item can
+  cite one and both of its patterns are new.~~ Item 02 wrote the first rule
+  (the sidebar row status-marker rule); the slot-grid and modal-input rules this
+  item's patterns owe are still unwritten.
 - ~~The exact Chrome user agent string that the target games accept is not known
   yet.~~ Resolved by measurement, in the opposite direction to the one this
   blocker assumed: no Chrome string is wanted, because claiming one is itself
@@ -376,8 +398,8 @@ require a display server.
   `idle-manager.gresource.xml`. Architecture rule 13's GResource pipeline is
   built for the first time by this item, so the first slice of the breakdown is
   build machinery rather than behaviour.
-- Whether one web process per view is truly the default, and whether exactly one
-  network process is shared across sessions, is asserted by the requirements but
-  unverified on this machine. It has to be measured with `ps` during the first
-  run, not assumed; if it is wrong, `FR.1.3` needs a different mechanism and
-  this item grows.
+- ~~Whether one web process per view is truly the default, and whether exactly
+  one network process is shared across sessions, is asserted by the requirements
+  but unverified on this machine.~~ Measured during the run — 1 network process
+  and one web process per view, at 2 and at 5 accounts. `FR.1.3` holds as
+  written.

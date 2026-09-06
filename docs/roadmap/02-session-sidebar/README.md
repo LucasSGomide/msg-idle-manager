@@ -1,6 +1,6 @@
 # 02 — The session sidebar
 
-**Depends on:** 01 · **Status:** done · **Estimate:** 5
+**Depends on:** 01 · **Status:** done · **Estimate:** 5 · **Merged:** 2026-09-06
 
 ## Context
 
@@ -228,12 +228,29 @@ the swap is only observable with one.
   would unrealise the view and, per the constraint recorded in item 01, cost the
   page.
 
+## As built
+
+- This item wrote `docs/design.md` rule 1 — the first rule in that file. It
+  fixes the row marker as a trailing word plus a coloured dot, both derived from
+  one status key, with three states: `current` (green dot, neon glow, bold
+  name), `visible` (green dot), `background` (amber dot, glow, name at 55%
+  alpha). Items 03 and 08 add a state by extending the one key derivation in
+  `session_sidebar/row.rs`, never the row factory.
+- The list model is `gtk::NoSelection`, not the `SingleSelection` the plan
+  named. The current row is whichever account holds the focused slot, redrawn
+  from domain state on every `sync`; a selection highlight would drift from that
+  — single-click activation also selects on hover — and would say nothing the
+  markup does not.
+- `sync` clears the store and re-appends every row rather than diffing. The list
+  is short and the revealer unrealises it when folded, so a diff would be code
+  with no reader benefit (code standards rule 18).
+
 ## Blockers
 
-- The row's state marker is designed to grow — liveness arrives in item 03, the
-  failed state in item 08 — but `docs/design.md` has no rule saying how several
-  states share one trailing edge. Whatever this item invents is what those items
-  inherit, and there is nowhere to look it up.
+- ~~The row's state marker is designed to grow — liveness arrives in item 03,
+  the failed state in item 08 — but `docs/design.md` has no rule saying how
+  several states share one trailing edge.~~ Resolved: this item wrote rule 1,
+  and the status-key derivation is the single point items 03 and 08 extend.
 - `FR.4.1` in `docs/requirements.md` asks the list to show liveness as well as
   visibility, and liveness does not exist until item 03. This item satisfies the
   visibility half and item 03 completes the row. That split is deliberate and is
