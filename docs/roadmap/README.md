@@ -19,15 +19,19 @@ permanent ID, never renumbered**. Ordering lives in this table only.
 - The prose above the table is hand-written and says **why** the next item is
   next. The table sorts by estimate; that sort is not a priority.
 
-**Next up: 01 — Isolated game accounts in one splittable window.** Nothing else
-can start. Item 01 is the only one with no dependency because it builds the three
-things every other item assumes: a session with its own storage on disk, a way to
-create one, and the grid that holds views out of sight without letting the engine
-throttle them. Items 02 to 08 each add one switch or one surface to that base, in
-roughly the order a user would miss them — an index of accounts, the memory
-control the project exists for, the background-speed flag, the readout that turns
-the memory claim into a measurement, the game catalogue, durability across a
-restart, and finally recovery from a crash nobody was awake to see.
+Item 01 is done, and 02 with it: together they built the base every other item
+assumes — a session with its own storage on disk, a way to create one, the grid
+that holds views out of sight without the engine throttling them, and the sidebar
+index of every account whether or not it has a place on screen. That unblocked
+03, 04 and 06 (05 still waits on 03).
+
+**Next up: 03 — Parking and unparking a session.** It is the memory control the
+project exists for: letting an out-of-sight account be unloaded to hand its
+memory back, then brought cleanly back when it is wanted. Item 04 — keep-awake
+for hidden games — is Ready alongside it and can go in either order. Items 05 to
+08 each add one switch or one surface to that base: the readout that turns the
+memory claim into a measurement, the game catalogue, durability across a restart,
+and recovery from a crash nobody was awake to see.
 
 The `### Back-end` and `### Front-end` headings inside each item map onto this
 repository's crates rather than onto a server and a browser: back-end means the
@@ -36,16 +40,15 @@ non-widget crates — the pure domain in `idle-manager-core`, the disk adapter i
 composition root — and front-end means `idle-manager-shell`, the GTK 4 and
 WebKitGTK layer. See [`../architecture.md`](../architecture.md).
 
-Every front-end section in every item cites `docs/design.md` and finds no rule to
-cite, because that file has none yet. Each item therefore records its patterns as
-new and says what rule the design doc owes once the code exists. Item 01 is where
-that debt starts being paid.
+Every front-end section in every item cites `docs/design.md` and finds few rules
+to cite, because that file started nearly empty. Each item therefore records its
+patterns as new and says what rule the design doc owes once the code exists. Item
+01 started paying that debt and 02 added the sidebar row-status-marker rule.
 
 ## Ready
 
 | # | Item | Est | Depends on | Status |
 |---|---|---|---|---|
-| [01](01-isolated-accounts-and-layouts/README.md) | Isolated game accounts in one splittable window | 13 | — | in-progress |
 | [03](03-parking-and-unparking/README.md) | Parking and unparking a session | 8 | 02 | not-started |
 | [04](04-keep-awake/README.md) | Keep-awake for hidden games | 5 | 02 | not-started |
 
@@ -66,4 +69,5 @@ _(none)_
 
 | # | Item | Est | Depends on | Status |
 |---|---|---|---|---|
+| [01](01-isolated-accounts-and-layouts/README.md) | Isolated game accounts in one splittable window | 13 | — | done |
 | [02](02-session-sidebar/README.md) | The session sidebar | 5 | 01 | done |

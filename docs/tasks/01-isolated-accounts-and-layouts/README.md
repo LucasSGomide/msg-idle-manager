@@ -22,4 +22,4 @@ and the grid from 05 and runs alone.
 | [03](03-profile-directories.md) | Profile directories port and its XDG adapter | back-end | 02 | 7/7 | done |
 | [04](04-adding-an-account.md) | Adding an account and placing it in a slot | front-end | 01, 02 | 7/7 | done |
 | [05](05-changing-the-arrangement.md) | Changing the arrangement | front-end | 04 | 7/7 | done |
-| [06](06-isolated-web-view.md) | The isolated web view per account | front-end | 03, 05 | 8/10 | in-progress |
+| [06](06-isolated-web-view.md) | The isolated web view per account | front-end | 03, 05 | 11/11 | done |

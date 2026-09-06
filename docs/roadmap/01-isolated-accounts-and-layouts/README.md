@@ -1,6 +1,6 @@
 # 01 — Isolated game accounts in one splittable window
 
-**Depends on:** — · **Status:** in-progress · **Estimate:** 13
+**Depends on:** — · **Status:** done · **Estimate:** 13
 
 ## Context
 

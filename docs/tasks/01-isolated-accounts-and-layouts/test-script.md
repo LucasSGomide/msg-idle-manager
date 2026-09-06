@@ -111,13 +111,23 @@ run it with `make verify`.
 - [x] Add an account whose address is slow to respond (e.g.
       `https://httpbin.org/delay/3`). The slot shows the account's name centred
       on the window background, then the page replaces it once it paints.
-- [ ] Add two accounts with the **same** game address. Log into a different game
-      account in each. Both stay logged in — neither logs the other out — after
-      reloading either page. *(Requires real game credentials; not run in
-      automated verification.)*
-- [ ] After logging in as above, `find "$XDG_DATA_HOME" -name cookies.sqlite`
-      shows one non-empty database under each account's `data/` directory, and
-      the two databases differ. *(Requires the login step above.)*
+- [x] Add two accounts both at `https://lorvath.com/`. Sign into a different
+      Google account in each (call them A in `session-0001` and B in
+      `session-0002`), completing the "Continue with Google" flow. Both slots
+      then show their own account playing. Focus the first slot and press `F5`,
+      then the second and press `F5`: each page reloads and comes back on the
+      same account — neither reload logs the other slot out.
+- [x] With both signed in,
+      `find /tmp -path '*idle-manager*' -name cookies.sqlite` under the run's
+      profile root (`/tmp/tmp.dw0lKxDsx7/idle-manager/profiles/`) shows one
+      database per account, each 16 KB — twice the 8 KB of an untouched one — and
+      the two differ:
+      `session-0001` → `sha1 9b4d0635a86c1c524f9c4618e05fbd573e8d1dec`,
+      `session-0002` → `sha1 f8d270a80ebb84f10e2980d4356d9cbe4b0acbdb`.
+- [x] With a slot focused, the header bar's leading circular-arrow button
+      reloads that slot's page; so do `F5` and `Ctrl`+`R`, and both keys reach
+      the window even though `lorvath.com` binds them on its own canvas (the
+      key controller sits in the capture phase). The other slot is untouched.
 - [x] Open a page that echoes the request's `User-Agent` (e.g.
       `https://httpbin.org/user-agent`), or run `navigator.userAgent` in the web
       inspector. It returns the engine's own string, unmodified —
@@ -139,8 +149,9 @@ run it with `make verify`.
       opens, transient over the main window, showing Google's own "Sign in — to
       continue to huntera.com.br" page. The log records
       `opening a popup window uri=Some("https://accounts.google.com/o/oauth2/v2/auth?…display=popup…") user_gesture=true`.
-      *(Verified end to end up to Google's sign-in form; completing it needs real
-      credentials, as the two unticked criteria above do.)*
+      *(Verified end to end up to Google's sign-in form on `huntera.com.br`; the
+      full sign-in through to a logged-in game was exercised separately on
+      `lorvath.com` in the two-account step above.)*
 - [x] Load a page that calls `window.open` on load, with no click involved. It
       returns `null`, no window appears, and **no** `opening a popup window` line
       is logged — the engine refuses an ungestured open before the `create`

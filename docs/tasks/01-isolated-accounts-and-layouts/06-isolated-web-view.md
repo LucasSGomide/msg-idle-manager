@@ -108,13 +108,13 @@ sees why a page loaded but would not log in.
 
 - [x] `(manual)` confirming the dialog shows the account's name until the page
       paints, then the game's own page fills the slot
-- [ ] `(manual)` two accounts of the same game, added with the same address, are
+- [x] `(manual)` two accounts of the same game, added with the same address, are
       logged into different game accounts at the same time and neither logs the
       other out
-- [ ] `(manual)` the header-bar reload button — and `F5` / `Ctrl`+`R` — reloads
+- [x] `(manual)` the header-bar reload button — and `F5` / `Ctrl`+`R` — reloads
       the page in the focused slot and leaves the other slots untouched; the key
       press reaches the window even when the focused game binds it on its canvas
-- [ ] `(manual)` after logging in, that account's data directory under the XDG
+- [x] `(manual)` after logging in, that account's data directory under the XDG
       data root holds a non-empty cookie database file, and the other account's
       directory holds a different one
 - [x] `(manual)` a page that reports the browser it sees — or
