@@ -21,7 +21,7 @@ so each runs alone in its own wave.
 
 | # | Task | Scope | Depends on | Criteria | Status |
 |---|---|---|---|---|---|
-| [01](01-liveness-in-the-session-book.md) | Liveness in the session book | back-end | — | 0/8 | not-started |
+| [01](01-liveness-in-the-session-book.md) | Liveness in the session book | back-end | — | 8/8 | done |
 | [02](02-the-session-view-holder-and-the-cache-model.md) | The session view holder and the cache model | front-end | — | 0/6 | not-started |
 | [03](03-parking-a-running-account.md) | Parking a running account | front-end | 01, 02 | 0/7 | not-started |
 | [04](04-starting-a-parked-account.md) | Starting a parked account | front-end | 03 | 0/7 | not-started |

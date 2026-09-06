@@ -49,7 +49,7 @@ patterns as new and says what rule the design doc owes once the code exists. Ite
 
 | # | Item | Est | Depends on | Status |
 |---|---|---|---|---|
-| [03](03-parking-and-unparking/README.md) | Parking and unparking a session | 8 | 02 | not-started |
+| [03](03-parking-and-unparking/README.md) | Parking and unparking a session | 8 | 02 | in-progress |
 | [04](04-keep-awake/README.md) | Keep-awake for hidden games | 5 | 02 | not-started |
 
 ## Blocked

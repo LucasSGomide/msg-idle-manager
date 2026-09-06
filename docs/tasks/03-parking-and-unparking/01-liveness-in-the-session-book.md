@@ -73,15 +73,15 @@ screen.
 
 ## Acceptance criteria
 
-- [ ] `(unit)` a session added to the book starts `Live`
-- [ ] `(unit)` parking a live session returns `Parked`
-- [ ] `(unit)` parking a session leaves its visibility exactly as it was
-- [ ] `(unit)` unparking a parked session returns `Starting`, not `Live`
-- [ ] `(unit)` unparking a session leaves its visibility exactly as it was
-- [ ] `(unit)` ending the starting interval returns `Live`
-- [ ] `(unit)` parking an already-parked session returns `Parked` and changes
+- [x] `(unit)` a session added to the book starts `Live`
+- [x] `(unit)` parking a live session returns `Parked`
+- [x] `(unit)` parking a session leaves its visibility exactly as it was
+- [x] `(unit)` unparking a parked session returns `Starting`, not `Live`
+- [x] `(unit)` unparking a session leaves its visibility exactly as it was
+- [x] `(unit)` ending the starting interval returns `Live`
+- [x] `(unit)` parking an already-parked session returns `Parked` and changes
       nothing else about it
-- [ ] `(unit)` unparking a live session returns `Live` and changes nothing else
+- [x] `(unit)` unparking a live session returns `Live` and changes nothing else
       about it
 
 ## References
