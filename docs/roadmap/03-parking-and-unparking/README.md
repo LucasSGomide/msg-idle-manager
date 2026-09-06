@@ -1,6 +1,6 @@
 # 03 — Parking and unparking a session
 
-**Depends on:** 02 · **Status:** done · **Estimate:** 8
+**Depends on:** 02 · **Status:** done · **Estimate:** 8 · **Landed:** 2026-09-06
 
 ## Context
 
@@ -248,6 +248,10 @@ is the entire claim of the item and no unit test can see it.
   (`src/auto/web_view.rs:141`), first recorded in item 01. It is the reason
   unparking builds a new view rather than reviving one, and the reason the
   holder must outlive the view it holds.
+
+## As built
+
+The implementation followed the plan without significant learnings.
 
 ## Blockers
 
