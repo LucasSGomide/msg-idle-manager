@@ -1,6 +1,6 @@
 # 02 — The session sidebar
 
-**Depends on:** 01 · **Status:** not-started · **Estimate:** 5
+**Depends on:** 01 · **Status:** done · **Estimate:** 5
 
 ## Context
 
