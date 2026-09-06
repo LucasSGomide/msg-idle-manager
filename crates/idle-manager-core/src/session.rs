@@ -45,6 +45,24 @@ pub enum Visibility {
     OffGrid,
 }
 
+/// Whether a session's rendering process is running, stopped, or on its way up.
+///
+/// A second switch entirely independent of [`Visibility`]: every combination is
+/// legal, because whether an account costs memory and whether it holds a place
+/// on screen are two separate choices the user makes (code standards rule 1).
+/// `Starting` is the interval between unparking and the shell's first paint —
+/// modelling it in the domain rather than as a flag on a button is what makes a
+/// double-press impossible in every caller at once.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Liveness {
+    /// The rendering process is running.
+    Live,
+    /// The rendering process is stopped; the session's data on disk is untouched.
+    Parked,
+    /// Unparked, but no page has painted yet.
+    Starting,
+}
+
 /// One game account: its minted identity, the name and start address the user
 /// gave, and where it currently sits.
 #[derive(Debug, Clone)]
@@ -53,6 +71,7 @@ pub struct Session {
     display_name: String,
     start_address: String,
     visibility: Visibility,
+    liveness: Liveness,
 }
 
 impl Session {
@@ -78,6 +97,12 @@ impl Session {
     #[must_use]
     pub fn visibility(&self) -> Visibility {
         self.visibility
+    }
+
+    /// Whether this session is running, parked, or starting up.
+    #[must_use]
+    pub fn liveness(&self) -> Liveness {
+        self.liveness
     }
 }
 
@@ -169,9 +194,66 @@ impl SessionBook {
             display_name: display_name.to_owned(),
             start_address: start_address.to_owned(),
             visibility,
+            liveness: Liveness::Live,
         });
 
         id
+    }
+
+    /// Park `session`: its liveness becomes [`Liveness::Parked`], and its
+    /// visibility is left exactly as it was — a parked account keeps its place.
+    /// Parking an already-parked session changes nothing. Returns the session's
+    /// liveness after the call; an id not in the book changes nothing and
+    /// returns [`Liveness::Live`].
+    pub fn park(&mut self, session: &SessionId) -> Liveness {
+        self.set_liveness(session, Liveness::Parked)
+    }
+
+    /// Unpark `session`: a parked session becomes [`Liveness::Starting`],
+    /// because no page has painted yet. A live or already-starting session is
+    /// left as it is. Visibility is never touched. Returns the session's
+    /// liveness after the call.
+    pub fn unpark(&mut self, session: &SessionId) -> Liveness {
+        let Some(current) = self.liveness_of(session) else {
+            return Liveness::Live;
+        };
+        if current == Liveness::Parked {
+            self.set_liveness(session, Liveness::Starting)
+        } else {
+            current
+        }
+    }
+
+    /// End `session`'s starting interval once the shell reports its first
+    /// paint: [`Liveness::Starting`] becomes [`Liveness::Live`]. Any other
+    /// state is left as it is. Visibility is never touched. Returns the
+    /// session's liveness after the call.
+    pub fn mark_started(&mut self, session: &SessionId) -> Liveness {
+        let Some(current) = self.liveness_of(session) else {
+            return Liveness::Live;
+        };
+        if current == Liveness::Starting {
+            self.set_liveness(session, Liveness::Live)
+        } else {
+            current
+        }
+    }
+
+    fn liveness_of(&self, session: &SessionId) -> Option<Liveness> {
+        self.sessions
+            .iter()
+            .find(|s| &s.id == session)
+            .map(Session::liveness)
+    }
+
+    fn set_liveness(&mut self, session: &SessionId, liveness: Liveness) -> Liveness {
+        match self.sessions.iter_mut().find(|s| &s.id == session) {
+            Some(s) => {
+                s.liveness = liveness;
+                liveness
+            }
+            None => Liveness::Live,
+        }
     }
 
     /// Switches to `layout` and re-places every session.
@@ -473,6 +555,116 @@ mod tests {
                 ("Main account", "https://example.test/game"),
                 ("Alt account", "https://example.test/game?alt"),
             ]
+        );
+    }
+
+    fn liveness_of(book: &SessionBook, id: &SessionId) -> Liveness {
+        book.sessions()
+            .iter()
+            .find(|session| session.id() == id)
+            .expect("session present")
+            .liveness()
+    }
+
+    fn visibility_of(book: &SessionBook, id: &SessionId) -> Visibility {
+        book.sessions()
+            .iter()
+            .find(|session| session.id() == id)
+            .expect("session present")
+            .visibility()
+    }
+
+    #[test]
+    fn a_session_added_to_the_book_starts_live() {
+        let mut book = SessionBook::new();
+
+        let id = book.add("One", "https://example.test/one");
+
+        assert_eq!(liveness_of(&book, &id), Liveness::Live);
+    }
+
+    #[test]
+    fn parking_a_live_session_returns_parked() {
+        let mut book = SessionBook::new();
+        let id = book.add("One", "https://example.test/one");
+
+        let state = book.park(&id);
+
+        assert_eq!(state, Liveness::Parked);
+    }
+
+    #[test]
+    fn parking_a_session_leaves_its_visibility_unchanged() {
+        let mut book = SessionBook::new();
+        let id = book.add("One", "https://example.test/one");
+        let visibility = visibility_of(&book, &id);
+
+        book.park(&id);
+
+        assert_eq!(visibility_of(&book, &id), visibility);
+    }
+
+    #[test]
+    fn unparking_a_parked_session_returns_starting() {
+        let mut book = SessionBook::new();
+        let id = book.add("One", "https://example.test/one");
+        book.park(&id);
+
+        let state = book.unpark(&id);
+
+        assert_eq!(state, Liveness::Starting);
+    }
+
+    #[test]
+    fn unparking_a_session_leaves_its_visibility_unchanged() {
+        let mut book = SessionBook::new();
+        let id = book.add("One", "https://example.test/one");
+        book.park(&id);
+        let visibility = visibility_of(&book, &id);
+
+        book.unpark(&id);
+
+        assert_eq!(visibility_of(&book, &id), visibility);
+    }
+
+    #[test]
+    fn ending_the_starting_interval_returns_live() {
+        let mut book = SessionBook::new();
+        let id = book.add("One", "https://example.test/one");
+        book.park(&id);
+        book.unpark(&id);
+
+        let state = book.mark_started(&id);
+
+        assert_eq!(state, Liveness::Live);
+    }
+
+    #[test]
+    fn parking_an_already_parked_session_returns_parked_and_changes_nothing_else() {
+        let mut book = SessionBook::new();
+        let id = book.add("One", "https://example.test/one");
+        book.park(&id);
+        let visibility = visibility_of(&book, &id);
+
+        let state = book.park(&id);
+
+        assert_eq!(
+            (state, visibility_of(&book, &id)),
+            (Liveness::Parked, visibility)
+        );
+    }
+
+    #[test]
+    fn unparking_a_live_session_returns_live_and_changes_nothing_else() {
+        let mut book = SessionBook::new();
+        let id = book.add("One", "https://example.test/one");
+        let visibility = visibility_of(&book, &id);
+
+        let state = book.unpark(&id);
+
+        assert_eq!(
+            (state, liveness_of(&book, &id), visibility_of(&book, &id)),
+            (Liveness::Live, Liveness::Live, visibility)
         );
     }
 }

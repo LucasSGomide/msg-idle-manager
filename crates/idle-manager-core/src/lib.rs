@@ -12,4 +12,4 @@ mod session;
 
 pub use layout::{Layout, Outcome, Placement, SlotId, arrange};
 pub use ports::{ProfileDirectories, ProfileError, ProfileLocator};
-pub use session::{Session, SessionBook, SessionId, Visibility};
+pub use session::{Liveness, Session, SessionBook, SessionId, Visibility};
