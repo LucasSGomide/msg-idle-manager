@@ -1,0 +1,69 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<interface>
+  <requires lib="gtk" version="4.0"/>
+  <template class="IdleManagerAddGameDialog" parent="GtkWindow">
+    <property name="title">Add a game</property>
+    <property name="modal">true</property>
+    <property name="resizable">false</property>
+    <property name="default-widget">add_button</property>
+    <child>
+      <object class="GtkBox">
+        <property name="orientation">vertical</property>
+        <property name="spacing">6</property>
+        <property name="margin-top">18</property>
+        <property name="margin-bottom">18</property>
+        <property name="margin-start">18</property>
+        <property name="margin-end">18</property>
+        <property name="width-request">320</property>
+        <child>
+          <object class="GtkLabel">
+            <property name="label">Name</property>
+            <property name="xalign">0</property>
+          </object>
+        </child>
+        <child>
+          <object class="GtkEntry" id="name_entry">
+            <property name="activates-default">true</property>
+            <property name="placeholder-text">Main account</property>
+          </object>
+        </child>
+        <child>
+          <object class="GtkLabel">
+            <property name="label">Address</property>
+            <property name="xalign">0</property>
+            <property name="margin-top">6</property>
+          </object>
+        </child>
+        <child>
+          <object class="GtkEntry" id="address_entry">
+            <property name="activates-default">true</property>
+            <property name="input-purpose">url</property>
+            <property name="placeholder-text">https://…</property>
+          </object>
+        </child>
+        <child>
+          <object class="GtkBox">
+            <property name="halign">end</property>
+            <property name="spacing">6</property>
+            <property name="margin-top">12</property>
+            <child>
+              <object class="GtkButton" id="cancel_button">
+                <property name="label">Cancel</property>
+              </object>
+            </child>
+            <child>
+              <object class="GtkButton" id="add_button">
+                <property name="label">Add</property>
+                <property name="sensitive">false</property>
+                <property name="receives-default">true</property>
+                <style>
+                  <class name="suggested-action"/>
+                </style>
+              </object>
+            </child>
+          </object>
+        </child>
+      </object>
+    </child>
+  </template>
+</interface>

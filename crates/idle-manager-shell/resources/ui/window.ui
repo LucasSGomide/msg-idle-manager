@@ -1,0 +1,81 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<interface>
+  <requires lib="gtk" version="4.0"/>
+  <template class="IdleManagerWindow" parent="GtkApplicationWindow">
+    <property name="title">Idle Manager</property>
+    <property name="default-width">1280</property>
+    <property name="default-height">800</property>
+    <child type="titlebar">
+      <object class="GtkHeaderBar" id="header_bar">
+        <child type="end">
+          <object class="GtkButton" id="add_game_button">
+            <property name="label">Add game</property>
+            <property name="tooltip-text">Add a game account</property>
+          </object>
+        </child>
+        <child type="end">
+          <object class="GtkBox" id="layout_toggles">
+            <property name="tooltip-text">Choose how many games are visible</property>
+            <style>
+              <class name="linked"/>
+            </style>
+            <child>
+              <object class="GtkToggleButton" id="layout_single">
+                <property name="label">1</property>
+                <property name="active">true</property>
+              </object>
+            </child>
+            <child>
+              <object class="GtkToggleButton" id="layout_side_by_side">
+                <property name="label">2</property>
+                <property name="group">layout_single</property>
+              </object>
+            </child>
+            <child>
+              <object class="GtkToggleButton" id="layout_grid">
+                <property name="label">4</property>
+                <property name="group">layout_single</property>
+              </object>
+            </child>
+          </object>
+        </child>
+      </object>
+    </child>
+    <child>
+      <object class="GtkBox" id="content">
+        <property name="orientation">vertical</property>
+        <property name="hexpand">true</property>
+        <property name="vexpand">true</property>
+        <child>
+          <object class="GtkBox" id="empty_state">
+            <property name="orientation">vertical</property>
+            <property name="hexpand">true</property>
+            <property name="vexpand">true</property>
+            <property name="halign">center</property>
+            <property name="valign">center</property>
+            <property name="spacing">12</property>
+            <child>
+              <object class="GtkLabel">
+                <property name="label">No games yet — add one to get started.</property>
+                <style>
+                  <class name="dim-label"/>
+                  <class name="title-3"/>
+                </style>
+              </object>
+            </child>
+            <child>
+              <object class="GtkButton" id="add_first_game_button">
+                <property name="label">Add your first game</property>
+                <property name="halign">center</property>
+                <style>
+                  <class name="suggested-action"/>
+                  <class name="pill"/>
+                </style>
+              </object>
+            </child>
+          </object>
+        </child>
+      </object>
+    </child>
+  </template>
+</interface>

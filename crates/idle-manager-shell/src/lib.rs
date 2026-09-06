@@ -4,3 +4,66 @@
 //! Everything that touches a widget lives here and runs on the GTK main
 //! context. The shell reads domain state and emits intents back to it; it never
 //! decides what a session's state should become.
+
+// The gtk4-rs `object_subclass` and `wrapper!` macros expand to `unsafe impl`
+// blocks for glib's type-system traits, and its `ObjectSubclass` convention
+// requires the private `imp` type be `pub` inside its module. Both are relaxed
+// for this crate only, never for the workspace (code-standards rule 28); every
+// macro used here is a vetted gtk4-rs entry point.
+#![allow(unsafe_code, unreachable_pub)]
+
+mod add_game_dialog;
+mod session_grid;
+mod web_view;
+mod window;
+
+use gtk::gio;
+use gtk::glib;
+use gtk4 as gtk;
+
+pub use window::Window;
+
+/// The compiled-in UI resource bundle could not be registered.
+#[derive(Debug, thiserror::Error)]
+pub enum ResourceError {
+    /// The `GResource` data linked into the binary at build time is not valid.
+    #[error("the compiled UI resource bundle is invalid")]
+    Invalid(#[from] glib::Error),
+}
+
+/// Registers the compiled-in UI templates so composite widgets can load them.
+///
+/// Call once, before the first widget is constructed. It needs no display
+/// server.
+///
+/// # Errors
+///
+/// [`ResourceError::Invalid`] if the bundle linked at build time is corrupt —
+/// a build problem, not a runtime one.
+pub fn register_resources() -> Result<(), ResourceError> {
+    let bytes = glib::Bytes::from_static(include_bytes!(concat!(
+        env!("OUT_DIR"),
+        "/idle-manager.gresource"
+    )));
+    let resource = gio::Resource::from_data(&bytes)?;
+    gio::resources_register(&resource);
+    Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn the_window_template_is_readable_from_the_registered_bundle() {
+        register_resources().expect("register the compiled bundle");
+
+        let data = gio::resources_lookup_data(
+            "/org/idlemanager/IdleManager/ui/window.ui",
+            gio::ResourceLookupFlags::NONE,
+        )
+        .expect("look up the window template by its resource path");
+
+        assert!(!data.is_empty());
+    }
+}
