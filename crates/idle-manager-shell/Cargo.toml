@@ -12,7 +12,12 @@ glib.workspace = true
 gtk4.workspace = true
 thiserror.workspace = true
 tracing.workspace = true
-webkit6.workspace = true
+# v2_42: the feature-list API (`Settings::all_features`,
+# `Settings::set_feature_enabled`) that keep-awake (item 04) needs was added in
+# libwebkit2gtk 2.42; the workspace-wide dependency does not enable it because
+# no other crate needs it. `docs/stack.md`'s floor is 2.40, so this bumps the
+# shell's own floor above the workspace's until stack.md's is raised to match.
+webkit6 = { workspace = true, features = ["v2_42"] }
 
 [build-dependencies]
 glib-build-tools.workspace = true

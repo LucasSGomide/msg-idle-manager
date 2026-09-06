@@ -1,14 +1,16 @@
 //! One account's engine objects. The network session and the account's settings
 //! outlive the view; the view itself is disposable and rebuilt on every start.
 
+use std::cell::OnceCell;
 use std::path::Path;
 
 use gtk4 as gtk;
 use webkit6::prelude::*;
 use webkit6::{
-    CookiePersistentStorage, NavigationAction, NetworkSession, PermissionRequest, ScriptDialog,
-    URIRequest, UserContentInjectedFrames, UserContentManager, UserScript, UserScriptInjectionTime,
-    WebProcessTerminationReason, WebResource, WebView,
+    CookiePersistentStorage, Feature, FeatureList, NavigationAction, NetworkSession,
+    PermissionRequest, ScriptDialog, Settings, URIRequest, UserContentInjectedFrames,
+    UserContentManager, UserScript, UserScriptInjectionTime, WebProcessTerminationReason,
+    WebResource, WebView,
 };
 
 /// The cookie database file, kept inside the account's data directory so it
@@ -29,6 +31,18 @@ const PAGE_CONSOLE_JS: &str = include_str!("../resources/js/page-console.js");
 const POPUP_WIDTH: i32 = 480;
 /// The size an authentication popup opens at before its own page resizes it.
 const POPUP_HEIGHT: i32 = 680;
+
+/// The engine's own switch that stretches out a hidden page's timers. Read off
+/// this machine's [`log_engine_features`] start-up log — `WebKitGTK` 2.52.6,
+/// `webkit6` 0.6.1, on 2026-09-06 — not published anywhere the crate can read
+/// at build time, so a future engine upgrade may spell or number it
+/// differently; re-read the log rather than assuming this string still applies
+/// (code standards rule 18).
+const FEATURE_ID_HIDDEN_PAGE_TIMER_THROTTLING: &str = "HiddenPageDOMTimerThrottling";
+/// The engine's own switch that suspends a hidden page's CSS animations. Read
+/// off the same start-up log, same engine build, same date as
+/// [`FEATURE_ID_HIDDEN_PAGE_TIMER_THROTTLING`].
+const FEATURE_ID_HIDDEN_PAGE_CSS_ANIMATION_SUSPENSION: &str = "HiddenPageCSSAnimationSuspension";
 
 /// One account's engine objects, held so the view can be destroyed and rebuilt
 /// without losing the account's storage.
@@ -340,4 +354,91 @@ fn open_popup(opener: &WebView, action: &NavigationAction) -> gtk::Widget {
     });
 
     popup.upcast::<gtk::Widget>()
+}
+
+/// The two `Feature` handles that item 04's keep-awake flips on a session's
+/// `Settings` object (task 03 is the only reader). Looked up once by
+/// identifier because the feature list is a build-time property of the engine
+/// and cannot change while the process runs, so searching it per view would
+/// repeat work for nothing.
+struct KeepAwakeFeatures {
+    hidden_page_timer_throttling: Option<Feature>,
+    hidden_page_css_animation_suspension: Option<Feature>,
+}
+
+thread_local! {
+    // `Feature` is a glib boxed type and is not `Sync`, so the holder lives on
+    // the GTK main context in a `thread_local`, never a `static OnceLock`
+    // (architecture rule 10).
+    static KEEP_AWAKE_FEATURES: OnceCell<KeepAwakeFeatures> = const { OnceCell::new() };
+}
+
+/// Looks up [`FEATURE_ID_HIDDEN_PAGE_TIMER_THROTTLING`] and
+/// [`FEATURE_ID_HIDDEN_PAGE_CSS_ANIMATION_SUSPENSION`] in `list`.
+///
+/// The feature list is not a stable API and a future engine build may rename
+/// or remove either identifier, so a miss is a `tracing::warn` naming it,
+/// never a panic (code standards rules 14, 15) — a session that runs without
+/// one switch is better than an application that will not start.
+fn find_keep_awake_features(list: &FeatureList) -> KeepAwakeFeatures {
+    let find = |identifier: &str| {
+        let feature = (0..list.length())
+            .filter_map(|index| list.get(index))
+            .find(|feature| feature.identifier().as_deref() == Some(identifier));
+        if feature.is_none() {
+            tracing::warn!(
+                identifier,
+                "keep-awake feature not found in this engine build"
+            );
+        }
+        feature
+    };
+
+    KeepAwakeFeatures {
+        hidden_page_timer_throttling: find(FEATURE_ID_HIDDEN_PAGE_TIMER_THROTTLING),
+        hidden_page_css_animation_suspension: find(FEATURE_ID_HIDDEN_PAGE_CSS_ANIMATION_SUSPENSION),
+    }
+}
+
+/// Walks every feature this engine build exposes and logs it once at `debug`
+/// — identifier, name, category and whether the engine's own default already
+/// matches what keep-awake wants — then looks up and caches the two features
+/// item 04 needs.
+///
+/// Call once, at shell start-up beside [`crate::configure_web_engine`]: the
+/// feature list is a build-time property of the engine, so walking it per
+/// view would repeat work that can never change while the process runs
+/// (architecture rules 10, 12). The printing stays permanently — it is how the
+/// two identifiers above get re-read after the next engine upgrade.
+pub(crate) fn log_engine_features() {
+    let Some(list) = Settings::all_features() else {
+        tracing::warn!("WebKit reported no feature list; keep-awake cannot look up its features");
+        return;
+    };
+
+    for index in 0..list.length() {
+        let Some(feature) = list.get(index) else {
+            continue;
+        };
+        tracing::debug!(
+            identifier = feature.identifier().as_deref(),
+            name = feature.name().as_deref(),
+            category = feature.category().as_deref(),
+            is_default_value = feature.is_default_value(),
+            "engine feature"
+        );
+    }
+
+    let features = find_keep_awake_features(&list);
+    // Named field reads, not `?features`: a derived `Debug` impl does not
+    // count as a use for dead-code analysis, and task 03 (the intended reader)
+    // does not exist yet.
+    tracing::debug!(
+        timer_throttling_found = features.hidden_page_timer_throttling.is_some(),
+        css_animation_suspension_found = features.hidden_page_css_animation_suspension.is_some(),
+        "keep-awake feature lookup complete"
+    );
+    KEEP_AWAKE_FEATURES.with(|cell| {
+        cell.get_or_init(|| features);
+    });
 }

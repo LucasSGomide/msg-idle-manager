@@ -66,6 +66,8 @@ pub fn configure_web_engine() {
         return;
     };
     context.set_cache_model(webkit6::CacheModel::DocumentViewer);
+
+    web_view::log_engine_features();
 }
 
 #[cfg(test)]

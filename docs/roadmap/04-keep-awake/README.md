@@ -1,6 +1,6 @@
 # 04 — Keep-awake for hidden games
 
-**Depends on:** 02 · **Status:** not-started · **Estimate:** 5
+**Depends on:** 02 · **Status:** in-progress · **Estimate:** 5
 
 ## Context
 

@@ -93,23 +93,31 @@ on top of.
 
 ## Acceptance criteria
 
-- [ ] `(manual)` starting the application with
+- [x] `(manual)` starting the application with
       `RUST_LOG=idle_manager_shell=debug` logs every feature the engine build
       exposes, each with its identifier, name, category and default value, once
       for the process however many accounts are open
-- [ ] `(manual)` the exact identifiers for hidden-page timer throttling and
+- [x] `(manual)` the exact identifiers for hidden-page timer throttling and
       hidden-page CSS animation suspension are read off that log, added as named
       constants in `web_view.rs`, and recorded in `test-script.md` with the
       `webkit6` and WebKitGTK versions they were read from
-- [ ] `(manual)` looking up an identifier this build does not expose logs one
+- [x] `(manual)` looking up an identifier this build does not expose logs one
       `tracing` warning naming it and the application still starts and loads a
       game
-- [ ] `(manual)` with the application open and one account out of sight, that
+- [x] `(manual)` with the application open and one account out of sight, that
       page's `document.visibilityState` and `document.hidden` are read and
       recorded in `test-script.md`
 - [ ] `(manual)` with the window minimised, a page that held a slot reports
-      itself hidden, and the reading is recorded beside the out-of-sight one
-- [ ] `(manual)` nothing the sidebar or the grid draws changes: rows, dots,
+      itself hidden, and the reading is recorded beside the out-of-sight one —
+      UNTICKED: this box on `:99` has no window manager (verified — none of
+      openbox/icewm/xfwm4/fluxbox/twm/mutter/awesome/i3/bspwm/matchbox is
+      installed, and none is being installed to force one). The header bar's
+      minimize button was clicked for real; the click reached GTK (it
+      highlighted) but nothing above GTK ever answers the iconify request, so
+      the window stayed fully mapped and the page kept reporting `visible`. No
+      genuine minimized reading was taken; see the runbook note for the
+      practical read on `FR.6.4`.
+- [x] `(manual)` nothing the sidebar or the grid draws changes: rows, dots,
       state words, action buttons and slots render exactly as before, and every
       account still loads its game
 

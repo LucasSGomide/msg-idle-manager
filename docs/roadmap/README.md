@@ -49,7 +49,7 @@ patterns as new and says what rule the design doc owes once the code exists. Ite
 
 | # | Item | Est | Depends on | Status |
 |---|---|---|---|---|
-| [04](04-keep-awake/README.md) | Keep-awake for hidden games | 5 | 02 | not-started |
+| [04](04-keep-awake/README.md) | Keep-awake for hidden games | 5 | 02 | in-progress |
 | [05](05-memory-accounting/README.md) | Memory accounting | 5 | 02, 03 | not-started |
 | [08](08-crash-recovery/README.md) | Surviving a crashed game | 5 | 03 | not-started |
 

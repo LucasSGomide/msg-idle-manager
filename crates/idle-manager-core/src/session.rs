@@ -59,7 +59,8 @@ pub enum Liveness {
     Live,
     /// The rendering process is stopped; the session's data on disk is untouched.
     Parked,
-    /// Unparked, but no page has painted yet.
+    /// No page has painted yet — either just unparked, or reloading after a
+    /// change that only takes effect on the next load, such as keep-awake.
     Starting,
 }
 
@@ -72,6 +73,7 @@ pub struct Session {
     start_address: String,
     visibility: Visibility,
     liveness: Liveness,
+    is_kept_awake: bool,
 }
 
 impl Session {
@@ -103,6 +105,13 @@ impl Session {
     #[must_use]
     pub fn liveness(&self) -> Liveness {
         self.liveness
+    }
+
+    /// Whether this session must keep running at full speed even while the
+    /// shell believes nobody is looking at it.
+    #[must_use]
+    pub fn is_kept_awake(&self) -> bool {
+        self.is_kept_awake
     }
 }
 
@@ -195,6 +204,7 @@ impl SessionBook {
             start_address: start_address.to_owned(),
             visibility,
             liveness: Liveness::Live,
+            is_kept_awake: false,
         });
 
         id
@@ -237,6 +247,33 @@ impl SessionBook {
         } else {
             current
         }
+    }
+
+    /// Sets `session`'s keep-awake flag to `value` and reports whether that
+    /// changed anything.
+    ///
+    /// The shell's reaction to a change is a page reload, which is expensive
+    /// and throws away whatever the page was doing, so the caller must be able
+    /// to skip it for a set that set nothing. A change that lands on a live
+    /// session also moves it to [`Liveness::Starting`], because the shell
+    /// reloads its page and that is exactly the "no page has painted yet"
+    /// interval; a parked or already-starting session keeps its liveness, since
+    /// it has no page to reload. An id not in the book changes nothing and
+    /// returns `false`.
+    pub fn set_keep_awake(&mut self, session: &SessionId, value: bool) -> bool {
+        let Some(s) = self.sessions.iter_mut().find(|s| &s.id == session) else {
+            return false;
+        };
+        if s.is_kept_awake == value {
+            return false;
+        }
+
+        s.is_kept_awake = value;
+        if s.liveness == Liveness::Live {
+            s.liveness = Liveness::Starting;
+        }
+
+        true
     }
 
     fn liveness_of(&self, session: &SessionId) -> Option<Liveness> {
@@ -666,5 +703,160 @@ mod tests {
             (state, liveness_of(&book, &id), visibility_of(&book, &id)),
             (Liveness::Live, Liveness::Live, visibility)
         );
+    }
+
+    fn is_kept_awake(book: &SessionBook, id: &SessionId) -> bool {
+        book.sessions()
+            .iter()
+            .find(|session| session.id() == id)
+            .expect("session present")
+            .is_kept_awake()
+    }
+
+    #[test]
+    fn an_account_added_to_the_book_starts_with_keep_awake_off() {
+        let mut book = SessionBook::new();
+
+        let id = book.add("One", "https://example.test/one");
+
+        assert!(!is_kept_awake(&book, &id));
+    }
+
+    #[test]
+    fn turning_keep_awake_on_for_an_account_that_had_it_off_returns_true() {
+        let mut book = SessionBook::new();
+        let id = book.add("One", "https://example.test/one");
+
+        let changed = book.set_keep_awake(&id, true);
+
+        assert!(changed);
+    }
+
+    #[test]
+    fn turning_keep_awake_on_for_an_account_that_had_it_off_leaves_the_flag_on() {
+        let mut book = SessionBook::new();
+        let id = book.add("One", "https://example.test/one");
+
+        book.set_keep_awake(&id, true);
+
+        assert!(is_kept_awake(&book, &id));
+    }
+
+    #[test]
+    fn setting_keep_awake_to_its_current_value_reports_no_change() {
+        let mut book = SessionBook::new();
+        let id = book.add("One", "https://example.test/one");
+
+        let changed = book.set_keep_awake(&id, false);
+
+        assert!(!changed);
+    }
+
+    #[test]
+    fn setting_keep_awake_to_its_current_value_leaves_liveness_unchanged() {
+        let mut book = SessionBook::new();
+        let id = book.add("One", "https://example.test/one");
+        book.park(&id);
+        let liveness = liveness_of(&book, &id);
+
+        book.set_keep_awake(&id, false);
+
+        assert_eq!(liveness_of(&book, &id), liveness);
+    }
+
+    #[test]
+    fn turning_keep_awake_on_for_a_live_account_leaves_it_starting() {
+        let mut book = SessionBook::new();
+        let id = book.add("One", "https://example.test/one");
+
+        book.set_keep_awake(&id, true);
+
+        assert_eq!(liveness_of(&book, &id), Liveness::Starting);
+    }
+
+    #[test]
+    fn turning_keep_awake_on_for_a_parked_account_leaves_it_parked() {
+        let mut book = SessionBook::new();
+        let id = book.add("One", "https://example.test/one");
+        book.park(&id);
+
+        book.set_keep_awake(&id, true);
+
+        assert_eq!(liveness_of(&book, &id), Liveness::Parked);
+    }
+
+    #[test]
+    fn keep_awake_survives_a_layout_change_that_moves_the_account_between_slots() {
+        let mut book = SessionBook::new();
+        book.set_layout(Layout::Grid);
+        let id = book.add("One", "https://example.test/one");
+        book.add("Two", "https://example.test/two");
+        book.add("Three", "https://example.test/three");
+        book.add("Four", "https://example.test/four");
+        book.set_keep_awake(&id, true);
+
+        book.set_layout(Layout::SideBySide);
+        book.set_layout(Layout::Grid);
+
+        assert!(is_kept_awake(&book, &id));
+    }
+
+    #[test]
+    fn keep_awake_survives_being_pushed_off_grid_and_brought_back_into_focus() {
+        let mut book = SessionBook::new();
+        book.set_layout(Layout::SideBySide);
+        let first = book.add("One", "https://example.test/one");
+        book.add("Two", "https://example.test/two");
+        book.set_focused(SlotId::new(0));
+        book.add("Three", "https://example.test/three");
+        book.set_keep_awake(&first, true);
+
+        book.focus_session(&first);
+
+        assert!(is_kept_awake(&book, &first));
+    }
+
+    #[test]
+    fn keep_awake_survives_being_parked() {
+        let mut book = SessionBook::new();
+        let id = book.add("One", "https://example.test/one");
+        book.set_keep_awake(&id, true);
+
+        book.park(&id);
+
+        assert!(is_kept_awake(&book, &id));
+    }
+
+    #[test]
+    fn keep_awake_survives_being_unparked() {
+        let mut book = SessionBook::new();
+        let id = book.add("One", "https://example.test/one");
+        book.set_keep_awake(&id, true);
+        book.park(&id);
+
+        book.unpark(&id);
+
+        assert!(is_kept_awake(&book, &id));
+    }
+
+    #[test]
+    fn setting_keep_awake_on_an_unknown_id_reports_no_change() {
+        let mut book = SessionBook::new();
+        let unknown = SessionId::new("session-9999");
+
+        let changed = book.set_keep_awake(&unknown, true);
+
+        assert!(!changed);
+    }
+
+    #[test]
+    fn setting_keep_awake_on_an_unknown_id_leaves_the_book_untouched() {
+        let mut book = SessionBook::new();
+        let id = book.add("One", "https://example.test/one");
+        let unknown = SessionId::new("session-9999");
+
+        book.set_keep_awake(&unknown, true);
+
+        assert!(!is_kept_awake(&book, &id));
     }
 }

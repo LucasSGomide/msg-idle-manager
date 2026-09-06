@@ -8,14 +8,16 @@
 # Versions are checked for the same reason. The floors are not ours to pick:
 # webkit6 0.6 names gtk::Accessible, which gtk4 0.11 gates behind its v4_10
 # feature, so the app is built with that feature on and cannot link against an
-# older GTK; webkit6-sys 0.6 declares 2.40 as its own floor. Too old a library
-# passes an existence check and then fails deep in a build script.
+# older GTK; webkit6-sys 0.6 declares 2.40 as its own floor, and the shell
+# raises that to 2.42 by enabling webkit6's v2_42 feature for the settings
+# feature list keep-awake flips per session. Too old a library passes an
+# existence check and then fails deep in a build script.
 set -uo pipefail
 
 # <pkg-config module> <minimum version> <Debian package providing it>
 modules=(
   "gtk4          4.10 libgtk-4-dev"
-  "webkitgtk-6.0 2.40 libwebkitgtk-6.0-dev"
+  "webkitgtk-6.0 2.42 libwebkitgtk-6.0-dev"
 )
 
 apt_install="sudo apt install build-essential pkg-config libgtk-4-dev libwebkitgtk-6.0-dev"

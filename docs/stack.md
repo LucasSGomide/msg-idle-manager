@@ -73,7 +73,13 @@ sudo apt install build-essential pkg-config libgtk-4-dev libwebkitgtk-6.0-dev
 | Library | Minimum | Set by |
 | --- | --- | --- |
 | GTK 4 | 4.10 | The `v4_10` feature `webkit6` forces on `gtk4` |
-| WebKitGTK 6.0 | 2.40 | `webkit6-sys` 0.6 declares it |
+| WebKitGTK 6.0 | 2.42 | The `v2_42` feature `idle-manager-shell` turns on for the settings feature list |
+
+`webkit6-sys` 0.6 itself declares only 2.40. The floor is 2.42 because
+`idle-manager-shell` enables `webkit6`'s `v2_42` feature for
+`Settings::all_features` and `Settings::set_feature_enabled`, which item 04 needs
+to turn off a hidden page's timer throttling per account and which libwebkit2gtk
+added in 2.42.
 
 `make system-check` names in a single line the ones you are missing *or* that
 are too old, and every target that compiles the workspace runs it first. A

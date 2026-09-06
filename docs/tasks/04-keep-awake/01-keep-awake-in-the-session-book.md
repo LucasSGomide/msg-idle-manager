@@ -87,20 +87,20 @@ logic layer instead of on a widget.
 
 ## Acceptance criteria
 
-- [ ] `(unit)` an account added to the book starts with keep-awake off
-- [ ] `(unit)` turning keep-awake on for an account that had it off returns
+- [x] `(unit)` an account added to the book starts with keep-awake off
+- [x] `(unit)` turning keep-awake on for an account that had it off returns
       `true` and leaves the flag on
-- [ ] `(unit)` setting keep-awake to the value it already holds returns `false`
+- [x] `(unit)` setting keep-awake to the value it already holds returns `false`
       and leaves the account's liveness exactly as it was
-- [ ] `(unit)` turning keep-awake on for a live account leaves it `Starting`
-- [ ] `(unit)` turning keep-awake on for a parked account leaves it `Parked`
-- [ ] `(unit)` an account's keep-awake flag survives a layout change that moves
+- [x] `(unit)` turning keep-awake on for a live account leaves it `Starting`
+- [x] `(unit)` turning keep-awake on for a parked account leaves it `Parked`
+- [x] `(unit)` an account's keep-awake flag survives a layout change that moves
       it between slots
-- [ ] `(unit)` an account's keep-awake flag survives being pushed off-grid and
+- [x] `(unit)` an account's keep-awake flag survives being pushed off-grid and
       brought back into the focused slot
-- [ ] `(unit)` an account's keep-awake flag survives being parked
-- [ ] `(unit)` an account's keep-awake flag survives being unparked
-- [ ] `(unit)` setting keep-awake on an id that is not in the book returns
+- [x] `(unit)` an account's keep-awake flag survives being parked
+- [x] `(unit)` an account's keep-awake flag survives being unparked
+- [x] `(unit)` setting keep-awake on an id that is not in the book returns
       `false` and leaves the book untouched
 
 ## References
