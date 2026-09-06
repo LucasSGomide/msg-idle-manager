@@ -4,6 +4,20 @@
 # matter (workspace-wide, all targets, warnings as errors) are not retyped and
 # not forgotten. `make verify` is the whole gate, and is what CI should run.
 
+# rustup installs into ~/.cargo/bin and asks the user's shell profile to add it
+# to PATH. A fresh terminal, a non-login shell, or a profile the installer
+# could not edit then has cargo on disk but not on PATH. Prepend it here so the
+# targets work without `source "$HOME/.cargo/env"` first. A missing directory on
+# PATH is harmless; the shim it points at is the toolchain rust-toolchain.toml
+# already pins. Override the whole thing with `make CARGO=/path/to/cargo`.
+#
+# node (for the roadmap engine) has the same problem when it comes from nvm,
+# which only wires up PATH in an interactive shell. Add the newest nvm node if
+# one is installed and nothing set NODE_BIN; a system node already on PATH is
+# untouched.
+NODE_BIN ?= $(lastword $(sort $(wildcard $(HOME)/.nvm/versions/node/*/bin)))
+export PATH := $(HOME)/.cargo/bin$(if $(NODE_BIN),:$(NODE_BIN)):$(PATH)
+
 CARGO ?= cargo
 PACKAGE := idle-manager
 RUST_LOG ?= idle_manager=debug,idle_manager_core=debug,idle_manager_shell=debug

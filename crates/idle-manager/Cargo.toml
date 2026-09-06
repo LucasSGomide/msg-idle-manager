@@ -15,6 +15,7 @@ idle-manager-metrics.workspace = true
 idle-manager-shell.workspace = true
 idle-manager-store.workspace = true
 anyhow.workspace = true
+gtk4.workspace = true
 tracing.workspace = true
 tracing-subscriber.workspace = true
 

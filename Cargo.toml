@@ -21,6 +21,7 @@ glib = "0.22"
 # real floor for the app, and stays the lowest GTK we can be built against.
 gtk4 = { version = "0.11", features = ["v4_10"] }
 webkit6 = "0.6"
+glib-build-tools = "0.22"
 
 anyhow = "1.0"
 directories = "6.0"
