@@ -5,3 +5,11 @@
 //! depends on no other crate in the workspace, which is what lets its tests run
 //! in milliseconds without a display server. `make arch-check` fails the build
 //! if a UI, serialisation or I/O dependency ever reaches it.
+
+mod layout;
+mod ports;
+mod session;
+
+pub use layout::{Layout, SlotId, arrange};
+pub use ports::{ProfileDirectories, ProfileError, ProfileLocator};
+pub use session::{Session, SessionBook, SessionId, Visibility};
