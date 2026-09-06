@@ -1,0 +1,25 @@
+# Project manifest. The msg-roadmap skills read this and nothing else about
+# where things live — which is what makes them portable.
+#
+# Every entry under `areas` points at the doc holding that area's rules. The
+# key is also the bold bullet prefix a roadmap item's Key Areas section must
+# use, so adding an area here adds it to the planning vocabulary.
+#
+# `requirementsFile` is different: it's a single append-only log of user needs
+# and functional requirements, not a rule doc.
+
+msg_version: 0.1.0
+
+structure:
+  roadmap: docs/roadmap/
+  tasks: docs/tasks/
+  explorations: docs/explorations/
+  ditched: docs/ditched/
+
+areas:
+  Architecture: docs/architecture.md
+  Code standards: docs/code-standards.md
+  Design: docs/design.md
+  Naming: docs/naming.md
+
+requirementsFile: docs/requirements.md

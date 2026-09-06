@@ -1,0 +1,53 @@
+# Requirements
+
+Append-only log of user needs and functional requirements. Written by
+`msg-pre-roadmap`, read by `msg-roadmap-plan-item`'s gate-check. Never edit or
+delete a row — add new ones.
+
+| Module | Feature | User Need Code | User Need Details | Functional Requirement Code | Functional Requirement Details | Addition Date |
+| ------ | ------- | --------------- | ------------------ | ---------------------------- | -------------------------------- | -------------- |
+| Session Management | Multi-Session Container | UN.1 | Run several browser idle game accounts at the same time without creating a separate browser profile, guest window or second browser install for each one. | — | — | 2026-09-06 |
+| Session Management | Multi-Session Container | — | — | FR.1.1 | A session represents one game account and is backed by its own `WebKitNetworkSession`, constructed with a data directory and a cache directory unique to that session. | 2026-09-06 |
+| Session Management | Multi-Session Container | — | — | FR.1.2 | Two sessions of the same game share nothing: cookies, localStorage, IndexedDB, service workers and caches are isolated per session, so both can be logged in simultaneously. | 2026-09-06 |
+| Session Management | Multi-Session Container | — | — | FR.1.3 | The app runs one web process per live session and relies on WebKitGTK's single global network process; isolating a session must not add a network process. | 2026-09-06 |
+| Session Management | Multi-Session Container | UN.2 | Stay logged in to every account indefinitely without the application storing or handling credentials. | — | — | 2026-09-06 |
+| Session Management | Multi-Session Container | — | — | FR.2.1 | The app never reads, stores, or transmits credentials. Login persistence is entirely the network session's cookie store. | 2026-09-06 |
+| Session Management | Multi-Session Container | — | — | FR.2.2 | Each session's cookie manager is configured with persistent storage so cookies are written to that session's data directory and survive an app restart. | 2026-09-06 |
+| Session Management | Multi-Session Container | — | — | FR.2.3 | A session's data directory survives destroying and recreating its web view, so parking, unparking and restarting never require logging in again. | 2026-09-06 |
+| Session Management | Multi-Session Container | UN.3 | See several games at once, arranged on screen, and change that arrangement without disturbing what is running. | — | — | 2026-09-06 |
+| Session Management | Multi-Session Container | — | — | FR.3.1 | The grid supports three layouts: one full-window slot, two side-by-side slots, and a two-by-two grid of four slots. | 2026-09-06 |
+| Session Management | Multi-Session Container | — | — | FR.3.2 | Switching to a layout with fewer slots pushes the overflow sessions off-grid without changing their liveness; switching back returns them to the slots they held. | 2026-09-06 |
+| Session Management | Multi-Session Container | — | — | FR.3.3 | Off-grid live views stay mapped at out-of-bounds coordinates inside a clipping container, because an unmapped view is treated as hidden by WebKit. `GtkStack` is excluded, as it unmaps its non-visible children. | 2026-09-06 |
+| Session Management | Multi-Session Container | UN.4 | Reach any account quickly when there are more accounts than the grid has slots. | — | — | 2026-09-06 |
+| Session Management | Multi-Session Container | — | — | FR.4.1 | A collapsible sidebar lists every session with its liveness and visibility state. | 2026-09-06 |
+| Session Management | Multi-Session Container | — | — | FR.4.2 | Selecting a session in the sidebar swaps it into the focused grid slot, displacing whatever that slot held to off-grid. | 2026-09-06 |
+| Session Management | Multi-Session Container | — | — | FR.4.3 | Collapsing the sidebar gives the grid the full window width and is reversible without losing grid state. | 2026-09-06 |
+| Session Management | Multi-Session Container | UN.5 | Control which accounts consume memory, independently of which accounts are on screen. | — | — | 2026-09-06 |
+| Session Management | Multi-Session Container | — | — | FR.5.1 | Every session carries two independent user-set attributes: liveness, either live or parked, and visibility, either shown in a grid slot or off-grid. | 2026-09-06 |
+| Session Management | Multi-Session Container | — | — | FR.5.2 | Parking a session terminates its web process before the web view is destroyed, so the memory is returned rather than handed to WebKitGTK's web process cache. | 2026-09-06 |
+| Session Management | Multi-Session Container | — | — | FR.5.3 | The web context uses a cache model that forces the web process cache capacity to zero, so a terminated process is never retained. | 2026-09-06 |
+| Session Management | Multi-Session Container | — | — | FR.5.4 | Unparking constructs a new web view bound to the session's existing network session, since the network session is a construct-only property and cannot be rebound. | 2026-09-06 |
+| Session Management | Multi-Session Container | — | — | FR.5.5 | A parked session reports zero web process memory and reloads on demand without a login prompt. | 2026-09-06 |
+| Session Management | Multi-Session Container | UN.6 | Keep a hidden game ticking at full speed when that game loses progress while throttled. | — | — | 2026-09-06 |
+| Session Management | Multi-Session Container | — | — | FR.6.1 | Each session has a keep-awake flag whose initial value comes from its preset and which the user can change per session. | 2026-09-06 |
+| Session Management | Multi-Session Container | — | — | FR.6.2 | A keep-awake session disables hidden-page timer throttling and hidden-page CSS animation suspension through the WebKit settings feature list. | 2026-09-06 |
+| Session Management | Multi-Session Container | — | — | FR.6.3 | A keep-awake session injects a document-start user script that routes `requestAnimationFrame` through a timer while the page reports hidden, because WebKit suspends scripted animations unconditionally with no setting to prevent it. | 2026-09-06 |
+| Session Management | Multi-Session Container | — | — | FR.6.4 | Sessions without keep-awake behave like a background browser tab when off-grid. The documentation states that minimizing the window marks every view hidden regardless of the flag. | 2026-09-06 |
+| Session Management | Multi-Session Container | UN.7 | Know what the app is costing in memory, since low memory use is the reason it exists. | — | — | 2026-09-06 |
+| Session Management | Multi-Session Container | — | — | FR.7.1 | The sidebar footer shows the shell's own memory, the number of live sessions, their aggregate memory, and the total, read as proportional set size rather than resident set size so shared library pages are not counted repeatedly. | 2026-09-06 |
+| Session Management | Multi-Session Container | — | — | FR.7.2 | A script in the repository reports the same figures broken down by process, for use outside the app. | 2026-09-06 |
+| Session Management | Multi-Session Container | — | — | FR.7.3 | Memory budget thresholds are recorded in the repository and set from a real measurement of at least three games, not assumed in advance. | 2026-09-06 |
+| Session Management | Multi-Session Container | — | — | FR.7.4 | Per-session memory attribution is out of scope for this feature; only aggregate figures are reported. | 2026-09-06 |
+| Session Management | Multi-Session Container | UN.8 | Reopen the app and find the sessions, arrangement and running state exactly as they were left. | — | — | 2026-09-06 |
+| Session Management | Multi-Session Container | — | — | FR.8.1 | The session file persists each session's name, preset, liveness, visibility, slot assignment and keep-awake flag, plus the active layout. | 2026-09-06 |
+| Session Management | Multi-Session Container | — | — | FR.8.2 | On launch, sessions that were live reload one at a time rather than all at once, so startup does not spike memory or network use. | 2026-09-06 |
+| Session Management | Multi-Session Container | — | — | FR.8.3 | Configuration and presets live under the XDG config directory and session profiles under the XDG data directory, with no hardcoded paths. | 2026-09-06 |
+| Session Management | Multi-Session Container | UN.9 | Not lose a night of idle progress because a game crashed while unattended. | — | — | 2026-09-06 |
+| Session Management | Multi-Session Container | — | — | FR.9.1 | When a session's web process terminates unexpectedly, the app reloads it automatically after one second, then five, then thirty, then two minutes. | 2026-09-06 |
+| Session Management | Multi-Session Container | — | — | FR.9.2 | After the fourth failed attempt the app stops retrying, the session's slot shows an inline error with the attempt count and a retry control, and the sidebar marks the session as failed. | 2026-09-06 |
+| Session Management | Multi-Session Container | — | — | FR.9.3 | Retrying by hand resets the backoff, and a session that recovers on its own clears the failed state without user action. | 2026-09-06 |
+| Session Management | Multi-Session Container | UN.10 | Add a new account in a few clicks, including for games that reject a non-Chrome browser. | — | — | 2026-09-06 |
+| Session Management | Multi-Session Container | — | — | FR.10.1 | Presets ship as hand-editable files in the repository, each holding a display name, a starting URL, a user agent, a zoom level and a default keep-awake value. | 2026-09-06 |
+| Session Management | Multi-Session Container | — | — | FR.10.2 | Adding a session means choosing a preset and naming the account; the app creates the profile directory and derives the rest from the preset. | 2026-09-06 |
+| Session Management | Multi-Session Container | — | — | FR.10.3 | A custom entry accepts a name and a URL directly, for any game without a preset. | 2026-09-06 |
+| Session Management | Multi-Session Container | — | — | FR.10.4 | Each session's user agent is set from its preset, defaulting to a current Chrome string, because WebKitGTK's own user agent causes games to reject the browser. | 2026-09-06 |
