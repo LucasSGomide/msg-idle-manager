@@ -7,6 +7,12 @@
     <property name="default-height">800</property>
     <child type="titlebar">
       <object class="GtkHeaderBar" id="header_bar">
+        <child type="start">
+          <object class="GtkButton" id="reload_button">
+            <property name="icon-name">view-refresh-symbolic</property>
+            <property name="tooltip-text">Reload the focused game (F5)</property>
+          </object>
+        </child>
         <child type="end">
           <object class="GtkButton" id="add_game_button">
             <property name="label">Add game</property>

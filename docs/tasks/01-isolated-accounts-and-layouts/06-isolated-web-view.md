@@ -95,6 +95,14 @@ sees why a page loaded but would not log in.
   `test-script.md`.
 - **Architecture** — rule 14 and code standards rule 25: this slice is covered
   by the item's `test-script.md`; no test may require a display server.
+- **Design** — the game's page carries no browser chrome, so the shell owns the
+  one control a stuck login needs: a `view-refresh-symbolic` button on the header
+  bar's leading edge and an `F5` / `Ctrl`+`R` `EventControllerKey` on the window
+  in the capture phase, both calling `SessionGrid::reload_focused`, which reloads
+  the view in the focused slot and no other. Capture phase because a game that
+  binds those keys on its own canvas would otherwise consume them first. This is
+  the whole of the reload story until item 08; the design doc owes a rule on
+  where a window-level game action lives once more than one exists.
 
 ## Acceptance criteria
 
@@ -103,6 +111,9 @@ sees why a page loaded but would not log in.
 - [ ] `(manual)` two accounts of the same game, added with the same address, are
       logged into different game accounts at the same time and neither logs the
       other out
+- [ ] `(manual)` the header-bar reload button — and `F5` / `Ctrl`+`R` — reloads
+      the page in the focused slot and leaves the other slots untouched; the key
+      press reaches the window even when the focused game binds it on its canvas
 - [ ] `(manual)` after logging in, that account's data directory under the XDG
       data root holds a non-empty cookie database file, and the other account's
       directory holds a different one

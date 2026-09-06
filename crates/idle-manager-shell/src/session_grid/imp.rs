@@ -135,6 +135,26 @@ impl SessionGrid {
         self.obj().queue_allocate();
     }
 
+    /// Reloads the web view sitting in the focused slot. A no-op when that slot
+    /// is empty or its session is off-grid — there is nothing on screen to
+    /// reload. The header-bar button and the `F5` / `Ctrl`+`R` accelerators are
+    /// the only callers.
+    pub(super) fn reload_focused(&self) {
+        let focused = Visibility::InSlot(SlotId::new(self.focused.get()));
+        let slots = self.slots.borrow();
+        let Some(entry) = slots.iter().find(|entry| entry.placement == focused) else {
+            return;
+        };
+        if let Some(view) = entry
+            .overlay
+            .child()
+            .and_then(|child| child.downcast::<WebView>().ok())
+        {
+            tracing::debug!(session = %entry.id, "reloading the focused view");
+            view.reload();
+        }
+    }
+
     pub(super) fn sync(&self, book: &SessionBook) {
         self.layout.set(book.layout());
         self.focused.set(book.focused().index());

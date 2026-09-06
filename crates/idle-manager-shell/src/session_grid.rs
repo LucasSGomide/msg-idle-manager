@@ -49,6 +49,12 @@ impl SessionGrid {
         self.imp().sync(book);
     }
 
+    /// Reloads the page in the currently focused slot. A no-op when that slot
+    /// is empty or holds an off-grid session.
+    pub fn reload_focused(&self) {
+        self.imp().reload_focused();
+    }
+
     /// Registers `handler` to run whenever the user clicks a slot to focus it.
     pub fn connect_slot_focused(&self, handler: impl Fn(SlotId) + 'static) {
         self.imp().on_slot_focused.replace(Some(Box::new(handler)));

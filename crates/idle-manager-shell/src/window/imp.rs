@@ -5,6 +5,7 @@ use std::cell::RefCell;
 use std::rc::Rc;
 
 use gtk::CompositeTemplate;
+use gtk::gdk;
 use gtk::glib;
 use gtk::prelude::*;
 use gtk::subclass::prelude::*;
@@ -23,6 +24,8 @@ use crate::web_view;
 pub struct Window {
     #[template_child]
     add_game_button: TemplateChild<gtk::Button>,
+    #[template_child]
+    reload_button: TemplateChild<gtk::Button>,
     #[template_child]
     add_first_game_button: TemplateChild<gtk::Button>,
     #[template_child]
@@ -112,6 +115,30 @@ impl ObjectImpl for Window {
                 }
             });
         }
+
+        // Reload the focused view: a game's own page has no chrome, and a login
+        // that half-completes needs a way back to a clean load. The button is
+        // the visible affordance; F5 / Ctrl+R on a capture-phase controller so a
+        // page that binds those keys on its canvas does not swallow them first.
+        let window = self.obj().downgrade();
+        self.reload_button.connect_clicked(move |_| {
+            if let Some(window) = window.upgrade() {
+                window.imp().grid.reload_focused();
+            }
+        });
+
+        let reload_keys = gtk::EventControllerKey::new();
+        reload_keys.set_propagation_phase(gtk::PropagationPhase::Capture);
+        let grid = self.grid.clone();
+        reload_keys.connect_key_pressed(move |_, key, _, modifiers| {
+            let ctrl_r = key == gdk::Key::r && modifiers.contains(gdk::ModifierType::CONTROL_MASK);
+            if key == gdk::Key::F5 || ctrl_r {
+                grid.reload_focused();
+                return glib::Propagation::Stop;
+            }
+            glib::Propagation::Proceed
+        });
+        self.obj().add_controller(reload_keys);
 
         self.connect_layout_toggle(&self.layout_single, Layout::Single);
         self.connect_layout_toggle(&self.layout_side_by_side, Layout::SideBySide);
