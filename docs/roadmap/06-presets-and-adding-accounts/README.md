@@ -1,6 +1,6 @@
 # 06 — Presets and adding an account
 
-**Depends on:** 01, 04 · **Status:** not-started · **Estimate:** 5
+**Depends on:** 01, 04 · **Status:** in-progress · **Estimate:** 5
 
 ## Context
 
@@ -84,9 +84,10 @@ the application states rather than one the user has to infer.
   it and shows one line naming the file and the problem, rather than failing to
   open the dialog.
 - **New pattern** — a chooser whose last entry reveals a different form. Nothing
-  in `docs/design.md` covers it, because that file still has no rules; the
-  design doc owes a rule for an escape-hatch option inside a chooser, and for
-  how a partial failure like an unparseable file is reported inside a form.
+  in `docs/design.md` covers it: every one of its six rules is about a sidebar
+  row or the panel standing in for an absent game. The design doc owes a rule
+  for an escape-hatch option inside a chooser, and for how a partial failure
+  like an unparseable file is reported inside a form.
 
 ### Adding an account from the catalogue
 
@@ -183,9 +184,9 @@ other non-Rust file in the repository.
 
 ### Front-end
 
-Front-end is `idle-manager-shell`. `docs/design.md` still has no numbered rules,
-so the chooser pattern is new. Architecture rules 10, 12 and 13 bind, and naming
-rules 1, 2, 4 and 7 fix the spellings.
+Front-end is `idle-manager-shell`. `docs/design.md` has six numbered rules and
+none of them reaches a dialog, so the chooser pattern is new. Architecture rules
+10, 12 and 13 bind, and naming rules 1, 2, 4 and 7 fix the spellings.
 
 Rework `add_game_dialog.rs` and `add-game-dialog.ui` from item 01 into two
 stages inside one dialog: a `gtk::ListView` of catalogue entries plus the escape
@@ -239,10 +240,11 @@ confirm the defaults apply.
 
 ## Blockers
 
-- Which games ship as presets is undecided. `docs/requirements.md` names no
-  game, `presets/` does not exist, and the browser identity that each game
-  accepts is unknown until one is tried. The item cannot be finished without
-  picking at least three, and item 05's memory budget needs the same three.
+- ~~Which games ship as presets is undecided.~~ **Settled at breakdown, 2026-09-07:**
+  Huntera (`https://huntera.com.br/`), Baiaki Idle (`https://baiakidle.com/`)
+  and Lorvath (`https://lorvath.com/`). All three ship with no browser identity,
+  per `FR.10.5`; one is added only if that game is measured turning the engine
+  away. Item 05's memory budget uses the same three.
 - Browser identity strings go stale every few months and nothing here updates
   them, and item 01's measurement makes a stale one worse than it looked: a
   string that has aged out is not merely unrecognised, it is a claim the engine
@@ -251,11 +253,13 @@ confirm the defaults apply.
   a stale string can only exist where somebody deliberately put one — but for
   that game it still looks like the game has broken, and the only mitigation is
   that the file is editable by a user who already knows why.
-- The zoom value's meaning is not specified anywhere. `FR.10.1` in
-  `docs/requirements.md` says a preset holds a zoom level and stops there. The
-  engine takes a plain multiplier, but whether `presets/*.toml` should express
-  that or something screen-relative is not settled, and getting it wrong makes
-  every shipped file wrong at once.
+- ~~The zoom value's meaning is not specified anywhere.~~ **Settled at breakdown,
+  2026-09-07:** a plain multiplier, `zoom = 0.8`, exactly what the engine's
+  `set_zoom_level` takes. A screen-relative value would have to be recomputed
+  every time the layout changes the size of the slot an account sits in, which
+  contradicts this item's own rule that a preset's values are consumed once at
+  creation and never read again; making zoom follow the slot is a separate item
+  if it is ever wanted.
 - Editing a game's file has no effect on accounts already running, by the design
   stated above. Nothing in `docs/requirements.md` says whether that is
   acceptable, and the alternative — watching the folder and restarting affected

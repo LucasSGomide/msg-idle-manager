@@ -74,3 +74,24 @@ citations, so append rather than reorder.
    the name giving way to it. The next item that adds another trailing fact
    owes the same check: settle the width by eye, with a short name on screen,
    rather than let the name silently absorb a fact's cost.
+
+7. **Set an escape-hatch option apart from the real options in a chooser with a
+   hairline above it and dimmed text, never a separate control.** The add-game
+   dialog's list ends with "Something else…" — the way out for a game the
+   application has no file for. It has to be reachable from the same list as the
+   games, so the dialog is never a dead end even with nothing configured, but it
+   must not read as one of them: a full-width `gtk::Separator` above it and the
+   `dim-label` style on its text say "past here is not a game" without spending a
+   second widget or a second stage on the distinction. The separator shows only
+   when there are real options above it — with none, there is nothing to
+   separate from.
+
+8. **Report a partial failure inside a form as one dim line beneath the field it
+   belongs to, and keep the form working.** A preset file that will not parse
+   costs the chooser one row, not its ability to open: the file's name and the
+   one-line reason sit in a `dim-label` `gtk::Label` under the list, the rows
+   that did parse still show, and the action row is untouched. The same line
+   carries the empty case — when nothing parsed it names the folder to put files
+   in, and the escape hatch still stands. A failure the user can act on is
+   information, not an error dialog: it never takes a modal of its own and never
+   blocks the path that still works.

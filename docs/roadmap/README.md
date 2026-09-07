@@ -60,7 +60,7 @@ rows' trailing edge carries.
 | # | Item | Est | Depends on | Status |
 |---|---|---|---|---|
 | [05](05-memory-accounting/README.md) | Memory accounting | 5 | 02, 03 | not-started |
-| [06](06-presets-and-adding-accounts/README.md) | Presets and adding an account | 5 | 01, 04 | not-started |
+| [06](06-presets-and-adding-accounts/README.md) | Presets and adding an account | 5 | 01, 04 | in-progress |
 | [08](08-crash-recovery/README.md) | Surviving a crashed game | 5 | 03 | not-started |
 
 ## Blocked

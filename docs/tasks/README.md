@@ -10,4 +10,6 @@ A folder lives from breakdown until the item's branch lands — through review a
 merge, not just until the boxes are ticked. It is retired only once the roadmap
 item's header carries `Landed:` or `Merged:`. Items 01–04 are `done`.
 
-_No breakdown is open. Create one with `/msg-roadmap-task-breakdown NN`._
+| # | Roadmap item | Tasks | Progress | Status |
+|---|---|---|---|---|
+| [06](06-presets-and-adding-accounts/) | Presets and adding an account | 5 | 4/5 | in-progress |
