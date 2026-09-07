@@ -1,6 +1,6 @@
 # 04 — Keep-awake for hidden games
 
-**Depends on:** 02 · **Status:** done · **Estimate:** 5
+**Depends on:** 02 · **Status:** done · **Estimate:** 5 · **Landed:** 2026-09-07
 
 ## Context
 
@@ -271,6 +271,52 @@ cancelling it, and they correct the Context above.
 So this item protects one case: a minimised window. That is the overnight case,
 and the measured cost of not protecting it is half a night's progress for one
 kind of game and all of it for the other.
+
+## As built
+
+- **The reload interval needed a domain transition the plan did not name.** The
+  Front-end section said the reloading state reuses item 03's `Starting`, but the
+  Back-end section committed only to the flag and its setter, leaving the shell no
+  way to express the interval under architecture rule 8. `set_keep_awake` now moves
+  a `Live` session to `Starting` when the flag actually changed; a `Parked` one
+  keeps its liveness, since it has no page to reload.
+- **The shim has to hand over the frame request already outstanding when the page
+  hides.** A game's loop asks for its next frame from inside the current one, so
+  there is always exactly one request pending at the moment of hiding, and the
+  engine never delivers it. Intercepting only *new* calls would have left the loop
+  dead on the very request that would have restarted it — the shim would have done
+  nothing in the one case it exists for. Caught by reasoning, not by a test, and
+  only provable on a real minimise.
+- **`remove_all_scripts` is the only removal API and it clears everything**,
+  including the page-console bridge item 01 installed. Turning keep-awake off
+  rebuilds the whole script set rather than removing one script.
+- **The script is `include_str!`, not GResource**, against what the Front-end
+  section said. `page-console.js` already carries a comment explaining why that
+  read is the right one — sole caller, needed before any widget exists, infallible
+  — and the two scripts stay consistent.
+- **The feature-list API forced a stack bump.** `Settings::all_features` sits
+  behind `webkit6`'s `v2_42` feature, so `docs/stack.md` and `system-check.sh` go
+  from WebKitGTK 2.40 to 2.42. `Feature` is also not `Sync`, so the cached lookup
+  is a `thread_local!` `OnceCell` rather than a `static OnceLock`.
+- **A no-op toggle turned out to be unreachable from the UI.** The row rebuilds
+  the menu's action state from the stored flag on every bind, so a stale checkbox
+  never exists and a click can only request the flag's negation. The criterion was
+  restated as the guarantee that can be observed; the domain guard behind it stays
+  pinned by the core's own unit tests.
+- **The sidebar's width is derived from its trailing edge, and 220 had no slack.**
+  Adding the keep-awake mark collapsed even a four-letter name to a bare ellipsis.
+  240 restores it, and design rule 6 records that the next item adding a trailing
+  fact must re-check the width rather than let the name absorb the cost. Design
+  rule 5 covers where a row's settings live as against its actions.
+- **Two of the item's four blockers stay open.** The 250ms shim interval is still a
+  guess with no measurement behind it — it works, but nothing says it is right.
+  And only one real game (Kittens Game) has been loaded with the patched frame
+  callback; it played normally, which is evidence rather than proof that games do
+  not reject it.
+- **Shell criteria that need a hidden page cannot be verified headless.** Xvfb has
+  no window manager, so minimise does nothing there and the decisive checks had to
+  be run by hand on a real desktop. Any later item touching page visibility
+  inherits that.
 
 ## Blockers
 - Replacing the frame-callback API is visible to any game that inspects it, and
