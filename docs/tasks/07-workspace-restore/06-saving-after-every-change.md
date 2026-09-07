@@ -82,24 +82,24 @@ which would undermine the entire item.
 
 ## Acceptance criteria
 
-- [ ] `(manual)` adding an account, parking one, starting one, toggling keep
+- [x] `(manual)` adding an account, parking one, starting one, toggling keep
       running when hidden, moving one between slots and switching arrangement
       each survive closing and reopening the program
-- [ ] `(manual)` switching quickly through all three arrangements writes the file
+- [x] `(manual)` switching quickly through all three arrangements writes the file
       once, not three times
-- [ ] `(manual)` a change made immediately before closing the window is in the
+- [x] `(manual)` a change made immediately before closing the window is in the
       file after the program exits
-- [ ] `(manual)` the window stays responsive during a save — the arrangement can
+- [x] `(manual)` the window stays responsive during a save — the arrangement can
       be switched while a write is in flight, with no freeze and no lost change
-- [ ] `(manual)` a burst of changes leaves no temporary file behind in the
+- [x] `(manual)` a burst of changes leaves no temporary file behind in the
       configuration directory, and the workspace file parses after every one
-- [ ] `(manual)` with the configuration directory made unwritable, a change shows
+- [x] `(manual)` with the configuration directory made unwritable, a change shows
       one line in the strip saying the arrangement could not be saved with its
       reason, logs the same with the path, and the program keeps working
-- [ ] `(manual)` closing the program during a restore, while accounts are still
+- [x] `(manual)` closing the program during a restore, while accounts are still
       queued, and reopening it brings those accounts back as running rather than
       as anything else
-- [ ] `(manual)` the strip's message from a failed save dismisses on its close
+- [x] `(manual)` the strip's message from a failed save dismisses on its close
       button and a later successful save leaves it dismissed
 
 ## References

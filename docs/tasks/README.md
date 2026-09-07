@@ -12,4 +12,4 @@ item's header carries `Landed:` or `Merged:`. Items 01–04 and 06 are `done`.
 
 | # | Roadmap item | Tasks | Progress | Status |
 |---|---|---|---|---|
-| [07](07-workspace-restore/) | Restoring the workspace on launch | 6 | 4/6 | in-progress |
+| [07](07-workspace-restore/) | Restoring the workspace on launch | 6 | 5/6 | in-progress |

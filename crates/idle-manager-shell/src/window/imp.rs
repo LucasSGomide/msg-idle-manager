@@ -4,6 +4,7 @@
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::rc::Rc;
+use std::sync::Arc;
 
 use gtk::CompositeTemplate;
 use gtk::gdk;
@@ -21,6 +22,7 @@ use idle_manager_core::{
 
 use crate::add_game_dialog::{AddGameDialog, Confirmed};
 use crate::message_strip::MessageStrip;
+use crate::save_on_change::Saver;
 use crate::session_grid::SessionGrid;
 use crate::session_sidebar::SessionSidebar;
 use crate::start_queue::StartQueue;
@@ -61,10 +63,9 @@ pub struct Window {
     sidebar: SessionSidebar,
     book: RefCell<SessionBook>,
     locator: RefCell<Option<Rc<dyn ProfileLocator>>>,
-    /// Saves the workspace and gives back the one it saved. Kept as a trait
-    /// object so the window never learns a file is involved (task 06 writes
-    /// through it).
-    workspace_store: RefCell<Option<Rc<dyn WorkspaceStore>>>,
+    /// The debounced save-on-change path (task 06), created once the ports are
+    /// attached.
+    saver: RefCell<Option<Saver>>,
     /// The game catalogue, read afresh every time the add-game dialog opens so
     /// a file dropped into the presets folder by hand shows up without a
     /// restart.
@@ -201,6 +202,19 @@ impl ObjectImpl for Window {
         self.connect_layout_toggle(&self.layout_side_by_side, Layout::SideBySide);
         self.connect_layout_toggle(&self.layout_grid, Layout::Grid);
 
+        // The one place a save is allowed to be waited on: a change made a
+        // moment before quitting has nothing else to trigger its write, so
+        // closing finishes any pending one first (task 06).
+        let window = self.obj().downgrade();
+        self.obj().connect_close_request(move |_| {
+            if let Some(window) = window.upgrade()
+                && let Some(saver) = window.imp().saver.borrow().as_ref()
+            {
+                saver.flush();
+            }
+            glib::Propagation::Proceed
+        });
+
         self.redraw();
     }
 }
@@ -214,13 +228,23 @@ impl Window {
         &self,
         locator: Rc<dyn ProfileLocator>,
         catalogue: Rc<dyn PresetCatalogue>,
-        store: Rc<dyn WorkspaceStore>,
+        store: Arc<dyn WorkspaceStore>,
         read_outcome: Result<Option<Workspace>, WorkspaceReadError>,
     ) {
         self.locator.replace(Some(locator));
         self.catalogue.replace(Some(catalogue));
-        self.workspace_store.replace(Some(store));
+        self.saver
+            .replace(Some(Saver::new(store, self.message_strip.clone())));
         self.apply_read_outcome(read_outcome);
+    }
+
+    /// Asks for the workspace to be saved after an action changed it. Cheap —
+    /// it only rearms a timer — so a caller in doubt asks (task 06). A no-op
+    /// before the ports are attached.
+    fn request_save(&self) {
+        if let Some(saver) = self.saver.borrow().as_ref() {
+            saver.request(self.book.borrow().workspace());
+        }
     }
 
     /// Acts on what the composition root read before the window was built: a
@@ -327,6 +351,7 @@ impl Window {
                 let imp = window.imp();
                 imp.book.borrow_mut().set_layout(layout);
                 imp.redraw();
+                imp.request_save();
             }
         });
     }
@@ -417,11 +442,13 @@ impl Window {
         self.grid.add_session(id, &name, view);
         self.holders.borrow_mut().insert(id.clone(), holder);
         self.redraw();
+        self.request_save();
     }
 
     fn focus_session(&self, id: &SessionId) {
         self.book.borrow_mut().focus_session(id);
         self.redraw();
+        self.request_save();
     }
 
     /// The park/start button was pressed. The direction is the book's to
@@ -437,9 +464,13 @@ impl Window {
             .map(Session::liveness);
 
         match liveness {
-            Some(Liveness::Live) => self.park_session(id),
+            Some(Liveness::Live) => {
+                self.park_session(id);
+                self.request_save();
+            }
             Some(Liveness::Parked) => {
                 self.start_session(id);
+                self.request_save();
             }
             // Starting and Queued both keep the row's Start item insensitive, so
             // a press that still arrives is a stale event; during a restore the
@@ -546,6 +577,7 @@ impl Window {
         // A live account moved to `Starting` by the set above; a parked one
         // did not, so this only shows the reloading marker where it applies.
         self.redraw();
+        self.request_save();
 
         let view = {
             let mut holders = self.holders.borrow_mut();

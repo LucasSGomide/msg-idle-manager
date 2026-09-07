@@ -154,11 +154,46 @@ one with `<img src="http://10.255.255.1/…">`. Recorded 2026-09-07.
       from that measurement (the roadmap item's third blocker); the queue's
       one-at-a-time behaviour above does not depend on the exact value.
 
+## 06 — Saving after every change
+
+Run headless on `:95` against a throwaway `XDG_CONFIG_HOME`; `pyin.fastclick`
+issues a burst with no delay between clicks. Recorded 2026-09-07.
+
+- [x] Add an account, park one, start one, toggle "Keep running when hidden",
+      switch arrangement — each writes `sessions.toml` (`workspace saved` in the
+      log). Close the window (its header ✕) and reopen: the grid layout, the
+      running Alpha, the parked Beta and Beta's keep-awake mark all come back.
+- [x] Five layout-toggle `fastclick`s in ~16 ms → the log shows exactly one
+      `workspace saved` ~400 ms later, and the file holds the last layout.
+- [x] Switch layout then click ✕ within the 400 ms window → the log shows
+      `workspace flushed on close` and the file holds the new layout: the last
+      change before quitting survived.
+- [x] During the five-click burst the header toggles keep updating and no click
+      is dropped; the write runs on `gio::spawn_blocking`, so the main context
+      is never blocked.
+- [x] After every burst, `ls <config>/idle-manager/*.tmp` is empty and
+      `sessions.toml` parses (`grep '^layout'` returns a value each time).
+- [x] `chmod 555` the configuration directory, then switch layout → the strip
+      reads "The arrangement could not be saved: could not write the workspace
+      file …sessions.toml.<pid>.tmp: Permission denied (os error 13)", the same
+      is logged at `warn` with the path, and the layout still changes — the
+      program keeps working.
+- [x] Reopen a workspace of two `running` accounts behind a hung `<img>`, then
+      click ✕ while the second is still queued → the file keeps both at
+      `liveness = "running"` (a queued or starting account is flattened to
+      running by `SessionBook::workspace`).
+- [x] Press the strip's ✕ to dismiss the failed-save message, `chmod 755` the
+      directory back, switch layout again → the save succeeds (`workspace
+      saved`) and the strip stays dismissed.
+- [ ] **Tester, real desktop:** confirm on a normal window-managed session that
+      switching arrangement, dragging a game between slots and adding an account
+      never stutter the window while a write is in flight.
+
 ## Teardown
 
 - [x] Kill the harness: `kill` the stored Xvfb and `idle-manager` PIDs (or
-      `pgrep -x`), `rm -f /tmp/.X95-lock`, remove the throwaway
-      `XDG_CONFIG_HOME` / `XDG_DATA_HOME` trees. Nothing is left under the real
-      config or data directory.
+      `pgrep -x`), `rm -f /tmp/.X95-lock`, `chmod 755` any directory a test made
+      read-only, remove the throwaway `XDG_CONFIG_HOME` / `XDG_DATA_HOME` trees.
+      Nothing is left under the real config or data directory.
 - [x] Slices 01–03 touch no disk outside `cargo`'s target directory (the
       integration tests clean their own throwaway directories on drop).

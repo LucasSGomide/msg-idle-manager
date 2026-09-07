@@ -14,6 +14,7 @@
 
 mod add_game_dialog;
 mod message_strip;
+mod save_on_change;
 mod session_grid;
 mod session_sidebar;
 mod slot_placeholder;

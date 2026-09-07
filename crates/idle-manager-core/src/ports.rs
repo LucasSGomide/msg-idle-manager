@@ -98,7 +98,10 @@ pub struct WorkspaceWriteError {
 /// three-way — no file, a workspace, or a failure — and the write is atomic
 /// from the caller's point of view: it either replaces the saved workspace
 /// entirely or leaves the previous one intact.
-pub trait WorkspaceStore: std::fmt::Debug {
+///
+/// `Send + Sync` so the shell can hand a write to a worker thread and keep the
+/// GTK main context free while the disk blocks (architecture rule 10).
+pub trait WorkspaceStore: std::fmt::Debug + Send + Sync {
     /// Reads the saved workspace now.
     ///
     /// # Errors

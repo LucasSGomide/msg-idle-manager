@@ -3,6 +3,7 @@
 
 use std::process::ExitCode;
 use std::rc::Rc;
+use std::sync::Arc;
 
 use anyhow::Context;
 use gtk::glib;
@@ -41,7 +42,7 @@ fn run() -> anyhow::Result<ExitCode> {
     let catalogue: Rc<dyn PresetCatalogue> = Rc::new(catalogue);
 
     let store = TomlWorkspaceStore::new().context("resolve the XDG config directory")?;
-    let store: Rc<dyn WorkspaceStore> = Rc::new(store);
+    let store: Arc<dyn WorkspaceStore> = Arc::new(store);
 
     let app = gtk::Application::builder().application_id(APP_ID).build();
 
@@ -59,7 +60,7 @@ fn run() -> anyhow::Result<ExitCode> {
             app,
             Rc::clone(&locator),
             Rc::clone(&catalogue),
-            Rc::clone(&store),
+            Arc::clone(&store),
             read_outcome,
         );
         window.present();

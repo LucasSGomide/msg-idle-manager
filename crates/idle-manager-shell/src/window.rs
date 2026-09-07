@@ -4,6 +4,7 @@
 mod imp;
 
 use std::rc::Rc;
+use std::sync::Arc;
 
 use gtk::gio;
 use gtk::glib;
@@ -36,7 +37,7 @@ impl Window {
         app: &gtk::Application,
         locator: Rc<dyn ProfileLocator>,
         catalogue: Rc<dyn PresetCatalogue>,
-        store: Rc<dyn WorkspaceStore>,
+        store: Arc<dyn WorkspaceStore>,
         read_outcome: Result<Option<Workspace>, WorkspaceReadError>,
     ) -> Self {
         let window: Self = glib::Object::builder().property("application", app).build();
