@@ -1,0 +1,22 @@
+---
+source: crates/idle-manager-store/tests/shipped-games-and-seeding.rs
+expression: on_disk
+---
+# Huntera. One game per file; copy this one and edit the five values below to
+# add a game the application has never heard of.
+
+name = "Huntera"
+url = "https://huntera.com.br/"
+
+# Page zoom as a plain multiplier: 1.0 is the engine's normal size, 0.8 smaller.
+zoom = 1.0
+
+# Whether this game must keep running at full speed while it is hidden. Turn it
+# on only for a game that loses progress when a background tab is throttled.
+keep_awake = false
+
+# The browser identity to present to this game. Leave it commented out for the
+# engine's own identity, which is what works for every game tested so far; set a
+# string here only for a game measured to turn the engine away, chosen by trying
+# it against that game.
+# user_agent = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 …"

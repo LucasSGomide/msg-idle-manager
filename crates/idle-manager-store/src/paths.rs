@@ -1,5 +1,8 @@
-//! `XdgProfileLocator`: the [`ProfileLocator`] port backed by the XDG data
-//! directory, one profile folder per session identifier.
+//! XDG locations: [`XdgProfileLocator`] roots one profile folder per session
+//! identifier under the XDG **data** directory, and [`presets_dir`] resolves the
+//! hand-editable preset folder under the XDG **config** directory. The split is
+//! `FR.8.3` — configuration a user edits lives apart from data the engine
+//! writes.
 
 use std::fs;
 use std::io;
@@ -14,13 +17,29 @@ const APP_NAME: &str = "idle-manager";
 /// The file dropped and removed to prove a directory is writable.
 const WRITE_PROBE: &str = ".idle-manager-write-probe";
 
-/// The XDG data directory could not be resolved.
+/// An XDG base directory could not be resolved.
 #[derive(Debug, thiserror::Error)]
 pub enum LocatorSetup {
-    /// No home directory is known, so there is no XDG data directory to root
-    /// profiles under.
-    #[error("no home directory: cannot resolve the XDG data directory")]
+    /// No home directory is known, so there is no XDG base directory to root
+    /// the profiles or the presets under.
+    #[error("no home directory: cannot resolve an XDG base directory")]
     NoHome,
+}
+
+/// The directory hand-editable preset files live in:
+/// `<XDG config>/idle-manager/presets/`.
+///
+/// Under the XDG **config** directory, never the data directory the profiles
+/// use (`FR.8.3`): a preset is configuration a user is invited to edit, a
+/// profile is data the engine owns. The path is read from the environment, so a
+/// moved home directory or an unusual `XDG_CONFIG_HOME` keeps working.
+///
+/// # Errors
+///
+/// [`LocatorSetup::NoHome`] if no home directory can be determined.
+pub fn presets_dir() -> Result<PathBuf, LocatorSetup> {
+    let dirs = ProjectDirs::from("", "", APP_NAME).ok_or(LocatorSetup::NoHome)?;
+    Ok(dirs.config_dir().join("presets"))
 }
 
 /// Locates session profiles under `<XDG data>/idle-manager/profiles/<id>/`.

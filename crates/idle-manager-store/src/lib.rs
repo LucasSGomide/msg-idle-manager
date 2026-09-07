@@ -6,5 +6,7 @@
 //! refactored without rewriting files a user already has on disk.
 
 mod paths;
+mod preset;
 
-pub use paths::{LocatorSetup, XdgProfileLocator};
+pub use paths::{LocatorSetup, XdgProfileLocator, presets_dir};
+pub use preset::{PresetFileError, TomlPresetCatalogue};
