@@ -13,7 +13,7 @@ use webkit6::{
     WebResource, WebView,
 };
 
-use idle_manager_core::SessionId;
+use idle_manager_core::{ProfileDirectories, SessionId, ZoomLevel};
 
 /// The cookie database file, kept inside the account's data directory so it
 /// survives a restart alongside the rest of the profile.
@@ -54,12 +54,12 @@ const FEATURE_ID_HIDDEN_PAGE_CSS_ANIMATION_SUSPENSION: &str = "HiddenPageCSSAnim
 /// One account's engine objects, held so the view can be destroyed and rebuilt
 /// without losing the account's storage.
 ///
-/// The [`NetworkSession`], the start address and the keep-awake flag are
-/// permanent; the [`WebView`] is present only while the account is running.
-/// Build one with [`SessionView::new`], read the current view with
-/// [`SessionView::view`], move between running and parked with
-/// [`SessionView::stop`] and [`SessionView::start`], and change keep-awake
-/// with [`SessionView::set_keep_awake`].
+/// The [`NetworkSession`], the start address, the keep-awake flag, the zoom and
+/// the browser identity are permanent; the [`WebView`] is present only while the
+/// account is running. Build one with [`SessionView::new`], read the current
+/// view with [`SessionView::view`], move between running and parked with
+/// [`SessionView::stop`] and [`SessionView::start`], and change keep-awake with
+/// [`SessionView::set_keep_awake`].
 #[derive(Debug)]
 pub struct SessionView {
     id: SessionId,
@@ -69,23 +69,42 @@ pub struct SessionView {
     /// (`FR.6.1`). Remembered here, not just on the live view, so a view
     /// rebuilt by [`SessionView::start`] after a park carries it forward.
     keep_awake: bool,
+    /// How large to draw the page, copied from the account's preset. Remembered
+    /// here for the same reason as `keep_awake`: a view rebuilt after a park
+    /// must come back at the same size, not the engine's default (code
+    /// standards rule 18).
+    zoom: ZoomLevel,
+    /// The identity to present, or `None` for the engine's own. `None` is not a
+    /// string this crate substitutes — item 01 measured a Chrome claim breaking
+    /// a real sign-in, so the override is applied only when the account carries
+    /// one (`FR.10.5`). Remembered here for the same reason as `zoom`.
+    identity: Option<String>,
     view: Option<WebView>,
 }
 
 impl SessionView {
     /// Builds the holder with its own persistent, isolated network session
-    /// rooted at `data_dir` and `cache_dir`, then builds and starts its first
-    /// view loading `start_address`. `id` names the account in the keep-awake
-    /// log line, since the two hidden-page switches are per view rather than
-    /// per context (`webkit6` 0.6.1, `src/auto/web_view.rs:157`) and a debug
-    /// log naming only the feature would not say whose page it touched.
+    /// rooted at `directories`, then builds and starts its first
+    /// view loading `start_address` at `zoom`, presenting `identity` when it is
+    /// `Some`. `id` names the account in the keep-awake log line, since the two
+    /// hidden-page switches are per view rather than per context (`webkit6`
+    /// 0.6.1, `src/auto/web_view.rs:157`) and a debug log naming only the
+    /// feature would not say whose page it touched.
     #[must_use]
-    pub fn new(id: &SessionId, data_dir: &Path, cache_dir: &Path, start_address: &str) -> Self {
+    pub fn new(
+        id: &SessionId,
+        directories: &ProfileDirectories,
+        start_address: &str,
+        zoom: ZoomLevel,
+        identity: Option<&str>,
+    ) -> Self {
         let mut holder = Self {
             id: id.clone(),
-            network_session: build_network_session(data_dir, cache_dir),
+            network_session: build_network_session(&directories.data, &directories.cache),
             start_address: start_address.to_owned(),
             keep_awake: false,
+            zoom,
+            identity: identity.map(str::to_owned),
             view: None,
         };
         holder.start();
@@ -120,14 +139,14 @@ impl SessionView {
     /// A new view, never a revived one: `network-session` is construct-only
     /// (`webkit6` 0.6.1, `web_view.rs:141`), so the binding to the kept storage
     /// area cannot be remade on the old view (`FR.5.4`, code-standards
-    /// rule 18). Applying keep-awake here — not just in
-    /// [`SessionView::set_keep_awake`] — is what makes a parked-and-restarted
-    /// account come back with the same switches already off (`FR.6.1`). The
-    /// content manager is built with the frame-callback shim already in its
-    /// script set when `keep_awake` is on, because the manager is a
-    /// construct-only property of the view (`webkit6` 0.6.1,
-    /// `web_view.rs:163`) and cannot gain a document-start script afterwards
-    /// (`FR.6.3`).
+    /// rule 18). Applying keep-awake, the zoom and the identity here — not just
+    /// once at construction — is what makes a parked-and-restarted account come
+    /// back with the same switches, the same size and the same identity
+    /// (`FR.6.1`, `FR.10.5`). The content manager is built with the
+    /// frame-callback shim already in its script set when `keep_awake` is on,
+    /// because the manager is a construct-only property of the view (`webkit6`
+    /// 0.6.1, `web_view.rs:163`) and cannot gain a document-start script
+    /// afterwards (`FR.6.3`).
     pub fn start(&mut self) -> &WebView {
         let view = WebView::builder()
             .network_session(&self.network_session)
@@ -135,6 +154,7 @@ impl SessionView {
             .build();
 
         configure(&view);
+        apply_account_settings(&view, self.zoom, self.identity.as_deref());
         if self.keep_awake {
             apply_keep_awake(&view, true, &self.id);
         }
@@ -205,9 +225,11 @@ fn build_network_session(data_dir: &Path, cache_dir: &Path) -> NetworkSession {
 /// Services answers a click on its own button by posting one telemetry record
 /// and opening nothing, and Cloudflare Turnstile never issues a token. Under
 /// the engine's own user agent the same click opens the OAuth window and the
-/// same widget clears itself. Item 06 makes this a per-game preset field; a
-/// game that genuinely needs a different string gets one there, tested against
-/// that game, rather than every session claiming the same untested lie.
+/// same widget clears itself. Item 06 made this a per-game preset field: a game
+/// that genuinely needs a different string gets one in its preset file, tested
+/// against that game, and [`apply_account_settings`] applies it — every other
+/// account keeps the engine's own identity, which this measurement is the
+/// record of (code standards rule 18).
 fn configure(view: &WebView) {
     let settings = webkit6::prelude::WebViewExt::settings(view)
         .expect("a web view always has a settings object");
@@ -228,6 +250,48 @@ fn configure(view: &WebView) {
 
     view.connect_create(|opener, action| Some(open_popup(opener, action)));
     wire_diagnostics(view);
+}
+
+/// Applies the two view settings an account carries from its preset: the page
+/// zoom, always, and the browser identity **only when the account has one**.
+///
+/// Both before the first `load_uri` so the page is never drawn at the wrong
+/// size or under the wrong identity and then corrected in view. `set_user_agent`
+/// rather than `set_user_agent_with_application_details` (`webkit6` 0.6.1,
+/// `src/auto/settings.rs:1322` and `:1329`): the appending call cannot produce a
+/// string the engine contradicts, which makes it the safer call but not what an
+/// override is for — a game that turns the engine away turns away an engine with
+/// a suffix too. When `identity` is `None` neither setter is touched and the
+/// engine keeps its own (`FR.10.5`, code standards rule 18).
+fn apply_account_settings(view: &WebView, zoom: ZoomLevel, identity: Option<&str>) {
+    view.set_zoom_level(zoom.multiplier());
+
+    let Some(identity) = identity else {
+        return;
+    };
+    let settings = webkit6::prelude::WebViewExt::settings(view)
+        .expect("a web view always has a settings object");
+    settings.set_user_agent(Some(identity));
+    tracing::debug!(user_agent = identity, "account identity override applied");
+}
+
+/// Copies `opener`'s user-agent string onto `popup`'s settings.
+///
+/// A popup built with `related-view` shares the opener's network session and
+/// web process but gets its own settings object, so an identity override does
+/// not reach the sign-in window unless copied here. Copying unconditionally is
+/// harmless: with no override the opener already reports the engine's own
+/// string and the popup would too (task 05, code standards rule 18).
+fn copy_user_agent(opener: &WebView, popup: &WebView) {
+    let (Some(from), Some(to)) = (
+        webkit6::prelude::WebViewExt::settings(opener),
+        webkit6::prelude::WebViewExt::settings(popup),
+    ) else {
+        return;
+    };
+    if let Some(user_agent) = from.user_agent() {
+        to.set_user_agent(Some(user_agent.as_str()));
+    }
 }
 
 /// A fresh content manager carrying the page-console bridge, and the
@@ -437,6 +501,7 @@ fn open_popup(opener: &WebView, action: &NavigationAction) -> gtk::Widget {
     }
     let popup = popup.build();
     configure(&popup);
+    copy_user_agent(opener, &popup);
 
     let parent = opener.root().and_downcast::<gtk::Window>();
     let popup_for_show = popup.clone();

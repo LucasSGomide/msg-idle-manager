@@ -8,9 +8,9 @@ use anyhow::Context;
 use gtk::glib;
 use gtk::prelude::*;
 use gtk4 as gtk;
-use idle_manager_core::ProfileLocator;
+use idle_manager_core::{PresetCatalogue, ProfileLocator};
 use idle_manager_shell::Window;
-use idle_manager_store::XdgProfileLocator;
+use idle_manager_store::{TomlPresetCatalogue, XdgProfileLocator};
 
 /// The application's D-Bus and settings identifier.
 const APP_ID: &str = "org.idlemanager.IdleManager";
@@ -37,12 +37,15 @@ fn run() -> anyhow::Result<ExitCode> {
     let locator = XdgProfileLocator::new().context("resolve the XDG data directory")?;
     let locator: Rc<dyn ProfileLocator> = Rc::new(locator);
 
+    let catalogue = TomlPresetCatalogue::new().context("resolve the XDG config directory")?;
+    let catalogue: Rc<dyn PresetCatalogue> = Rc::new(catalogue);
+
     let app = gtk::Application::builder().application_id(APP_ID).build();
 
     app.connect_activate(move |app| {
         tracing::info!("activated; presenting the main window");
         idle_manager_shell::configure_web_engine();
-        let window = Window::new(app, Rc::clone(&locator));
+        let window = Window::new(app, Rc::clone(&locator), Rc::clone(&catalogue));
         window.present();
     });
 

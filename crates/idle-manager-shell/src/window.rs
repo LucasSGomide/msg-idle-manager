@@ -10,7 +10,7 @@ use gtk::glib;
 use gtk::subclass::prelude::*;
 use gtk4 as gtk;
 
-use idle_manager_core::ProfileLocator;
+use idle_manager_core::{PresetCatalogue, ProfileLocator};
 
 glib::wrapper! {
     /// The single top-level window, built from `ui/window.ui`.
@@ -24,11 +24,16 @@ glib::wrapper! {
 
 impl Window {
     /// Builds the window for `app`, wired to `locator` for each new account's
-    /// profile directories.
+    /// profile directories and to `catalogue` for the add-game dialog's game
+    /// list.
     #[must_use]
-    pub fn new(app: &gtk::Application, locator: Rc<dyn ProfileLocator>) -> Self {
+    pub fn new(
+        app: &gtk::Application,
+        locator: Rc<dyn ProfileLocator>,
+        catalogue: Rc<dyn PresetCatalogue>,
+    ) -> Self {
         let window: Self = glib::Object::builder().property("application", app).build();
-        window.imp().attach_locator(locator);
+        window.imp().attach_ports(locator, catalogue);
         window
     }
 }

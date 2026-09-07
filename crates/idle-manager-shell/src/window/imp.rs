@@ -14,9 +14,11 @@ use gtk4 as gtk;
 use webkit6::LoadEvent;
 use webkit6::prelude::WebViewExt;
 
-use idle_manager_core::{Layout, Liveness, ProfileLocator, Session, SessionBook, SessionId};
+use idle_manager_core::{
+    Layout, Liveness, Preset, PresetCatalogue, ProfileLocator, Session, SessionBook, SessionId,
+};
 
-use crate::add_game_dialog::AddGameDialog;
+use crate::add_game_dialog::{AddGameDialog, Confirmed};
 use crate::session_grid::SessionGrid;
 use crate::session_sidebar::SessionSidebar;
 use crate::web_view::SessionView;
@@ -50,6 +52,10 @@ pub struct Window {
     sidebar: SessionSidebar,
     book: RefCell<SessionBook>,
     locator: RefCell<Option<Rc<dyn ProfileLocator>>>,
+    /// The game catalogue, read afresh every time the add-game dialog opens so
+    /// a file dropped into the presets folder by hand shows up without a
+    /// restart.
+    catalogue: RefCell<Option<Rc<dyn PresetCatalogue>>>,
     /// One holder per account, owning its network session for the account's
     /// whole life and its view only while it is running. The grid holds its own
     /// reference to the same view; this map is what a later slice asks to stop
@@ -184,8 +190,13 @@ impl WindowImpl for Window {}
 impl ApplicationWindowImpl for Window {}
 
 impl Window {
-    pub(super) fn attach_locator(&self, locator: Rc<dyn ProfileLocator>) {
+    pub(super) fn attach_ports(
+        &self,
+        locator: Rc<dyn ProfileLocator>,
+        catalogue: Rc<dyn PresetCatalogue>,
+    ) {
         self.locator.replace(Some(locator));
+        self.catalogue.replace(Some(catalogue));
     }
 
     fn connect_layout_toggle(&self, toggle: &gtk::ToggleButton, layout: Layout) {
@@ -203,28 +214,76 @@ impl Window {
     }
 
     fn present_add_game_dialog(&self) {
-        let dialog = AddGameDialog::new();
+        let Some(catalogue) = self.catalogue.borrow().clone() else {
+            tracing::error!("no preset catalogue attached; cannot open the add-game dialog");
+            return;
+        };
+
+        let dialog = AddGameDialog::new(catalogue.as_ref());
         dialog.set_transient_for(Some(&*self.obj()));
 
         let window = self.obj().downgrade();
-        dialog.connect_confirmed(move |name, address| {
-            if let Some(window) = window.upgrade() {
-                window.imp().create_account(name, address);
+        dialog.connect_confirmed(move |confirmed| {
+            let Some(window) = window.upgrade() else {
+                return;
+            };
+            // The dialog reports what the user chose; the book decides what it
+            // means (architecture rule 8).
+            match confirmed {
+                Confirmed::Preset {
+                    preset,
+                    account_name,
+                } => window
+                    .imp()
+                    .create_account_from_preset(preset, account_name),
+                Confirmed::Custom { name, address } => window.imp().create_account(name, address),
             }
         });
 
         dialog.present();
     }
 
+    /// Adds an account from a typed name and address, then builds its view.
     fn create_account(&self, name: &str, address: &str) {
+        let id = self.book.borrow_mut().add(name, address);
+        self.realise_account(&id);
+    }
+
+    /// Adds an account for `preset`'s game under `account_name` — the book
+    /// copies the game's address, zoom, browser identity and keep-awake default
+    /// onto it — then builds its view.
+    fn create_account_from_preset(&self, preset: &Preset, account_name: &str) {
+        let id = self.book.borrow_mut().add_from_preset(account_name, preset);
+        self.realise_account(&id);
+    }
+
+    /// Prepares the profile directories for a just-added account and hands its
+    /// first view to the grid. Reads the account's name, address, zoom and
+    /// browser identity off the book, never off a preset kept on the side —
+    /// which is what makes the account independent of the file it came from.
+    fn realise_account(&self, id: &SessionId) {
         let Some(locator) = self.locator.borrow().clone() else {
             tracing::error!("no profile locator attached; cannot create an account");
             return;
         };
 
-        let id = self.book.borrow_mut().add(name, address);
+        let Some((name, address, zoom, identity)) =
+            self.book.borrow().sessions().iter().find_map(|session| {
+                (session.id() == id).then(|| {
+                    (
+                        session.display_name().to_owned(),
+                        session.start_address().to_owned(),
+                        session.zoom(),
+                        session.browser_identity().map(str::to_owned),
+                    )
+                })
+            })
+        else {
+            tracing::error!(session = %id, "the account is not in the book");
+            return;
+        };
 
-        let directories = match locator.locate(&id) {
+        let directories = match locator.locate(id) {
             Ok(directories) => directories,
             Err(error) => {
                 tracing::error!(session = %id, %error, "could not prepare the profile directories");
@@ -232,13 +291,13 @@ impl Window {
             }
         };
 
-        let holder = SessionView::new(&id, &directories.data, &directories.cache, address);
+        let holder = SessionView::new(id, &directories, &address, zoom, identity.as_deref());
         let Some(view) = holder.view() else {
             tracing::error!(session = %id, "the new account's view was not built");
             return;
         };
-        self.grid.add_session(&id, name, view);
-        self.holders.borrow_mut().insert(id, holder);
+        self.grid.add_session(id, &name, view);
+        self.holders.borrow_mut().insert(id.clone(), holder);
         self.redraw();
     }
 
