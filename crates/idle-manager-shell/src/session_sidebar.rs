@@ -54,6 +54,18 @@ impl SessionSidebar {
             .on_parking_toggled
             .replace(Some(Box::new(handler)));
     }
+
+    /// Registers `handler` to run with an account's id and the value asked
+    /// for when its row menu's "Keep running when hidden" item is chosen.
+    /// The menu reports only the intent it was given; whether the flag
+    /// actually changes, and what the shell does in response, is the
+    /// window's to decide (architecture rule 8). Replaces any previous
+    /// handler.
+    pub fn connect_keep_awake_toggled(&self, handler: impl Fn(SessionId, bool) + 'static) {
+        self.imp()
+            .on_keep_awake_toggled
+            .replace(Some(Box::new(handler)));
+    }
 }
 
 impl Default for SessionSidebar {

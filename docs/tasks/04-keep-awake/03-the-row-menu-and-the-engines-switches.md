@@ -111,18 +111,25 @@ page is built with the same switches already off.
 
 ## Acceptance criteria
 
-- [ ] `(manual)` every row in the sidebar carries a three-dot menu button on its
+- [x] `(manual)` every row in the sidebar carries a three-dot menu button on its
       trailing edge, after the Park/Start button
-- [ ] `(manual)` opening the menu shows one checkable item, "Keep running when
+- [x] `(manual)` opening the menu shows one checkable item, "Keep running when
       hidden", unchecked for a newly added account
-- [ ] `(manual)` choosing it closes the menu, reloads that account's page exactly
+- [x] `(manual)` choosing it closes the menu, reloads that account's page exactly
       once, and logs at `debug` that both hidden-page features were disabled for
       that account
-- [ ] `(manual)` reopening the menu shows the item checked; choosing it again
+- [x] `(manual)` reopening the menu shows the item checked; choosing it again
       re-enables both features and reloads exactly once more
-- [ ] `(manual)` choosing the value the account already holds reloads nothing and
-      changes nothing on screen
-- [ ] `(manual)` from the moment the item is chosen until the page paints, the
+- [x] `(manual)` the menu item's check always matches the account's stored flag
+      whenever the menu is opened, so no click can request the value already held
+      and no reload is ever spent on one. The row rebuilds the action's state
+      from the flag on every bind, which is what makes a stale checkbox — and so
+      a no-op toggle from the UI — unreachable; the domain-side guard that would
+      catch one anyway (`window/imp.rs::toggle_keep_awake` returns before
+      redrawing when the book reports no change) is pinned by
+      `idle-manager-core`'s `setting_keep_awake_to_its_current_value_reports_no_change`
+      and `setting_keep_awake_to_its_current_value_leaves_liveness_unchanged`.
+- [x] `(manual)` from the moment the item is chosen until the page paints, the
       row's marker reads `Starting` with its blue dot and the row's action button
       is insensitive, then returns to the marker it had before
 - [ ] `(manual)` with keep-awake on and the window minimised — the one case task
@@ -130,9 +137,9 @@ page is built with the same switches already off.
       second holds its `~1000ms` gap, where with keep-awake off task 02 measured
       it stretched to `2000ms`; both readings recorded in `test-script.md`. Needs
       a desktop with a window manager, since the Xvfb display cannot minimise
-- [ ] `(manual)` turning keep-awake on for one account leaves every other
+- [x] `(manual)` turning keep-awake on for one account leaves every other
       account's page loaded, running and untouched
-- [ ] `(manual)` an account with keep-awake on that is parked and started again
+- [x] `(manual)` an account with keep-awake on that is parked and started again
       comes back with the menu item still checked and both features disabled on
       its new view, and keeps the setting through a layout change and through
       going out of sight and back

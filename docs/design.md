@@ -46,3 +46,14 @@ citations, so append rather than reorder.
    different words and a different button — nothing to redesign. The state line
    and the button label are widget properties, not markup, so the two panels
    cannot drift apart.
+
+5. **Put a setting a row carries once and then forgets behind a menu button on
+   the row's trailing edge; keep the row's action button, rule 2's single
+   invert-with-state control, free of it.** "Keep running when hidden" is
+   chosen once per account and left alone, unlike Park/Start, which is pressed
+   constantly — stacking it on the row would either spend permanent width on
+   something touched once, or turn the row's one action into two, which rule 2
+   already forbids. A `gtk::MenuButton` opening a `gio::Menu` costs the row
+   nothing while closed, which is the point: something reached rarely is a
+   click away behind its own affordance, not a fixture beside the one that
+   matters every time.

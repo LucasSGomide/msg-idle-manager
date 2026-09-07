@@ -30,6 +30,19 @@
 - [x] Minimise the window on a real desktop with a window manager (the Xvfb display used above has none, so the iconify request goes unanswered there) and read the same page for ~20s, then restore — the page reports `hidden=true` throughout, the one-second timer's gap stretches from `1004ms` to a steady `2000ms`, and the frame counter freezes completely at 1246 for 22 seconds (`fps=0`) before returning to `fps=60` on restore. **A minimised window is marked hidden**: a timer-driven game runs at half speed and a frame-driven game stops dead, which is what both engine switches and the shim exist to prevent.
 - [x] Screenshot the sidebar and grid before and after the change — two accounts, one `Current` and one `Background`, each row showing its name, state word, coloured dot and `Park` button, and the grid rendering the current account's page. Layout and controls are identical to pre-slice, and both accounts' pages load.
 
+## 03 — The row menu and the engine's switches
+
+- [x] Start the app per `## Setup`, `Add game` → name/address → `Add` — the new row shows a name, state word, `Park` button and a `⋮` three-dot menu button after it, on every row added.
+- [x] Click the row's `⋮` button — a popover opens with one checkable item, "Keep running when hidden", unchecked.
+- [x] Click that item — the popover closes; the log shows one `DEBUG keep-awake features set session=session-0001 keep_awake=true features=["HiddenPageDOMTimerThrottling", "HiddenPageCSSAnimationSuspension"]`, and exactly one `load changed event=Started` → `Finished` cycle for that account follows.
+- [x] Reopen the row's menu — the item now shows a checkmark. Click it again — the popover closes, the log shows `keep_awake=false` with the same two identifiers, and one more reload cycle for that account.
+- [x] Reopen the menu a third time — the item shows unchecked again, matching the last toggle. The check always matches the stored flag, so no click can request the value already held.
+- [x] Add a second account whose address hangs on connect (`http://10.255.255.1/`), open its menu and choose the item — the row reads `Starting` with a blue dot and its action button reads `Start`, greyed out, for as long as the reload is in flight, then returns to `Current`/`Park`.
+- [x] While the second account's toggle fires (`session=session-0002`), the first account's row stays `Background`/`Park` and only ever logs against `session=session-0001` on its own toggles — one account's toggle never touches another's.
+- [x] With the first account's keep-awake left on, click `Park` on its row, then `Start` — the log shows `keep-awake features set session=session-0001 keep_awake=true ...` firing again from the fresh view `SessionView::start` builds, and reopening the menu shows the item still checked.
+- [x] Switch the layout to "2" and back to "1", moving the first account's slot and focus — the menu still reads checked afterwards, and the layout change triggers no reload of its own.
+- [ ] With keep-awake **on** for an account running the `## Setup` timer page, minimise the window for ~20s and read the timer's gap, then restore — expect `~1000ms`, against the `2000ms` recorded above with the flag off. **Not run here:** the Xvfb display has no window manager, so minimising is impossible; run this on a real desktop.
+
 ## Teardown
 
 - [x] `kill <dbus-run-session PID> <idle-manager PID>` then `kill <Xvfb PID>` — all three are gone from `ps -eo pid,cmd`. Never `pkill -f target/debug/idle-manager`: that pattern matches the driving shell's own argv and kills it.

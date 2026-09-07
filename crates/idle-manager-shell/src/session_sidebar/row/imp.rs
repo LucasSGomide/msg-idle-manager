@@ -36,6 +36,12 @@ pub struct Row {
     /// account is starting, so a second press cannot build a second view.
     #[property(get, set)]
     action_sensitive: Cell<bool>,
+    /// Whether the account must keep running at full speed while hidden,
+    /// mirrored from [`idle_manager_core::Session::is_kept_awake`]. The row
+    /// menu's checkable item reads this on every bind rather than reaching
+    /// into the book (naming rule 12).
+    #[property(get, set)]
+    is_kept_awake: Cell<bool>,
 }
 
 impl std::fmt::Debug for Row {

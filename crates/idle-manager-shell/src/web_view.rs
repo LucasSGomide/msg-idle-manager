@@ -13,6 +13,8 @@ use webkit6::{
     WebResource, WebView,
 };
 
+use idle_manager_core::SessionId;
+
 /// The cookie database file, kept inside the account's data directory so it
 /// survives a restart alongside the rest of the profile.
 const COOKIE_DB: &str = "cookies.sqlite";
@@ -47,27 +49,38 @@ const FEATURE_ID_HIDDEN_PAGE_CSS_ANIMATION_SUSPENSION: &str = "HiddenPageCSSAnim
 /// One account's engine objects, held so the view can be destroyed and rebuilt
 /// without losing the account's storage.
 ///
-/// The [`NetworkSession`] and the start address are permanent; the [`WebView`]
-/// is present only while the account is running. Build one with
-/// [`SessionView::new`], read the current view with [`SessionView::view`], and
-/// move between running and parked with [`SessionView::stop`] and
-/// [`SessionView::start`].
+/// The [`NetworkSession`], the start address and the keep-awake flag are
+/// permanent; the [`WebView`] is present only while the account is running.
+/// Build one with [`SessionView::new`], read the current view with
+/// [`SessionView::view`], move between running and parked with
+/// [`SessionView::stop`] and [`SessionView::start`], and change keep-awake
+/// with [`SessionView::set_keep_awake`].
 #[derive(Debug)]
 pub struct SessionView {
+    id: SessionId,
     network_session: NetworkSession,
     start_address: String,
+    /// Whether the account must keep running at full speed while hidden
+    /// (`FR.6.1`). Remembered here, not just on the live view, so a view
+    /// rebuilt by [`SessionView::start`] after a park carries it forward.
+    keep_awake: bool,
     view: Option<WebView>,
 }
 
 impl SessionView {
     /// Builds the holder with its own persistent, isolated network session
     /// rooted at `data_dir` and `cache_dir`, then builds and starts its first
-    /// view loading `start_address`.
+    /// view loading `start_address`. `id` names the account in the keep-awake
+    /// log line, since the two hidden-page switches are per view rather than
+    /// per context (`webkit6` 0.6.1, `src/auto/web_view.rs:157`) and a debug
+    /// log naming only the feature would not say whose page it touched.
     #[must_use]
-    pub fn new(data_dir: &Path, cache_dir: &Path, start_address: &str) -> Self {
+    pub fn new(id: &SessionId, data_dir: &Path, cache_dir: &Path, start_address: &str) -> Self {
         let mut holder = Self {
+            id: id.clone(),
             network_session: build_network_session(data_dir, cache_dir),
             start_address: start_address.to_owned(),
+            keep_awake: false,
             view: None,
         };
         holder.start();
@@ -95,13 +108,16 @@ impl SessionView {
     }
 
     /// Starts the account: builds a fresh view bound to the kept network
-    /// session, applies the shared settings, and loads the start address.
-    /// Returns the new view. Replaces any view already held.
+    /// session, applies the shared settings and the remembered keep-awake
+    /// switches, and loads the start address. Returns the new view. Replaces
+    /// any view already held.
     ///
     /// A new view, never a revived one: `network-session` is construct-only
     /// (`webkit6` 0.6.1, `web_view.rs:141`), so the binding to the kept storage
     /// area cannot be remade on the old view (`FR.5.4`, code-standards
-    /// rule 18).
+    /// rule 18). Applying keep-awake here — not just in
+    /// [`SessionView::set_keep_awake`] — is what makes a parked-and-restarted
+    /// account come back with the same switches already off (`FR.6.1`).
     pub fn start(&mut self) -> &WebView {
         let view = WebView::builder()
             .network_session(&self.network_session)
@@ -109,9 +125,33 @@ impl SessionView {
             .build();
 
         configure(&view);
+        if self.keep_awake {
+            apply_keep_awake(&view, true, &self.id);
+        }
         view.load_uri(&self.start_address);
 
         self.view.insert(view)
+    }
+
+    /// Turns keep-awake on or off for this account: flips the two hidden-page
+    /// engine switches on the current view's settings and reloads, since
+    /// there is no API to make a settings change reach a page that has
+    /// already loaded (`FR.6.2`, `webkit6` 0.6.1,
+    /// `src/auto/user_script.rs:22`'s doc explains the same limit for the
+    /// script half of this feature). Returns the reloaded view, or `None`
+    /// while the account is parked.
+    ///
+    /// Remembers `on` regardless of whether a view exists, so a later
+    /// [`SessionView::start`] builds its fresh view with the same switches
+    /// already applied (`FR.6.1`).
+    pub fn set_keep_awake(&mut self, on: bool) -> Option<&WebView> {
+        self.keep_awake = on;
+        let view = self.view.as_ref()?;
+
+        apply_keep_awake(view, on, &self.id);
+        view.reload();
+
+        Some(view)
     }
 }
 
@@ -431,8 +471,7 @@ pub(crate) fn log_engine_features() {
 
     let features = find_keep_awake_features(&list);
     // Named field reads, not `?features`: a derived `Debug` impl does not
-    // count as a use for dead-code analysis, and task 03 (the intended reader)
-    // does not exist yet.
+    // count as a use for dead-code analysis.
     tracing::debug!(
         timer_throttling_found = features.hidden_page_timer_throttling.is_some(),
         css_animation_suspension_found = features.hidden_page_css_animation_suspension.is_some(),
@@ -440,5 +479,45 @@ pub(crate) fn log_engine_features() {
     );
     KEEP_AWAKE_FEATURES.with(|cell| {
         cell.get_or_init(|| features);
+    });
+}
+
+/// Disables (`on = true`) or restores (`on = false`) both hidden-page engine
+/// switches on `view`'s settings, from the list [`log_engine_features`] cached
+/// at start-up, and logs which ones were touched for account `id`.
+///
+/// Never re-searches [`Settings::all_features`] — the whole reason the list is
+/// cached once. A feature missing from this build was already warned about
+/// there; here it is silently skipped, because a session running with one
+/// switch missing is better than one that will not start (code standards
+/// rules 14, 15).
+fn apply_keep_awake(view: &WebView, on: bool, id: &SessionId) {
+    let settings = webkit6::prelude::WebViewExt::settings(view)
+        .expect("a web view always has a settings object");
+
+    KEEP_AWAKE_FEATURES.with(|cell| {
+        let Some(features) = cell.get() else {
+            // `log_engine_features` runs once at start-up, before any session
+            // is built; reaching here without it is a start-up ordering bug,
+            // not a per-session condition, so it earns a warning rather than
+            // silent skipping like a genuinely missing feature does.
+            tracing::warn!(
+                session = %id,
+                "keep-awake features were never looked up; log_engine_features must run at start-up"
+            );
+            return;
+        };
+
+        let mut applied = Vec::new();
+        if let Some(feature) = &features.hidden_page_timer_throttling {
+            settings.set_feature_enabled(feature, !on);
+            applied.push(FEATURE_ID_HIDDEN_PAGE_TIMER_THROTTLING);
+        }
+        if let Some(feature) = &features.hidden_page_css_animation_suspension {
+            settings.set_feature_enabled(feature, !on);
+            applied.push(FEATURE_ID_HIDDEN_PAGE_CSS_ANIMATION_SUSPENSION);
+        }
+
+        tracing::debug!(session = %id, keep_awake = on, features = ?applied, "keep-awake features set");
     });
 }

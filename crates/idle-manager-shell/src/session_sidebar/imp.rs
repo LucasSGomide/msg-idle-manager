@@ -5,6 +5,7 @@
 use std::cell::{OnceCell, RefCell};
 use std::sync::Once;
 
+use gio::prelude::ActionMapExt;
 use gtk::CompositeTemplate;
 use gtk::gdk;
 use gtk::gio;
@@ -36,6 +37,20 @@ type ActivateHandler = Box<dyn Fn(SessionId)>;
 /// account's current liveness, not the row's (architecture rule 8).
 type ParkingHandler = Box<dyn Fn(SessionId)>;
 
+/// A handler run with an account's id and the value asked for when its row
+/// menu's "Keep running when hidden" item is chosen. The menu reports only the
+/// intent; whether anything actually changes is the book's to decide
+/// (architecture rule 8).
+type KeepAwakeHandler = Box<dyn Fn(SessionId, bool)>;
+
+/// The name the per-row settings menu's action group is inserted under. Local
+/// to the row's own `MenuButton`, distinct from any application- or
+/// window-scoped `win`/`app` prefix.
+const ROW_ACTION_GROUP: &str = "row";
+/// The stateful action a row's "Keep running when hidden" item is bound to,
+/// namespaced under [`ROW_ACTION_GROUP`] in the menu's detailed action name.
+const KEEP_AWAKE_ACTION: &str = "keep-awake";
+
 /// The composite-template backing object for [`super::SessionSidebar`].
 #[derive(Default, CompositeTemplate)]
 #[template(resource = "/org/idlemanager/IdleManager/ui/session-sidebar.ui")]
@@ -52,6 +67,7 @@ pub struct SessionSidebar {
     store: OnceCell<gio::ListStore>,
     pub(super) on_activated: RefCell<Option<ActivateHandler>>,
     pub(super) on_parking_toggled: RefCell<Option<ParkingHandler>>,
+    pub(super) on_keep_awake_toggled: RefCell<Option<KeepAwakeHandler>>,
 }
 
 impl std::fmt::Debug for SessionSidebar {
@@ -125,13 +141,7 @@ impl SessionSidebar {
         store.remove_all();
         for session in book.sessions() {
             let current = session.visibility() == Visibility::InSlot(focused);
-            store.append(&Row::new(
-                session.id(),
-                session.display_name(),
-                session.liveness(),
-                session.visibility(),
-                current,
-            ));
+            store.append(&Row::new(session, current));
         }
 
         let empty = book.sessions().is_empty();
@@ -163,13 +173,15 @@ fn install_styles() {
 }
 
 /// Builds the factory that turns each [`Row`] into a name label, a trailing
-/// status marker — a word and a coloured dot — and a park/start button. The
-/// word and the dot's class both come from the row's status key, derived once
-/// in [`super::row`], so items 03 and 08 extend that and never this.
+/// status marker — a word and a coloured dot — a park/start button and a
+/// settings menu button. The word and the dot's class both come from the
+/// row's status key, derived once in [`super::row`], so items 03 and 08
+/// extend that and never this.
 fn row_factory(sidebar: &super::SessionSidebar) -> gtk::SignalListItemFactory {
     let factory = gtk::SignalListItemFactory::new();
 
     let sidebar = sidebar.downgrade();
+    let bind_sidebar = sidebar.clone();
     factory.connect_setup(move |_, item| {
         let item = item
             .downcast_ref::<gtk::ListItem>()
@@ -195,6 +207,21 @@ fn row_factory(sidebar: &super::SessionSidebar) -> gtk::SignalListItemFactory {
         let action = gtk::Button::builder().valign(gtk::Align::Center).build();
         action.add_css_class("flat");
 
+        // The menu's content never varies between rows or binds — only the
+        // action behind "row.keep-awake" does, rebuilt on every bind below —
+        // so it is built once here rather than on every bind.
+        let settings_menu = gio::Menu::new();
+        settings_menu.append(
+            Some("Keep running when hidden"),
+            Some(&format!("{ROW_ACTION_GROUP}.{KEEP_AWAKE_ACTION}")),
+        );
+        let settings = gtk::MenuButton::builder()
+            .valign(gtk::Align::Center)
+            .icon_name("view-more-symbolic")
+            .menu_model(&settings_menu)
+            .build();
+        settings.add_css_class("flat");
+
         let row = gtk::Box::builder()
             .orientation(gtk::Orientation::Horizontal)
             .spacing(6)
@@ -203,6 +230,7 @@ fn row_factory(sidebar: &super::SessionSidebar) -> gtk::SignalListItemFactory {
         row.append(&status);
         row.append(&dot);
         row.append(&action);
+        row.append(&settings);
 
         item.set_child(Some(&row));
 
@@ -227,7 +255,7 @@ fn row_factory(sidebar: &super::SessionSidebar) -> gtk::SignalListItemFactory {
         });
     });
 
-    factory.connect_bind(|_, item| {
+    factory.connect_bind(move |_, item| {
         let item = item
             .downcast_ref::<gtk::ListItem>()
             .expect("a list item factory is handed ListItems");
@@ -246,7 +274,10 @@ fn row_factory(sidebar: &super::SessionSidebar) -> gtk::SignalListItemFactory {
         let Some(dot) = status.next_sibling() else {
             return;
         };
-        let Some(action) = row.last_child().and_downcast::<gtk::Button>() else {
+        let Some(action) = dot.next_sibling().and_downcast::<gtk::Button>() else {
+            return;
+        };
+        let Some(settings) = action.next_sibling().and_downcast::<gtk::MenuButton>() else {
             return;
         };
 
@@ -258,8 +289,55 @@ fn row_factory(sidebar: &super::SessionSidebar) -> gtk::SignalListItemFactory {
         }
         dot.add_css_class(&format!("status-{key}"));
         action.set_label(&data.action_label());
+        bind_keep_awake_action(&settings, &data, &bind_sidebar);
         action.set_sensitive(data.action_sensitive());
     });
 
     factory
+}
+
+/// Rebuilds `settings`'s action group from `data`'s current flag and installs
+/// it under [`ROW_ACTION_GROUP`], replacing whatever the widget held before.
+///
+/// A fresh [`gio::SimpleAction`] on every bind, not a reused one: the list
+/// recycles this `MenuButton` across accounts, and `GtkWidget` exposes no way
+/// to read an already-inserted action group back out to update it in place, so
+/// building a new one — seeded with the account now bound, per design rule 1's
+/// pattern of re-deriving state on every bind rather than reaching for the
+/// book — is the only avenue `insert_action_group` offers (architecture
+/// rules 8, 10).
+///
+/// The action's `change-state` handler reports the requested value as an
+/// intent and never calls [`gio::SimpleAction::set_state`] itself: the menu
+/// decides nothing, so the checkbox only moves once the book's answer comes
+/// back around through [`SessionSidebar::sync`] and this function runs again
+/// (architecture rule 8).
+fn bind_keep_awake_action(
+    settings: &gtk::MenuButton,
+    data: &Row,
+    sidebar: &glib::WeakRef<super::SessionSidebar>,
+) {
+    let action = gio::SimpleAction::new_stateful(
+        KEEP_AWAKE_ACTION,
+        None,
+        &data.is_kept_awake().to_variant(),
+    );
+
+    let id = SessionId::new(data.id());
+    let sidebar = sidebar.clone();
+    action.connect_change_state(move |_, requested| {
+        let Some(requested) = requested.and_then(glib::Variant::get::<bool>) else {
+            return;
+        };
+        let Some(sidebar) = sidebar.upgrade() else {
+            return;
+        };
+        if let Some(handler) = sidebar.imp().on_keep_awake_toggled.borrow().as_ref() {
+            handler(id.clone(), requested);
+        }
+    });
+
+    let group = gio::SimpleActionGroup::new();
+    group.add_action(&action);
+    settings.insert_action_group(ROW_ACTION_GROUP, Some(&group));
 }

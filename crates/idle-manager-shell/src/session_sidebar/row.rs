@@ -6,7 +6,7 @@ mod imp;
 use gtk::glib;
 use gtk4 as gtk;
 
-use idle_manager_core::{Liveness, SessionId, Visibility};
+use idle_manager_core::{Liveness, Session, Visibility};
 
 glib::wrapper! {
     /// A list item's data: the account's id, the name markup the bound widget
@@ -17,36 +17,31 @@ glib::wrapper! {
 }
 
 impl Row {
-    /// A row for `id`, showing `display_name`, placed at `visibility` with
-    /// `liveness`. `current` marks the row whose account holds the focused slot.
-    pub(crate) fn new(
-        id: &SessionId,
-        display_name: &str,
-        liveness: Liveness,
-        visibility: Visibility,
-        current: bool,
-    ) -> Self {
+    /// A row for `session`. `current` marks the row whose account holds the
+    /// focused slot — the one fact a [`Session`] does not carry about itself.
+    pub(crate) fn new(session: &Session, current: bool) -> Self {
         let row: Self = glib::Object::builder()
-            .property("id", id.as_str())
-            .property("display-name", display_name)
+            .property("id", session.id().as_str())
+            .property("display-name", session.display_name())
             .build();
-        row.refresh(display_name, liveness, visibility, current);
+        row.refresh(session, current);
         row
     }
 
-    /// Rewrites the rendered state from the account's current standing.
-    pub(crate) fn refresh(
-        &self,
-        display_name: &str,
-        liveness: Liveness,
-        visibility: Visibility,
-        current: bool,
-    ) {
+    /// Rewrites the rendered state from `session`'s current standing.
+    pub(crate) fn refresh(&self, session: &Session, current: bool) {
+        let (liveness, visibility, display_name) = (
+            session.liveness(),
+            session.visibility(),
+            session.display_name(),
+        );
+
         self.set_display_name(display_name);
         self.set_status(status_key(liveness, visibility, current));
         self.set_name_markup(name_markup(display_name, liveness, visibility, current));
         self.set_action_label(action_label(liveness));
         self.set_action_sensitive(action_sensitive(liveness));
+        self.set_is_kept_awake(session.is_kept_awake());
     }
 }
 

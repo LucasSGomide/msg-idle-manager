@@ -122,6 +122,13 @@ impl ObjectImpl for Window {
             }
         });
 
+        let window = self.obj().downgrade();
+        self.sidebar.connect_keep_awake_toggled(move |id, value| {
+            if let Some(window) = window.upgrade() {
+                window.imp().toggle_keep_awake(&id, value);
+            }
+        });
+
         // The parked slot's own Start button routes through the same intent, so
         // the row and the panel never run two starts (architecture rule 8).
         let window = self.obj().downgrade();
@@ -225,7 +232,7 @@ impl Window {
             }
         };
 
-        let holder = SessionView::new(&directories.data, &directories.cache, address);
+        let holder = SessionView::new(&id, &directories.data, &directories.cache, address);
         let Some(view) = holder.view() else {
             tracing::error!(session = %id, "the new account's view was not built");
             return;
@@ -328,6 +335,49 @@ impl Window {
 
         self.book.borrow_mut().mark_started(id);
         self.redraw();
+    }
+
+    /// The row menu's "Keep running when hidden" item was chosen, in the
+    /// order the roadmap item's first diagram fixes: the domain records the
+    /// flag, then the engine is made to match (architecture rule 8). A no-op
+    /// if the account already held `value` — the book reports nothing
+    /// changed, and a reload would be spent on nothing.
+    fn toggle_keep_awake(&self, id: &SessionId, value: bool) {
+        let changed = self.book.borrow_mut().set_keep_awake(id, value);
+        if !changed {
+            return;
+        }
+        // A live account moved to `Starting` by the set above; a parked one
+        // did not, so this only shows the reloading marker where it applies.
+        self.redraw();
+
+        let view = {
+            let mut holders = self.holders.borrow_mut();
+            let Some(holder) = holders.get_mut(id) else {
+                tracing::error!(session = %id, "no holder to apply keep-awake to");
+                return;
+            };
+            holder.set_keep_awake(value).cloned()
+        };
+
+        // Parked: nothing to reload now. `SessionView::start` applies the
+        // remembered value the next time a view is built for this account.
+        let Some(view) = view else {
+            return;
+        };
+
+        // Same signal, same reason as `start_session`: the starting interval
+        // this toggle opened ends at the reload's first paint.
+        let window = self.obj().downgrade();
+        let id = id.clone();
+        view.connect_load_changed(move |_, event| {
+            if !matches!(event, LoadEvent::Committed | LoadEvent::Finished) {
+                return;
+            }
+            if let Some(window) = window.upgrade() {
+                window.imp().finish_starting(&id);
+            }
+        });
     }
 
     fn redraw(&self) {
