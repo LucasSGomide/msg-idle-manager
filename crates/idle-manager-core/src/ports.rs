@@ -3,6 +3,7 @@
 
 use std::path::PathBuf;
 
+use crate::preset::Preset;
 use crate::session::SessionId;
 
 /// The data and cache directories that belong to one session.
@@ -50,4 +51,52 @@ pub trait ProfileLocator: std::fmt::Debug {
     /// made, [`ProfileError::NotWritable`] if it exists but the process cannot
     /// write into it.
     fn locate(&self, session: &SessionId) -> Result<ProfileDirectories, ProfileError>;
+}
+
+/// One preset entry the catalogue could not turn into a [`Preset`].
+///
+/// Carried separately from the readable presets so the dialog can show a
+/// partial catalogue plus a line about the bad entry, rather than nothing.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PresetFailure {
+    /// The entry that failed, named the way the user would recognise it — the
+    /// file's own name, without its directory.
+    pub entry: String,
+    /// One line saying what was wrong with it, ready to show as-is.
+    pub reason: String,
+}
+
+/// Everything one read of the catalogue produced: the games it understood, the
+/// entries it could not read, and a plain description of where it looked.
+///
+/// Three parts rather than one because a screen showing a partial list plus a
+/// line about the bad entry beats a screen showing nothing, and because the
+/// screen has to be able to name the folder when the list is empty without
+/// knowing the entries were ever files (architecture rule 3).
+#[derive(Debug, Clone, PartialEq)]
+pub struct PresetCatalogueReading {
+    /// The presets that parsed, sorted by display name.
+    pub presets: Vec<Preset>,
+    /// The entries that did not, each with a one-line reason.
+    pub failures: Vec<PresetFailure>,
+    /// A human-readable description of where the entries came from, shown when
+    /// `presets` is empty.
+    pub source: String,
+}
+
+/// Tells the domain which games it knows about, without the domain knowing the
+/// list comes from files on disk.
+///
+/// Named for the capability, not the technology behind it (naming rule 10) and
+/// implemented outside the core (architecture rules 5, 6). [`PresetCatalogue::read`]
+/// never fails as a whole: a folder that cannot be read is an empty reading and
+/// a single bad entry is one [`PresetFailure`], so the caller always has
+/// something to show.
+pub trait PresetCatalogue: std::fmt::Debug {
+    /// Reads the catalogue now.
+    ///
+    /// Called afresh each time the add-game dialog opens, so an entry added by
+    /// hand appears on the next open with no restart. The returned presets are
+    /// sorted by display name.
+    fn read(&self) -> PresetCatalogueReading;
 }

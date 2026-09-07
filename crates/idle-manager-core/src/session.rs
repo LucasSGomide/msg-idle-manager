@@ -4,6 +4,7 @@
 use std::collections::HashMap;
 
 use crate::layout::{Layout, Placement, SlotId, arrange, bring_into_focus};
+use crate::preset::{Preset, ZoomLevel};
 
 /// The identifier the program mints for a session.
 ///
@@ -64,8 +65,9 @@ pub enum Liveness {
     Starting,
 }
 
-/// One game account: its minted identity, the name and start address the user
-/// gave, and where it currently sits.
+/// One game account: its minted identity, the name and start address it was
+/// created with, where it currently sits, and the view settings it carries from
+/// its preset.
 #[derive(Debug, Clone)]
 pub struct Session {
     id: SessionId,
@@ -74,6 +76,8 @@ pub struct Session {
     visibility: Visibility,
     liveness: Liveness,
     is_kept_awake: bool,
+    browser_identity: Option<String>,
+    zoom: ZoomLevel,
 }
 
 impl Session {
@@ -112,6 +116,21 @@ impl Session {
     #[must_use]
     pub fn is_kept_awake(&self) -> bool {
         self.is_kept_awake
+    }
+
+    /// The identity the engine should present for this account, or `None` for
+    /// the engine's own. Copied from the preset at creation; a typed-address
+    /// account carries `None` (`FR.10.5`).
+    #[must_use]
+    pub fn browser_identity(&self) -> Option<&str> {
+        self.browser_identity.as_deref()
+    }
+
+    /// How large this account's page should be drawn. Copied from the preset at
+    /// creation; a typed-address account carries [`ZoomLevel::DEFAULT`].
+    #[must_use]
+    pub fn zoom(&self) -> ZoomLevel {
+        self.zoom
     }
 }
 
@@ -168,15 +187,74 @@ impl SessionBook {
         }
     }
 
-    /// Mints an identifier for a new account, places it, and returns the id.
+    /// Mints an identifier for a new account created from a typed address,
+    /// places it, and returns the id.
     ///
     /// The session takes the lowest-numbered free slot of the current layout.
     /// If every slot is occupied it takes the focused slot, and that slot's
-    /// previous occupant becomes [`Visibility::OffGrid`].
+    /// previous occupant becomes [`Visibility::OffGrid`]. It carries no browser
+    /// identity and the default zoom — everything a preset would have supplied
+    /// falls back here.
     pub fn add(&mut self, display_name: &str, start_address: &str) -> SessionId {
-        self.minted += 1;
-        let id = SessionId(format!("session-{:04}", self.minted));
+        let id = self.mint_id();
+        let visibility = self.place(&id);
 
+        self.sessions.push(Session {
+            id: id.clone(),
+            display_name: display_name.to_owned(),
+            start_address: start_address.to_owned(),
+            visibility,
+            liveness: Liveness::Live,
+            is_kept_awake: false,
+            browser_identity: None,
+            zoom: ZoomLevel::DEFAULT,
+        });
+
+        id
+    }
+
+    /// Mints an identifier for a new account playing `preset`'s game under the
+    /// name `account_name`, places it exactly as [`SessionBook::add`] does, and
+    /// copies the preset's start address, zoom and browser identity onto it.
+    ///
+    /// The preset's keep-awake default is applied through
+    /// [`SessionBook::set_keep_awake`] — the one path that sets that flag —
+    /// rather than written directly. That call moves a live account to
+    /// [`Liveness::Starting`], so this follows it with
+    /// [`SessionBook::mark_started`]: a brand-new account has no page to reload,
+    /// its first view is built carrying the setting already, and it ends
+    /// [`Liveness::Live`] like any other. Both are existing transitions; no
+    /// field is written behind their backs.
+    pub fn add_from_preset(&mut self, account_name: &str, preset: &Preset) -> SessionId {
+        let id = self.mint_id();
+        let visibility = self.place(&id);
+
+        self.sessions.push(Session {
+            id: id.clone(),
+            display_name: account_name.to_owned(),
+            start_address: preset.start_address.clone(),
+            visibility,
+            liveness: Liveness::Live,
+            is_kept_awake: false,
+            browser_identity: preset.browser_identity.clone(),
+            zoom: preset.zoom,
+        });
+
+        self.set_keep_awake(&id, preset.keep_awake_default);
+        self.mark_started(&id);
+
+        id
+    }
+
+    fn mint_id(&mut self) -> SessionId {
+        self.minted += 1;
+        SessionId(format!("session-{:04}", self.minted))
+    }
+
+    /// Places `id` into the lowest free slot of the current layout, or into the
+    /// focused slot with its occupant displaced off-grid when the grid is full,
+    /// and remembers the slot it landed in.
+    fn place(&mut self, id: &SessionId) -> Visibility {
         let occupied = self.occupied_slots();
         let free = self.layout.slots().find(|slot| !occupied.contains(slot));
 
@@ -198,16 +276,7 @@ impl SessionBook {
             self.remembered.insert(id.clone(), slot);
         }
 
-        self.sessions.push(Session {
-            id: id.clone(),
-            display_name: display_name.to_owned(),
-            start_address: start_address.to_owned(),
-            visibility,
-            liveness: Liveness::Live,
-            is_kept_awake: false,
-        });
-
-        id
+        visibility
     }
 
     /// Park `session`: its liveness becomes [`Liveness::Parked`], and its
@@ -858,5 +927,146 @@ mod tests {
         book.set_keep_awake(&unknown, true);
 
         assert!(!is_kept_awake(&book, &id));
+    }
+
+    fn session<'a>(book: &'a SessionBook, id: &SessionId) -> &'a Session {
+        book.sessions()
+            .iter()
+            .find(|session| session.id() == id)
+            .expect("session present")
+    }
+
+    fn a_preset() -> Preset {
+        Preset {
+            id: crate::PresetId::new("huntera"),
+            display_name: "Huntera".to_owned(),
+            start_address: "https://huntera.test/".to_owned(),
+            browser_identity: Some("PresetUA/1.0".to_owned()),
+            zoom: ZoomLevel::new(0.8).expect("0.8 is an accepted multiplier"),
+            keep_awake_default: false,
+        }
+    }
+
+    #[test]
+    fn an_account_from_a_preset_carries_the_typed_name_not_the_games_display_name() {
+        let mut book = SessionBook::new();
+
+        let id = book.add_from_preset("Alt", &a_preset());
+
+        assert_eq!(session(&book, &id).display_name(), "Alt");
+    }
+
+    #[test]
+    fn an_account_from_a_preset_carries_the_presets_address_zoom_and_identity() {
+        let mut book = SessionBook::new();
+        let preset = a_preset();
+
+        let id = book.add_from_preset("Alt", &preset);
+
+        let account = session(&book, &id);
+        assert_eq!(
+            (
+                account.start_address(),
+                account.zoom(),
+                account.browser_identity(),
+            ),
+            (
+                "https://huntera.test/",
+                ZoomLevel::new(0.8).expect("accepted"),
+                Some("PresetUA/1.0"),
+            ),
+        );
+    }
+
+    #[test]
+    fn an_account_from_a_preset_with_no_identity_carries_none() {
+        let mut book = SessionBook::new();
+        let preset = Preset {
+            browser_identity: None,
+            ..a_preset()
+        };
+
+        let id = book.add_from_preset("Alt", &preset);
+
+        assert_eq!(session(&book, &id).browser_identity(), None);
+    }
+
+    #[test]
+    fn an_account_from_a_preset_whose_keep_awake_default_is_on_starts_kept_awake() {
+        let mut book = SessionBook::new();
+        let preset = Preset {
+            keep_awake_default: true,
+            ..a_preset()
+        };
+
+        let id = book.add_from_preset("Alt", &preset);
+
+        assert!(session(&book, &id).is_kept_awake());
+    }
+
+    #[test]
+    fn an_account_from_a_preset_with_keep_awake_off_is_live() {
+        let mut book = SessionBook::new();
+        let preset = Preset {
+            keep_awake_default: false,
+            ..a_preset()
+        };
+
+        let id = book.add_from_preset("Alt", &preset);
+
+        assert_eq!(session(&book, &id).liveness(), Liveness::Live);
+    }
+
+    #[test]
+    fn an_account_from_a_preset_with_keep_awake_on_is_live() {
+        let mut book = SessionBook::new();
+        let preset = Preset {
+            keep_awake_default: true,
+            ..a_preset()
+        };
+
+        let id = book.add_from_preset("Alt", &preset);
+
+        assert_eq!(session(&book, &id).liveness(), Liveness::Live);
+    }
+
+    #[test]
+    fn an_account_from_a_preset_takes_the_lowest_free_slot_like_a_typed_one() {
+        let mut book = SessionBook::new();
+        book.set_layout(Layout::Grid);
+        book.add("One", "https://example.test/one");
+
+        let id = book.add_from_preset("Alt", &a_preset());
+
+        assert_eq!(
+            session(&book, &id).visibility(),
+            Visibility::InSlot(SlotId::new(1))
+        );
+    }
+
+    #[test]
+    fn an_account_from_a_preset_into_a_full_grid_displaces_the_focused_slot() {
+        let mut book = SessionBook::new();
+        book.set_layout(Layout::SideBySide);
+        let first = book.add("One", "https://example.test/one");
+        book.add("Two", "https://example.test/two");
+        book.set_focused(SlotId::new(0));
+
+        book.add_from_preset("Alt", &a_preset());
+
+        assert_eq!(session(&book, &first).visibility(), Visibility::OffGrid);
+    }
+
+    #[test]
+    fn an_account_from_a_typed_address_carries_no_identity_and_the_default_zoom() {
+        let mut book = SessionBook::new();
+
+        let id = book.add("One", "https://example.test/one");
+
+        let account = session(&book, &id);
+        assert_eq!(
+            (account.browser_identity(), account.zoom()),
+            (None, ZoomLevel::DEFAULT),
+        );
     }
 }

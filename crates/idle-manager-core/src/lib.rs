@@ -8,8 +8,13 @@
 
 mod layout;
 mod ports;
+mod preset;
 mod session;
 
 pub use layout::{Layout, Outcome, Placement, SlotId, arrange};
-pub use ports::{ProfileDirectories, ProfileError, ProfileLocator};
+pub use ports::{
+    PresetCatalogue, PresetCatalogueReading, PresetFailure, ProfileDirectories, ProfileError,
+    ProfileLocator,
+};
+pub use preset::{InvalidZoom, Preset, PresetId, ZoomLevel};
 pub use session::{Liveness, Session, SessionBook, SessionId, Visibility};
