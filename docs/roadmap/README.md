@@ -19,12 +19,13 @@ permanent ID, never renumbered**. Ordering lives in this table only.
 - The prose above the table is hand-written and says **why** the next item is
   next. The table sorts by estimate; that sort is not a priority.
 
-Items 01 to 04 are done. They built the base every other item assumes — a session
-with its own storage on disk, a way to create one, the grid that holds views out
-of sight, and the sidebar index of every account — plus the two controls over what
-an account costs: parking, which hands its memory back and takes it again, and
-keep-awake, which keeps a game running while the window is down. Item 04 landing
-unblocked 06.
+Items 01 to 04 and 06 are done. They built the base every other item assumes — a
+session with its own storage on disk, a way to create one, the grid that holds
+views out of sight, and the sidebar index of every account — plus the two
+controls over what an account costs (parking, which hands memory back and takes
+it again, and keep-awake, which keeps a game running while the window is down)
+and the game catalogue that supplies an account's address, zoom and identity so
+adding one is a name and a click. Item 06 landing unblocked 07.
 
 Item 04 also settled what the grid's off-grid trick is worth: an account with no
 place on screen is never marked hidden, so nothing throttles it. Keep-awake earns
@@ -36,8 +37,7 @@ a number on screen: what each account actually costs, and what parking actually
 returns. Everything before it asserted that; nothing has shown it. It also gives
 item 04's open question a way to be answered — the shim's frame interval is a
 guess with no measurement behind it, and a per-account readout is what would show
-what it costs to run. Items 06 to 08 each add one surface to the base: the game
-catalogue that supplies an account's defaults, durability across a restart, and
+what it costs to run. Items 07 and 08 then add durability across a restart and
 recovery from a crash nobody was awake to see.
 
 The `### Back-end` and `### Front-end` headings inside each item map onto this
@@ -51,9 +51,10 @@ Every front-end section in every item cites `docs/design.md` and finds few rules
 to cite, because that file started nearly empty. Each item therefore records its
 patterns as new and says what rule the design doc owes once the code exists. That
 debt is being paid down: 02 added the sidebar row-status-marker rule, 03 the
-inverting row action, the two meanings of dimming and the absent-game panel, and
-04 where a row's settings live and how the sidebar's width follows from what its
-rows' trailing edge carries.
+inverting row action, the two meanings of dimming and the absent-game panel, 04
+where a row's settings live and how the sidebar's width follows from what its
+rows' trailing edge carries, and 06 how an escape-hatch option and a partial
+failure are shown inside a chooser without a modal of their own.
 
 ## Ready
 

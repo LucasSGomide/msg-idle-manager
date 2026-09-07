@@ -1,6 +1,6 @@
 # 06 — Presets and adding an account
 
-**Depends on:** 01, 04 · **Status:** done · **Estimate:** 5
+**Depends on:** 01, 04 · **Status:** done · **Estimate:** 5 · **Landed:** 2026-09-07
 
 ## Context
 
@@ -237,6 +237,34 @@ confirm the defaults apply.
 - Architecture rule 7's separation is not theoretical for this file: the preset
   format gains fields over time and the domain `Preset` will not match it
   one-for-one for long.
+
+## As built
+
+- The three shipped games are all live sites and all read comfortably at
+  `zoom = 1.0` in a full-window slot, so none ships a smaller multiplier and none
+  needed a `user_agent` override — the first blocker's "one is added only if
+  measured turning the engine away" resolved to zero.
+- A `related-view` popup does **not** inherit the opener's `Settings` object,
+  only its network session and web process — so the Technical References' "the
+  popup … inherits its settings object" was wrong. `open_popup` copies the
+  opener's user agent onto the popup explicitly (`copy_user_agent`), or an
+  identity override never reaches the sign-in window.
+- `SessionView::new` bundles its two directory arguments into a single
+  `&ProfileDirectories`: adding the zoom and the identity pushed the signature
+  past clippy's five-argument limit, and grouping the dirs reads better than an
+  `#[allow]`.
+- Slices 04 and 05 landed in one commit. `window/imp.rs`'s `realise_account`
+  reads the zoom and identity off the returned `Session` and passes them to
+  `SessionView::new` in the same call the dialog's preset arm added, so there is
+  no shell state where the chooser works but the view is still drawn at the
+  engine's defaults.
+- The stage-one list is a plain `gtk::StringList` of display names plus
+  `"Something else…"`, with a parallel `Vec<Preset>` the dialog holds; the escape
+  hatch is simply the row past the presets. No per-row GObject like the sidebar's
+  `Row` was needed.
+- A `toml` parse error renders over several lines (it quotes the offending
+  source), so the failure label trims each reason to its first line — a bad file
+  costs the chooser one line, never a paragraph.
 
 ## Blockers
 
