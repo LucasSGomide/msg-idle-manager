@@ -109,11 +109,10 @@ messages into its own logs, so that one has to be put back.
 - [x] `(manual)` with keep-awake on, a page loaded into that account reports at
       document start that its frame-callback function is the replacement, before
       any of the page's own scripts have run
-- [ ] `(manual)` with keep-awake on and the window minimised, a counter driven
+- [x] `(manual)` with keep-awake on and the window minimised, a counter driven
       only by frame callbacks keeps advancing at roughly the shim's interval,
-      where task 02 measured it frozen for 22 seconds without it. Needs a desktop
-      with a window manager, since the Xvfb display cannot minimise
-- [ ] `(manual)` with keep-awake off, the same counter stops while the window is
+      where task 02 measured it frozen for 22 seconds without it
+- [x] `(manual)` with keep-awake off, the same counter stops while the window is
       minimised and resumes when it is restored
 - [x] `(manual)` a frame request cancelled while the page is hidden never fires,
       and one requested while hidden and still pending when the page becomes

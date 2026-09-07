@@ -1,6 +1,6 @@
 # 04 — Keep-awake for hidden games
 
-**Depends on:** 02 · **Status:** in-progress · **Estimate:** 5
+**Depends on:** 02 · **Status:** done · **Estimate:** 5
 
 ## Context
 
@@ -45,13 +45,13 @@ it is the kind of code that becomes a mystery in a year, so it carries the
 constraint that forced it in a comment beside it.
 
 There is a limit worth being honest about. When the whole window is minimised,
-the engine marks every page it holds as hidden, and no per-account flag changes
-that. Keep-awake makes an account immune to being slowed down, but it cannot
-make the operating system believe a minimised window is on screen. The flag
-protects the case that matters most — a game with no place on the screen while
-the application is open and other games are being played — and the runbook for
-this item says plainly what happens when the window is minimised, so nobody
-discovers it the hard way.
+the engine marks every page it holds as hidden. This paragraph originally went on
+to say that keep-awake could not help there, and that the case it really
+protected was a game with no place on screen while the application is open. Both
+halves turned out to be backwards, and `## Measured` below records the readings:
+an out-of-sight account is never marked hidden, so it needs no protection, and a
+minimised window is the one case where the flag does anything at all. The runbook
+says plainly what happens either way, so nobody discovers it the hard way.
 
 What this item does not do: it does not choose the flag's value for you. The
 default comes from the account's game, and the catalogue of games that supplies
