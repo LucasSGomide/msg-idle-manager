@@ -80,21 +80,21 @@ is not worth interrupting anybody over.
 
 ## Acceptance criteria
 
-- [ ] `(integration)` a map written for two arrangements reads back as exactly
+- [x] `(integration)` a map written for two arrangements reads back as exactly
       those two arrangements and their sizes
-- [ ] `(integration)` the file is written as `state.toml` at the account's
+- [x] `(integration)` the file is written as `state.toml` at the account's
       profile root, a sibling of that account's `data` and `cache` directories
-- [ ] `(integration)` reading an account with no `state.toml` returns nothing
+- [x] `(integration)` reading an account with no `state.toml` returns nothing
       remembered and no error
-- [ ] `(integration)` a value outside the accepted zoom range is dropped and the
+- [x] `(integration)` a value outside the accepted zoom range is dropped and the
       other arrangements in the same file still read back
-- [ ] `(integration)` an unrecognised key under the zoom table is ignored and the
+- [x] `(integration)` an unrecognised key under the zoom table is ignored and the
       recognised keys still read back
-- [ ] `(integration)` a `state.toml` that is not valid TOML at all reads as
+- [x] `(integration)` a `state.toml` that is not valid TOML at all reads as
       nothing remembered rather than failing
-- [ ] `(integration)` an `insta` snapshot of a written file shows only the
+- [x] `(integration)` an `insta` snapshot of a written file shows only the
       changed arrangements, under a `zoom` table with kebab-case keys
-- [ ] `(integration)` writing into a profile root the process cannot write
+- [x] `(integration)` writing into a profile root the process cannot write
       returns the write error carrying a reason, and never panics
 
 ## References

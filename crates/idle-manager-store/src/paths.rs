@@ -59,6 +59,32 @@ pub fn workspace_file() -> Result<PathBuf, LocatorSetup> {
     Ok(dirs.config_dir().join("sessions.toml"))
 }
 
+/// The directory profiles are rooted under for `data_root`:
+/// `<data_root>/profiles/`.
+pub(crate) fn profiles_root(data_root: &Path) -> PathBuf {
+    data_root.join("profiles")
+}
+
+/// One account's profile folder — the parent of its `data` and `cache`
+/// directories and the home of `state.toml`.
+///
+/// Resolved here rather than spelled twice in the crate, so
+/// [`XdgProfileLocator`] and `TomlZoomMemory` cannot disagree about where an
+/// account's files sit.
+pub(crate) fn account_profile_dir(profiles_root: &Path, session: &SessionId) -> PathBuf {
+    profiles_root.join(session.as_str())
+}
+
+/// The profiles root resolved from the environment's XDG data directory.
+///
+/// # Errors
+///
+/// [`LocatorSetup::NoHome`] if no home directory can be determined.
+pub(crate) fn xdg_profiles_root() -> Result<PathBuf, LocatorSetup> {
+    let dirs = ProjectDirs::from("", "", APP_NAME).ok_or(LocatorSetup::NoHome)?;
+    Ok(profiles_root(dirs.data_dir()))
+}
+
 /// Locates session profiles under `<XDG data>/idle-manager/profiles/<id>/`.
 ///
 /// The data root is read from the environment, never hardcoded, so moving a
@@ -76,8 +102,9 @@ impl XdgProfileLocator {
     ///
     /// [`LocatorSetup::NoHome`] if no home directory can be determined.
     pub fn new() -> Result<Self, LocatorSetup> {
-        let dirs = ProjectDirs::from("", "", APP_NAME).ok_or(LocatorSetup::NoHome)?;
-        Ok(Self::under(dirs.data_dir()))
+        Ok(Self {
+            profiles_root: xdg_profiles_root()?,
+        })
     }
 
     /// Roots profiles under an explicit data directory, for tests that must not
@@ -85,14 +112,14 @@ impl XdgProfileLocator {
     #[must_use]
     pub fn under(data_root: impl AsRef<Path>) -> Self {
         Self {
-            profiles_root: data_root.as_ref().join("profiles"),
+            profiles_root: profiles_root(data_root.as_ref()),
         }
     }
 }
 
 impl ProfileLocator for XdgProfileLocator {
     fn locate(&self, session: &SessionId) -> Result<ProfileDirectories, ProfileError> {
-        let base = self.profiles_root.join(session.as_str());
+        let base = account_profile_dir(&self.profiles_root, session);
         let data = base.join("data");
         let cache = base.join("cache");
 

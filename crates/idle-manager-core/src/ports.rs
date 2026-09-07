@@ -4,7 +4,7 @@
 use std::path::PathBuf;
 
 use crate::preset::Preset;
-use crate::session::SessionId;
+use crate::session::{RememberedZoom, SessionId};
 use crate::workspace::Workspace;
 
 /// The data and cache directories that belong to one session.
@@ -150,6 +150,52 @@ pub struct PresetCatalogueReading {
     /// A human-readable description of where the entries came from, shown when
     /// `presets` is empty.
     pub source: String,
+}
+
+/// Storing an account's remembered zoom failed.
+///
+/// An enum rather than a struct so a later distinction a caller might act on —
+/// a permission failure separate from a disk-full one, say — is one more
+/// variant, not a new type (architecture rule 11, code standards rule 12). The
+/// caller only logs it: losing a remembered size is a small annoyance and
+/// refusing to run is not (`FR.12.5`).
+#[derive(Debug, thiserror::Error)]
+pub enum ZoomMemoryError {
+    /// The write did not complete. `reason` is one line ready to log.
+    #[error("the remembered zoom could not be stored: {reason}")]
+    NotStored {
+        /// One line describing what was wrong.
+        reason: String,
+    },
+}
+
+/// Reads and stores an account's chosen zoom sizes, without the domain knowing
+/// a file is involved.
+///
+/// Named for the capability, not the technology (naming rule 10), and
+/// implemented outside the core (architecture rules 5, 6) — `scripts/arch-check.sh`
+/// forbids `serde` and `toml` in the core, which is why this port exists at all
+/// (`FR.12.8`).
+pub trait ZoomMemory: std::fmt::Debug {
+    /// The sizes `account`'s owner has chosen, per arrangement.
+    ///
+    /// Never fails: a missing store is the normal state of a fresh account and
+    /// an unreadable one is no worse — both are an empty map (`FR.12.6`). A
+    /// single nonsensical entry is dropped with a log line while its siblings
+    /// still apply.
+    fn read(&self, account: &SessionId) -> RememberedZoom;
+
+    /// Stores `remembered` as `account`'s chosen sizes, replacing what was
+    /// there. An empty map leaves nothing remembered.
+    ///
+    /// # Errors
+    ///
+    /// [`ZoomMemoryError::NotStored`] if the write could not be completed.
+    fn write(
+        &self,
+        account: &SessionId,
+        remembered: &RememberedZoom,
+    ) -> Result<(), ZoomMemoryError>;
 }
 
 /// Tells the domain which games it knows about, without the domain knowing the
