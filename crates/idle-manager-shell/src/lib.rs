@@ -13,6 +13,7 @@
 #![allow(unsafe_code, unreachable_pub)]
 
 mod add_game_dialog;
+mod message_strip;
 mod session_grid;
 mod session_sidebar;
 mod slot_placeholder;
@@ -96,6 +97,19 @@ mod tests {
             gio::ResourceLookupFlags::NONE,
         )
         .expect("look up the slot placeholder template by its resource path");
+
+        assert!(!data.is_empty());
+    }
+
+    #[test]
+    fn the_message_strip_template_is_readable_from_the_registered_bundle() {
+        register_resources().expect("register the compiled bundle");
+
+        let data = gio::resources_lookup_data(
+            "/org/idlemanager/IdleManager/ui/message-strip.ui",
+            gio::ResourceLookupFlags::NONE,
+        )
+        .expect("look up the message strip template by its resource path");
 
         assert!(!data.is_empty());
     }

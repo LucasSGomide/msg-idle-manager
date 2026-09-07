@@ -8,9 +8,9 @@ use anyhow::Context;
 use gtk::glib;
 use gtk::prelude::*;
 use gtk4 as gtk;
-use idle_manager_core::{PresetCatalogue, ProfileLocator};
+use idle_manager_core::{PresetCatalogue, ProfileLocator, WorkspaceStore};
 use idle_manager_shell::Window;
-use idle_manager_store::{TomlPresetCatalogue, XdgProfileLocator};
+use idle_manager_store::{TomlPresetCatalogue, TomlWorkspaceStore, XdgProfileLocator};
 
 /// The application's D-Bus and settings identifier.
 const APP_ID: &str = "org.idlemanager.IdleManager";
@@ -40,12 +40,28 @@ fn run() -> anyhow::Result<ExitCode> {
     let catalogue = TomlPresetCatalogue::new().context("resolve the XDG config directory")?;
     let catalogue: Rc<dyn PresetCatalogue> = Rc::new(catalogue);
 
+    let store = TomlWorkspaceStore::new().context("resolve the XDG config directory")?;
+    let store: Rc<dyn WorkspaceStore> = Rc::new(store);
+
     let app = gtk::Application::builder().application_id(APP_ID).build();
 
+    // A second launch re-activates this window rather than starting a second
+    // process (the D-Bus application id), so only one process ever writes the
+    // workspace or opens an account's storage.
     app.connect_activate(move |app| {
         tracing::info!("activated; presenting the main window");
         idle_manager_shell::configure_web_engine();
-        let window = Window::new(app, Rc::clone(&locator), Rc::clone(&catalogue));
+
+        // Read the workspace before the window is built, so the window can draw
+        // the whole restored arrangement at once (architecture rule 3).
+        let read_outcome = store.read();
+        let window = Window::new(
+            app,
+            Rc::clone(&locator),
+            Rc::clone(&catalogue),
+            Rc::clone(&store),
+            read_outcome,
+        );
         window.present();
     });
 

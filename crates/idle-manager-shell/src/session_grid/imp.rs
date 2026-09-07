@@ -121,19 +121,30 @@ impl WidgetImpl for SessionGrid {
 }
 
 impl SessionGrid {
+    /// Registers a brand-new account with its first running view already in
+    /// its slot. The cover carries the name until the page paints; the
+    /// placeholder is built hidden.
     pub(super) fn add_session(&self, id: &SessionId, display_name: &str, view: &WebView) {
+        self.register_slot(id, display_name, Some(view));
+    }
+
+    /// Registers a restored account with no view yet (item 07 task 04). The
+    /// placeholder shows immediately — its line and button come from the next
+    /// `sync` reading the account's liveness — and the start queue attaches a
+    /// view later with [`SessionGrid::attach_view`].
+    pub(super) fn add_dormant_session(&self, id: &SessionId, display_name: &str) {
+        self.register_slot(id, display_name, None);
+    }
+
+    fn register_slot(&self, id: &SessionId, display_name: &str, view: Option<&WebView>) {
         let overlay = gtk::Overlay::new();
-        overlay.set_child(Some(view));
 
         let cover = build_cover(display_name);
         overlay.add_overlay(&cover);
-        hide_cover_once_painted(view, &cover);
 
         let placeholder = SlotPlaceholder::new();
         placeholder.set_name(display_name);
-        placeholder.set_state_text("Parked");
         placeholder.set_button_label("Start");
-        placeholder.set_visible(false);
         overlay.add_overlay(&placeholder);
 
         let grid = self.obj().downgrade();
@@ -146,6 +157,21 @@ impl SessionGrid {
                 handler(session.clone());
             }
         });
+
+        match view {
+            Some(view) => {
+                overlay.set_child(Some(view));
+                hide_cover_once_painted(view, &cover);
+                placeholder.set_state_text("Parked");
+                placeholder.set_visible(false);
+            }
+            None => {
+                // A restored account: the cover is for a loading view it does
+                // not have yet, and the placeholder's line and visibility come
+                // from the next `sync` reading its liveness.
+                cover.set_visible(false);
+            }
+        }
 
         overlay.set_parent(&*self.obj());
 

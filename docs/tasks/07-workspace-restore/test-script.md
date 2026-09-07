@@ -14,6 +14,20 @@ appends its own `## NN — Title` section and never rewrites another's.
       `cargo` and `make` resolve.
 - [x] `cargo build --workspace` completes without error — the whole workspace
       compiles with the workspace-restore code in place.
+- [x] **Headless shell harness** (for the `(manual)` shell checks, per
+      [[verifying-shell-slices-headless]]): a fresh display —
+      `Xvfb :95 -screen 0 1280x800x24 -noreset &` (after `pgrep -x Xvfb` +
+      `kill` and `rm -f /tmp/.X95-lock`) — then the app under
+      `dbus-run-session -- env DISPLAY=:95 GDK_BACKEND=x11 GSK_RENDERER=cairo
+      XDG_CONFIG_HOME=<tmp>/cfg XDG_DATA_HOME=<tmp>/data ./target/debug/idle-manager`.
+      Synthetic input via `scratchpad/harness/pyin.py` (ctypes XTest,
+      `XTestQueryExtension` once, `move`/`click`/`type`/`key`/`sleep`); frames
+      via `ffmpeg -f x11grab -video_size 1280x800 -i :95.0 -frames:v 1`. Write
+      `<tmp>/cfg/idle-manager/sessions.toml` by hand to set each restore case
+      up. Game pages are `data:text/html,…` URLs — no window manager runs, so
+      nothing needing a real minimise or a real game login is checkable here.
+      Never `pkill -f` a target string directly in a Bash call; kill by stored
+      PID or `pgrep -x`.
 
 ## 01 — The workspace in the domain, and coming back from one
 
@@ -58,8 +72,57 @@ appends its own `## NN — Title` section and never rewrites another's.
 - [x] `make verify` exits `0` — fmt, clippy, the 117-test suite, audit,
       arch-check and roadmap-check all pass with the queued vocabulary in place.
 
+## 04 — Restoring the arrangement on launch
+
+Run headless on `:95` against throwaway `XDG_CONFIG_HOME` / `XDG_DATA_HOME`
+trees, `sessions.toml` written by hand. Recorded 2026-09-07.
+
+- [x] `cargo test -p idle-manager-shell --lib` → `test result: ok. 19 passed`,
+      including `the_message_strip_template_is_readable_from_the_registered_bundle`.
+- [x] Workspace file: three accounts, `layout = "grid"`, `session-0001` and
+      `session-0002` `running` in slots 0 and 1, `session-0003` `parked` in slot
+      3. Launch → the sidebar lists Main, Alt, Farm; the header's **4** toggle is
+      active; Main fills slot 0, Alt slot 1, Farm slot 3, slot 2 empty; no web
+      view is loaded (`workspace restored accounts=3` in the log, no `load
+      changed`).
+- [x] Main and Alt come back queued: purple sidebar dots, dimmed names; each
+      slot shows the name, the line **Queued**, and no button.
+- [x] Farm comes back parked: grey sidebar dot; its slot shows **Parked** with a
+      pressable **Start** — parked from the first frame, never a queued or
+      starting marker.
+- [x] Farm's ⋯ menu → **Start** loads its page into slot 3, the placeholder
+      clears, and its row goes green. (Alt's ⋯ menu shows **Start** greyed while
+      it is queued — the queue owns that turn.)
+- [x] A restored parked account with `zoom = 0.5` and
+      `user_agent = "IdleManagerProbe/9.9 (only-this)"`, started from its
+      placeholder button: the log reads `account identity override applied
+      user_agent="IdleManagerProbe/9.9 (only-this)"` then `page console error
+      text="UAECHO=IdleManagerProbe/9.9 (only-this)"` (exact string, nothing
+      appended), and its `<h1>` renders visibly small beside a `zoom = 1.0`
+      account's placeholder heading.
+- [ ] **Tester, real accounts:** a restored account whose game you were signed
+      into loads straight past the login when started — no new sign-in. Needs
+      real credentials against a real game; not checkable headless.
+- [x] No `sessions.toml` at all → the window opens as item 01's empty state
+      ("No games yet…", "Add your first game"), no strip, the **1** toggle
+      active. Log: `no saved workspace; opening a first run`.
+- [x] A `sessions.toml` that will not parse (`name = broken no quotes [[[`) →
+      a warning-tinted strip spans the window directly under the header bar,
+      above the sidebar and the grid, reading "The saved workspace could not be
+      read. It was kept aside at …/sessions.bad and the window below is a first
+      run.", with a ✕ on its trailing edge; the window below is a first run; the
+      original bytes are at `sessions.bad` and `sessions.toml` is gone. Pressing
+      ✕ removes the strip and it does not return.
+- [x] With one instance running on a shared session bus, a second launch of the
+      binary on the same bus logs only `starting idle-manager`, exits `0`
+      without ever logging `activated; presenting the main window`, and the
+      first instance keeps running — no second process, no second window.
+
 ## Teardown
 
+- [x] Kill the harness: `kill` the stored Xvfb and `idle-manager` PIDs (or
+      `pgrep -x`), `rm -f /tmp/.X95-lock`, remove the throwaway
+      `XDG_CONFIG_HOME` / `XDG_DATA_HOME` trees. Nothing is left under the real
+      config or data directory.
 - [x] Slices 01–03 touch no disk outside `cargo`'s target directory (the
-      integration tests clean their own throwaway directories on drop) and
-      leave nothing to remove.
+      integration tests clean their own throwaway directories on drop).

@@ -120,3 +120,20 @@ citations, so append rather than reorder.
    in, and the escape hatch still stands. A failure the user can act on is
    information, not an error dialog: it never takes a modal of its own and never
    blocks the path that still works.
+
+9. **Say what went wrong before the user did anything in one strip across the
+   top of the window — directly under the header bar, spanning the sidebar and
+   the grid — carrying one line and a dismiss button on its trailing edge, and
+   nothing else.** Two things reach it: a saved workspace that would not load,
+   read before the window is built (item 07 task 04), and a save that failed
+   mid-session (task 06). Both are the machine's problem, not something the user
+   asked for, so they belong above the whole window rather than beside any one
+   control, and they read as attention-not-urgent — the theme's warning tint,
+   never the error red. **It never leaves on its own.** A problem the user did
+   not cause is one they decide when they have dealt with; a strip that faded
+   would take the only record of it. It goes when its close button is pressed
+   and not before, and a later success (a workspace that now loads, a save that
+   now works) leaves a dismissed strip dismissed rather than reopening it. It is
+   **one reusable widget** — `message_strip.rs` with `message-strip.ui` — set to
+   a message and shown, or cleared, by whatever raises it; the launch failure
+   and the mid-session failure must not drift into two shapes.

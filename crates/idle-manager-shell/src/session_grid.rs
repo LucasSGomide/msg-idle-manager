@@ -43,6 +43,14 @@ impl SessionGrid {
         self.imp().add_session(session, display_name, view);
     }
 
+    /// Registers a restored `session` that has no view yet: its slot shows the
+    /// placeholder panel, its line and button derived from the account's
+    /// liveness on the next [`SessionGrid::sync`]. The start queue hands it a
+    /// view later with [`SessionGrid::attach_view`].
+    pub fn add_dormant_session(&self, session: &SessionId, display_name: &str) {
+        self.imp().add_dormant_session(session, display_name);
+    }
+
     /// Re-places every known session from `book` and redraws. A session in the
     /// book with no view here is skipped; its slot simply stays empty.
     pub fn sync(&self, book: &SessionBook) {

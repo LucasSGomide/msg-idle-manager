@@ -100,27 +100,27 @@ rather than a label dropped into the window.
 
 ## Acceptance criteria
 
-- [ ] `(manual)` with a workspace file holding three accounts in the
+- [x] `(manual)` with a workspace file holding three accounts in the
       two-by-two arrangement, one of them parked, opening the program shows all
       three rows, that arrangement selected and each account in its saved slot,
       with no game loaded yet
-- [ ] `(manual)` an account saved as running comes back queued: its row reads
+- [x] `(manual)` an account saved as running comes back queued: its row reads
       queued and its slot shows the panel with the queued line and no button
-- [ ] `(manual)` an account saved as parked comes back parked, reads as parked
+- [x] `(manual)` an account saved as parked comes back parked, reads as parked
       immediately, and never passes through queued or starting
 - [ ] `(manual)` a restored account keeps its name, its zoom and its browser
       identity, and starting it from the row menu loads its game already signed
       in, with no new login
-- [ ] `(manual)` with no workspace file at all, the window opens as item 01's
+- [x] `(manual)` with no workspace file at all, the window opens as item 01's
       empty state, with no strip and nothing to dismiss
-- [ ] `(manual)` with a workspace file that will not parse, a strip under the
+- [x] `(manual)` with a workspace file that will not parse, a strip under the
       header bar spans the window naming the kept file, the window below it is a
       first run, and the strip's close button dismisses it for good
-- [ ] `(manual)` launching a second copy of the program while one is open
+- [x] `(manual)` launching a second copy of the program while one is open
       presents the window already open instead of starting a second process, so
       two copies cannot write the workspace or open one account's storage at
       once
-- [ ] `(unit)` the message-strip template is readable from the compiled resource
+- [x] `(unit)` the message-strip template is readable from the compiled resource
       bundle, as the window and placeholder templates are
 
 ## References

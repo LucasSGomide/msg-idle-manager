@@ -16,9 +16,11 @@ use webkit6::prelude::WebViewExt;
 
 use idle_manager_core::{
     Layout, Liveness, Preset, PresetCatalogue, ProfileLocator, Session, SessionBook, SessionId,
+    Workspace, WorkspaceReadError, WorkspaceStore, ZoomLevel,
 };
 
 use crate::add_game_dialog::{AddGameDialog, Confirmed};
+use crate::message_strip::MessageStrip;
 use crate::session_grid::SessionGrid;
 use crate::session_sidebar::SessionSidebar;
 use crate::web_view::SessionView;
@@ -44,14 +46,24 @@ pub struct Window {
     #[template_child]
     sidebar_revealer: TemplateChild<gtk::Revealer>,
     #[template_child]
+    root_box: TemplateChild<gtk::Box>,
+    #[template_child]
     content: TemplateChild<gtk::Box>,
     #[template_child]
     empty_state: TemplateChild<gtk::Box>,
 
+    /// The window-level message bar under the header bar (design rule 9). Hidden
+    /// until a workspace fails to load (task 04) or, later, a save fails
+    /// (task 06).
+    message_strip: MessageStrip,
     grid: SessionGrid,
     sidebar: SessionSidebar,
     book: RefCell<SessionBook>,
     locator: RefCell<Option<Rc<dyn ProfileLocator>>>,
+    /// Saves the workspace and gives back the one it saved. Kept as a trait
+    /// object so the window never learns a file is involved (task 06 writes
+    /// through it).
+    workspace_store: RefCell<Option<Rc<dyn WorkspaceStore>>>,
     /// The game catalogue, read afresh every time the add-game dialog opens so
     /// a file dropped into the presets folder by hand shows up without a
     /// restart.
@@ -87,6 +99,10 @@ impl ObjectSubclass for Window {
 impl ObjectImpl for Window {
     fn constructed(&self) {
         self.parent_constructed();
+
+        // The strip spans the sidebar and the grid, directly under the header
+        // bar (design rule 9).
+        self.root_box.prepend(&self.message_strip);
 
         self.grid.set_hexpand(true);
         self.grid.set_vexpand(true);
@@ -194,9 +210,99 @@ impl Window {
         &self,
         locator: Rc<dyn ProfileLocator>,
         catalogue: Rc<dyn PresetCatalogue>,
+        store: Rc<dyn WorkspaceStore>,
+        read_outcome: Result<Option<Workspace>, WorkspaceReadError>,
     ) {
         self.locator.replace(Some(locator));
         self.catalogue.replace(Some(catalogue));
+        self.workspace_store.replace(Some(store));
+        self.apply_read_outcome(read_outcome);
+    }
+
+    /// Acts on what the composition root read before the window was built: a
+    /// saved workspace to restore, no file (a first run), or a failure. A
+    /// failure is never flattened into "no file" — it is logged in fields and
+    /// shown in the strip, never dropped (code standards rules 14, 15).
+    fn apply_read_outcome(&self, outcome: Result<Option<Workspace>, WorkspaceReadError>) {
+        match outcome {
+            Ok(None) => {
+                tracing::info!("no saved workspace; opening a first run");
+            }
+            Ok(Some(workspace)) => self.restore_workspace(workspace),
+            Err(error) => {
+                tracing::warn!(error = %error, "the saved workspace could not be read");
+                self.message_strip.show(&describe_read_error(&error));
+            }
+        }
+    }
+
+    /// Rebuilds the book from `workspace`, prepares each account's profile
+    /// directories, hands the grid a dormant holder at each saved placement,
+    /// and redraws once — list, arrangement and every slot — before anything
+    /// loads. An account whose profile cannot be prepared is logged and skipped,
+    /// not the whole restore abandoned. The start queue (task 05) brings the
+    /// running accounts up one at a time afterwards.
+    fn restore_workspace(&self, workspace: Workspace) {
+        let Some(locator) = self.locator.borrow().clone() else {
+            tracing::error!("no profile locator attached; cannot restore the workspace");
+            return;
+        };
+
+        *self.book.borrow_mut() = SessionBook::restore(workspace);
+
+        let accounts: Vec<(SessionId, String, String, ZoomLevel, Option<String>)> = self
+            .book
+            .borrow()
+            .sessions()
+            .iter()
+            .map(|session| {
+                (
+                    session.id().clone(),
+                    session.display_name().to_owned(),
+                    session.start_address().to_owned(),
+                    session.zoom(),
+                    session.browser_identity().map(str::to_owned),
+                )
+            })
+            .collect();
+
+        for (id, name, address, zoom, identity) in accounts {
+            let directories = match locator.locate(&id) {
+                Ok(directories) => directories,
+                Err(error) => {
+                    tracing::error!(session = %id, %error, "could not prepare the profile directories; skipping this account");
+                    continue;
+                }
+            };
+
+            let holder =
+                SessionView::dormant(&id, &directories, &address, zoom, identity.as_deref());
+            self.grid.add_dormant_session(&id, &name);
+            self.holders.borrow_mut().insert(id, holder);
+        }
+
+        self.redraw();
+
+        // The header's layout toggles start on "1" from the template; the
+        // restored book may be arranged for another layout, and "that
+        // arrangement selected" is part of a truthful restore. Done after
+        // `redraw` and outside any `book` borrow, since flipping a toggle runs
+        // its handler synchronously.
+        let layout = self.book.borrow().layout();
+        self.select_layout_toggle(layout);
+
+        tracing::info!(accounts = self.holders.borrow().len(), "workspace restored");
+    }
+
+    /// Sets the header's layout toggle group to `layout` without the user
+    /// touching it — for a restore, where the book's layout is set directly.
+    fn select_layout_toggle(&self, layout: Layout) {
+        let toggle = match layout {
+            Layout::Single => &self.layout_single,
+            Layout::SideBySide => &self.layout_side_by_side,
+            Layout::Grid => &self.layout_grid,
+        };
+        toggle.set_active(true);
     }
 
     fn connect_layout_toggle(&self, toggle: &gtk::ToggleButton, layout: Layout) {
@@ -449,5 +555,22 @@ impl Window {
         let empty = book.sessions().is_empty();
         self.empty_state.set_visible(empty);
         self.grid.set_visible(!empty);
+    }
+}
+
+/// The one line the message strip shows for a workspace that would not load:
+/// the parse failure names where the file was kept so the user can go and look;
+/// an unreachable location has nothing to point at.
+fn describe_read_error(error: &WorkspaceReadError) -> String {
+    match error {
+        WorkspaceReadError::Unreadable { kept, .. } => format!(
+            "The saved workspace could not be read. It was kept aside at {} and the window below is a first run.",
+            kept.display()
+        ),
+        WorkspaceReadError::Inaccessible { reason } => {
+            format!(
+                "The saved workspace could not be read: {reason}. The window below is a first run."
+            )
+        }
     }
 }

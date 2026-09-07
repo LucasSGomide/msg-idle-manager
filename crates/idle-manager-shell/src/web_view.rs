@@ -83,13 +83,36 @@ pub struct SessionView {
 }
 
 impl SessionView {
-    /// Builds the holder with its own persistent, isolated network session
-    /// rooted at `directories`, then builds and starts its first
-    /// view loading `start_address` at `zoom`, presenting `identity` when it is
-    /// `Some`. `id` names the account in the keep-awake log line, since the two
-    /// hidden-page switches are per view rather than per context (`webkit6`
-    /// 0.6.1, `src/auto/web_view.rs:157`) and a debug log naming only the
-    /// feature would not say whose page it touched.
+    /// Builds the holder and its own persistent, isolated network session
+    /// rooted at `directories`, without building a view.
+    ///
+    /// A restored account gets this and nothing more (item 07 task 04):
+    /// building a view only to stop it would spend the process spike the
+    /// one-at-a-time restore exists to spread out. The start queue calls
+    /// [`SessionView::start`] when the account's turn comes.
+    #[must_use]
+    pub fn dormant(
+        id: &SessionId,
+        directories: &ProfileDirectories,
+        start_address: &str,
+        zoom: ZoomLevel,
+        identity: Option<&str>,
+    ) -> Self {
+        Self {
+            id: id.clone(),
+            network_session: build_network_session(&directories.data, &directories.cache),
+            start_address: start_address.to_owned(),
+            keep_awake: false,
+            zoom,
+            identity: identity.map(str::to_owned),
+            view: None,
+        }
+    }
+
+    /// [`SessionView::dormant`] plus a first [`SessionView::start`]: the holder
+    /// and its first running view, loading `start_address` at `zoom` and
+    /// presenting `identity` when it is `Some`. The one path that builds a
+    /// view for a brand-new account.
     #[must_use]
     pub fn new(
         id: &SessionId,
@@ -98,15 +121,7 @@ impl SessionView {
         zoom: ZoomLevel,
         identity: Option<&str>,
     ) -> Self {
-        let mut holder = Self {
-            id: id.clone(),
-            network_session: build_network_session(&directories.data, &directories.cache),
-            start_address: start_address.to_owned(),
-            keep_awake: false,
-            zoom,
-            identity: identity.map(str::to_owned),
-            view: None,
-        };
+        let mut holder = Self::dormant(id, directories, start_address, zoom, identity);
         holder.start();
         holder
     }
