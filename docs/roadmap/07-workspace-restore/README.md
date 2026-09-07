@@ -1,6 +1,6 @@
 # 07 — Restoring the workspace on launch
 
-**Depends on:** 03, 04, 06 · **Status:** not-started · **Estimate:** 8
+**Depends on:** 03, 04, 06 · **Status:** done · **Estimate:** 8
 
 ## Context
 

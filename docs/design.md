@@ -23,9 +23,20 @@ citations, so append rather than reorder.
    bold; `visible` (on screen, not focused) — green dot, flat; `background`
    (running out of sight) — amber dot, flat, name dimmed to 55% alpha; `parked`
    (not running, whatever place it still holds) — grey dot, flat, name dimmed to
-   55% alpha; `starting` (unparked, no page painted yet) — blue dot, flat. The
-   glow is `current`'s alone: it marks the one row you are looking at, not every
-   row that is busy.
+   55% alpha; `starting` (unparked, no page painted yet) — blue dot, flat;
+   `queued` (restored and waiting its turn in the start queue, item 07) — purple
+   dot, flat, name dimmed to 55% alpha. The glow is `current`'s alone: it marks
+   the one row you are looking at, not every row that is busy.
+
+   **The ordering, now that there are six.** A key is chosen by walking a fixed
+   list and taking the first that applies, so a new state slots into the list
+   rather than adding a branch. Liveness comes before visibility: an account
+   that is not simply running says so first, whatever slot it still holds —
+   `parked`, then `starting`, then `queued`, each a weaker claim than the last
+   (stopped outranks starting-up outranks waiting-for-a-turn). Only a running
+   account reaches the visibility keys, and there `current` outranks `visible`
+   outranks `background`. The list is the whole vocabulary; the seventh state
+   item 08 adds names where it falls in it and needs no new rule.
 
 2. **Give a row's Park/Start action one control whose label and effect invert
    with the row's state — `Park` while it runs, `Start` once it is parked — and
@@ -109,3 +120,20 @@ citations, so append rather than reorder.
    in, and the escape hatch still stands. A failure the user can act on is
    information, not an error dialog: it never takes a modal of its own and never
    blocks the path that still works.
+
+9. **Say what went wrong before the user did anything in one strip across the
+   top of the window — directly under the header bar, spanning the sidebar and
+   the grid — carrying one line and a dismiss button on its trailing edge, and
+   nothing else.** Two things reach it: a saved workspace that would not load,
+   read before the window is built (item 07 task 04), and a save that failed
+   mid-session (task 06). Both are the machine's problem, not something the user
+   asked for, so they belong above the whole window rather than beside any one
+   control, and they read as attention-not-urgent — the theme's warning tint,
+   never the error red. **It never leaves on its own.** A problem the user did
+   not cause is one they decide when they have dealt with; a strip that faded
+   would take the only record of it. It goes when its close button is pressed
+   and not before, and a later success (a workspace that now loads, a save that
+   now works) leaves a dismissed strip dismissed rather than reopening it. It is
+   **one reusable widget** — `message_strip.rs` with `message-strip.ui` — set to
+   a message and shown, or cleared, by whatever raises it; the launch failure
+   and the mid-session failure must not drift into two shapes.

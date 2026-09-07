@@ -1,0 +1,33 @@
+---
+source: crates/idle-manager-store/tests/the-workspace-file-on-disk.rs
+expression: on_disk
+---
+version = 1
+layout = "grid"
+
+[[account]]
+id = "session-0001"
+name = "Main account"
+url = "https://session-0001.test/"
+liveness = "running"
+slot = 0
+keep_awake = true
+zoom = 0.9
+user_agent = "ProbeUA/1.0"
+
+[[account]]
+id = "session-0002"
+name = "Alt"
+url = "https://session-0002.test/"
+liveness = "parked"
+slot = 3
+keep_awake = false
+zoom = 1.0
+
+[[account]]
+id = "session-0003"
+name = "Farm"
+url = "https://session-0003.test/"
+liveness = "running"
+keep_awake = false
+zoom = 1.0

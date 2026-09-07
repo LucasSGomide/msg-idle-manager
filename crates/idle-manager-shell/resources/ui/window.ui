@@ -55,40 +55,47 @@
       </object>
     </child>
     <child>
-      <object class="GtkBox" id="content">
+      <object class="GtkBox" id="root_box">
+        <property name="orientation">vertical</property>
         <property name="hexpand">true</property>
         <property name="vexpand">true</property>
         <child>
-          <object class="GtkRevealer" id="sidebar_revealer">
-            <property name="transition-type">slide-right</property>
-            <property name="reveal-child">true</property>
-          </object>
-        </child>
-        <child>
-          <object class="GtkBox" id="empty_state">
-            <property name="orientation">vertical</property>
+          <object class="GtkBox" id="content">
             <property name="hexpand">true</property>
             <property name="vexpand">true</property>
-            <property name="halign">center</property>
-            <property name="valign">center</property>
-            <property name="spacing">12</property>
             <child>
-              <object class="GtkLabel">
-                <property name="label">No games yet — add one to get started.</property>
-                <style>
-                  <class name="dim-label"/>
-                  <class name="title-3"/>
-                </style>
+              <object class="GtkRevealer" id="sidebar_revealer">
+                <property name="transition-type">slide-right</property>
+                <property name="reveal-child">true</property>
               </object>
             </child>
             <child>
-              <object class="GtkButton" id="add_first_game_button">
-                <property name="label">Add your first game</property>
+              <object class="GtkBox" id="empty_state">
+                <property name="orientation">vertical</property>
+                <property name="hexpand">true</property>
+                <property name="vexpand">true</property>
                 <property name="halign">center</property>
-                <style>
-                  <class name="suggested-action"/>
-                  <class name="pill"/>
-                </style>
+                <property name="valign">center</property>
+                <property name="spacing">12</property>
+                <child>
+                  <object class="GtkLabel">
+                    <property name="label">No games yet — add one to get started.</property>
+                    <style>
+                      <class name="dim-label"/>
+                      <class name="title-3"/>
+                    </style>
+                  </object>
+                </child>
+                <child>
+                  <object class="GtkButton" id="add_first_game_button">
+                    <property name="label">Add your first game</property>
+                    <property name="halign">center</property>
+                    <style>
+                      <class name="suggested-action"/>
+                      <class name="pill"/>
+                    </style>
+                  </object>
+                </child>
               </object>
             </child>
           </object>

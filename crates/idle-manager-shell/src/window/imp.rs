@@ -4,6 +4,7 @@
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::rc::Rc;
+use std::sync::Arc;
 
 use gtk::CompositeTemplate;
 use gtk::gdk;
@@ -11,16 +12,20 @@ use gtk::glib;
 use gtk::prelude::*;
 use gtk::subclass::prelude::*;
 use gtk4 as gtk;
-use webkit6::LoadEvent;
 use webkit6::prelude::WebViewExt;
+use webkit6::{LoadEvent, WebView};
 
 use idle_manager_core::{
     Layout, Liveness, Preset, PresetCatalogue, ProfileLocator, Session, SessionBook, SessionId,
+    Workspace, WorkspaceReadError, WorkspaceStore, ZoomLevel,
 };
 
 use crate::add_game_dialog::{AddGameDialog, Confirmed};
+use crate::message_strip::MessageStrip;
+use crate::save_on_change::Saver;
 use crate::session_grid::SessionGrid;
 use crate::session_sidebar::SessionSidebar;
+use crate::start_queue::StartQueue;
 use crate::web_view::SessionView;
 
 /// The composite-template backing object for [`super::Window`].
@@ -44,14 +49,23 @@ pub struct Window {
     #[template_child]
     sidebar_revealer: TemplateChild<gtk::Revealer>,
     #[template_child]
+    root_box: TemplateChild<gtk::Box>,
+    #[template_child]
     content: TemplateChild<gtk::Box>,
     #[template_child]
     empty_state: TemplateChild<gtk::Box>,
 
+    /// The window-level message bar under the header bar (design rule 9). Hidden
+    /// until a workspace fails to load (task 04) or, later, a save fails
+    /// (task 06).
+    message_strip: MessageStrip,
     grid: SessionGrid,
     sidebar: SessionSidebar,
     book: RefCell<SessionBook>,
     locator: RefCell<Option<Rc<dyn ProfileLocator>>>,
+    /// The debounced save-on-change path (task 06), created once the ports are
+    /// attached.
+    saver: RefCell<Option<Saver>>,
     /// The game catalogue, read afresh every time the add-game dialog opens so
     /// a file dropped into the presets folder by hand shows up without a
     /// restart.
@@ -61,6 +75,9 @@ pub struct Window {
     /// reference to the same view; this map is what a later slice asks to stop
     /// or start.
     holders: RefCell<HashMap<SessionId, SessionView>>,
+    /// The queue that brings restored accounts up one at a time, alive only
+    /// while a restore is draining (task 05).
+    start_queue: RefCell<Option<StartQueue>>,
 }
 
 impl std::fmt::Debug for Window {
@@ -87,6 +104,10 @@ impl ObjectSubclass for Window {
 impl ObjectImpl for Window {
     fn constructed(&self) {
         self.parent_constructed();
+
+        // The strip spans the sidebar and the grid, directly under the header
+        // bar (design rule 9).
+        self.root_box.prepend(&self.message_strip);
 
         self.grid.set_hexpand(true);
         self.grid.set_vexpand(true);
@@ -181,6 +202,19 @@ impl ObjectImpl for Window {
         self.connect_layout_toggle(&self.layout_side_by_side, Layout::SideBySide);
         self.connect_layout_toggle(&self.layout_grid, Layout::Grid);
 
+        // The one place a save is allowed to be waited on: a change made a
+        // moment before quitting has nothing else to trigger its write, so
+        // closing finishes any pending one first (task 06).
+        let window = self.obj().downgrade();
+        self.obj().connect_close_request(move |_| {
+            if let Some(window) = window.upgrade()
+                && let Some(saver) = window.imp().saver.borrow().as_ref()
+            {
+                saver.flush();
+            }
+            glib::Propagation::Proceed
+        });
+
         self.redraw();
     }
 }
@@ -194,9 +228,117 @@ impl Window {
         &self,
         locator: Rc<dyn ProfileLocator>,
         catalogue: Rc<dyn PresetCatalogue>,
+        store: Arc<dyn WorkspaceStore>,
+        read_outcome: Result<Option<Workspace>, WorkspaceReadError>,
     ) {
         self.locator.replace(Some(locator));
         self.catalogue.replace(Some(catalogue));
+        self.saver
+            .replace(Some(Saver::new(store, self.message_strip.clone())));
+        self.apply_read_outcome(read_outcome);
+    }
+
+    /// Asks for the workspace to be saved after an action changed it. Cheap —
+    /// it only rearms a timer — so a caller in doubt asks (task 06). A no-op
+    /// before the ports are attached.
+    fn request_save(&self) {
+        if let Some(saver) = self.saver.borrow().as_ref() {
+            saver.request(self.book.borrow().workspace());
+        }
+    }
+
+    /// Acts on what the composition root read before the window was built: a
+    /// saved workspace to restore, no file (a first run), or a failure. A
+    /// failure is never flattened into "no file" — it is logged in fields and
+    /// shown in the strip, never dropped (code standards rules 14, 15).
+    fn apply_read_outcome(&self, outcome: Result<Option<Workspace>, WorkspaceReadError>) {
+        match outcome {
+            Ok(None) => {
+                tracing::info!("no saved workspace; opening a first run");
+            }
+            Ok(Some(workspace)) => self.restore_workspace(workspace),
+            Err(error) => {
+                tracing::warn!(error = %error, "the saved workspace could not be read");
+                self.message_strip.show(&describe_read_error(&error));
+            }
+        }
+    }
+
+    /// Rebuilds the book from `workspace`, prepares each account's profile
+    /// directories, hands the grid a dormant holder at each saved placement,
+    /// and redraws once — list, arrangement and every slot — before anything
+    /// loads. An account whose profile cannot be prepared is logged and skipped,
+    /// not the whole restore abandoned. The start queue (task 05) brings the
+    /// running accounts up one at a time afterwards.
+    fn restore_workspace(&self, workspace: Workspace) {
+        let Some(locator) = self.locator.borrow().clone() else {
+            tracing::error!("no profile locator attached; cannot restore the workspace");
+            return;
+        };
+
+        *self.book.borrow_mut() = SessionBook::restore(workspace);
+
+        let accounts: Vec<(SessionId, String, String, ZoomLevel, Option<String>)> = self
+            .book
+            .borrow()
+            .sessions()
+            .iter()
+            .map(|session| {
+                (
+                    session.id().clone(),
+                    session.display_name().to_owned(),
+                    session.start_address().to_owned(),
+                    session.zoom(),
+                    session.browser_identity().map(str::to_owned),
+                )
+            })
+            .collect();
+
+        for (id, name, address, zoom, identity) in accounts {
+            let directories = match locator.locate(&id) {
+                Ok(directories) => directories,
+                Err(error) => {
+                    tracing::error!(session = %id, %error, "could not prepare the profile directories; skipping this account");
+                    continue;
+                }
+            };
+
+            let holder =
+                SessionView::dormant(&id, &directories, &address, zoom, identity.as_deref());
+            self.grid.add_dormant_session(&id, &name);
+            self.holders.borrow_mut().insert(id, holder);
+        }
+
+        self.redraw();
+
+        // The header's layout toggles start on "1" from the template; the
+        // restored book may be arranged for another layout, and "that
+        // arrangement selected" is part of a truthful restore. Done after
+        // `redraw` and outside any `book` borrow, since flipping a toggle runs
+        // its handler synchronously.
+        let layout = self.book.borrow().layout();
+        self.select_layout_toggle(layout);
+
+        tracing::info!(accounts = self.holders.borrow().len(), "workspace restored");
+
+        // The arrangement is drawn; now bring the running accounts back one at
+        // a time (task 05). Nothing queued means nothing to do.
+        let order = self.book.borrow().start_order();
+        if !order.is_empty() {
+            self.start_queue
+                .replace(Some(StartQueue::begin(self.obj().downgrade(), order)));
+        }
+    }
+
+    /// Sets the header's layout toggle group to `layout` without the user
+    /// touching it — for a restore, where the book's layout is set directly.
+    fn select_layout_toggle(&self, layout: Layout) {
+        let toggle = match layout {
+            Layout::Single => &self.layout_single,
+            Layout::SideBySide => &self.layout_side_by_side,
+            Layout::Grid => &self.layout_grid,
+        };
+        toggle.set_active(true);
     }
 
     fn connect_layout_toggle(&self, toggle: &gtk::ToggleButton, layout: Layout) {
@@ -209,6 +351,7 @@ impl Window {
                 let imp = window.imp();
                 imp.book.borrow_mut().set_layout(layout);
                 imp.redraw();
+                imp.request_save();
             }
         });
     }
@@ -299,11 +442,13 @@ impl Window {
         self.grid.add_session(id, &name, view);
         self.holders.borrow_mut().insert(id.clone(), holder);
         self.redraw();
+        self.request_save();
     }
 
     fn focus_session(&self, id: &SessionId) {
         self.book.borrow_mut().focus_session(id);
         self.redraw();
+        self.request_save();
     }
 
     /// The park/start button was pressed. The direction is the book's to
@@ -319,11 +464,19 @@ impl Window {
             .map(Session::liveness);
 
         match liveness {
-            Some(Liveness::Live) => self.park_session(id),
-            Some(Liveness::Parked) => self.start_session(id),
-            // Starting keeps its button insensitive, so a press that still
-            // arrives is a stale event; an unknown id has nothing to toggle.
-            Some(Liveness::Starting) | None => {}
+            Some(Liveness::Live) => {
+                self.park_session(id);
+                self.request_save();
+            }
+            Some(Liveness::Parked) => {
+                self.start_session(id);
+                self.request_save();
+            }
+            // Starting and Queued both keep the row's Start item insensitive, so
+            // a press that still arrives is a stale event; during a restore the
+            // start queue owns a queued account's turn. An unknown id has
+            // nothing to toggle.
+            Some(Liveness::Starting | Liveness::Queued) | None => {}
         }
     }
 
@@ -340,12 +493,14 @@ impl Window {
         self.redraw();
     }
 
-    /// Starts a parked account, in the order the roadmap item's second diagram
-    /// fixes: unpark in the book (which returns `Starting`, since no page has
-    /// painted), redraw so the row shows it and the button goes insensitive,
-    /// then build a new view against the kept network session and hand it to
-    /// the grid (architecture rule 8).
-    fn start_session(&self, id: &SessionId) {
+    /// Starts a parked or queued account, in the order the roadmap item's second
+    /// diagram fixes: unpark in the book (which returns `Starting`, since no page
+    /// has painted), redraw so the row shows it and the button goes insensitive,
+    /// then build a new view against the kept network session and hand it to the
+    /// grid (architecture rule 8). Returns the new view, or `None` when the
+    /// account has no holder to start. The start queue (task 05) is the only
+    /// caller that reads the return.
+    pub(crate) fn start_session(&self, id: &SessionId) -> Option<WebView> {
         self.book.borrow_mut().unpark(id);
         self.redraw();
 
@@ -353,7 +508,7 @@ impl Window {
             let mut holders = self.holders.borrow_mut();
             let Some(holder) = holders.get_mut(id) else {
                 tracing::error!(session = %id, "no holder to start");
-                return;
+                return None;
             };
             holder.start().clone()
         };
@@ -365,15 +520,28 @@ impl Window {
         // "first paint" is the roadmap item's fourth blocker and has to be
         // checked against a real game.
         let window = self.obj().downgrade();
-        let id = id.clone();
+        let owned_id = id.clone();
         view.connect_load_changed(move |_, event| {
             if !matches!(event, LoadEvent::Committed | LoadEvent::Finished) {
                 return;
             }
             if let Some(window) = window.upgrade() {
-                window.imp().finish_starting(&id);
+                window.imp().finish_starting(&owned_id);
             }
         });
+
+        Some(view)
+    }
+
+    /// Whether the book still reports `id` as [`Liveness::Queued`]. The start
+    /// queue asks before each turn, so a state that changed while it was
+    /// draining is never overwritten by a start nobody asked for.
+    pub(crate) fn is_queued(&self, id: &SessionId) -> bool {
+        self.book
+            .borrow()
+            .sessions()
+            .iter()
+            .any(|session| session.id() == id && session.liveness() == Liveness::Queued)
     }
 
     /// The shell reports a started account's first paint: end its starting
@@ -409,6 +577,7 @@ impl Window {
         // A live account moved to `Starting` by the set above; a parked one
         // did not, so this only shows the reloading marker where it applies.
         self.redraw();
+        self.request_save();
 
         let view = {
             let mut holders = self.holders.borrow_mut();
@@ -447,5 +616,22 @@ impl Window {
         let empty = book.sessions().is_empty();
         self.empty_state.set_visible(empty);
         self.grid.set_visible(!empty);
+    }
+}
+
+/// The one line the message strip shows for a workspace that would not load:
+/// the parse failure names where the file was kept so the user can go and look;
+/// an unreachable location has nothing to point at.
+fn describe_read_error(error: &WorkspaceReadError) -> String {
+    match error {
+        WorkspaceReadError::Unreadable { kept, .. } => format!(
+            "The saved workspace could not be read. It was kept aside at {} and the window below is a first run.",
+            kept.display()
+        ),
+        WorkspaceReadError::Inaccessible { reason } => {
+            format!(
+                "The saved workspace could not be read: {reason}. The window below is a first run."
+            )
+        }
     }
 }

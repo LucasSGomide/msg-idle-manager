@@ -43,6 +43,24 @@
   background-color: #62a0ea;
 }
 
+/* Queued: restored and waiting its turn in the start queue (item 07). Purple
+ * and flat — a weaker claim than the starting blue and unmistakable against the
+ * parked grey, for a row that will move on its own with nothing for the user to
+ * press (design rule 1). */
+.status-dot.status-queued {
+  background-color: #dc8add;
+}
+
+/* Window-level message strip (design rule 9): one line under the header bar,
+ * spanning the sidebar and the grid, for something that happened before the
+ * user acted. Tinted with the theme's warning colour so it reads as "attention,
+ * not urgent" and dismissible from its own close button. */
+.message-strip {
+  padding: 6px 8px;
+  background-color: alpha(@warning_color, 0.15);
+  border-bottom: 1px solid alpha(@warning_color, 0.4);
+}
+
 /* Keep-awake indication (design rule 6). Quieter than every status-dot rule
  * above and never glows: it marks a configuration nobody is about to change,
  * not a state the dot beside it is already carrying. */

@@ -18,7 +18,7 @@ use gtk::graphene;
 use gtk::subclass::prelude::*;
 use gtk4 as gtk;
 
-use idle_manager_core::{Layout, SessionBook, SessionId, SlotId, Visibility};
+use idle_manager_core::{Layout, Liveness, SessionBook, SessionId, SlotId, Visibility};
 use webkit6::prelude::*;
 use webkit6::{LoadEvent, WebView};
 
@@ -121,19 +121,30 @@ impl WidgetImpl for SessionGrid {
 }
 
 impl SessionGrid {
+    /// Registers a brand-new account with its first running view already in
+    /// its slot. The cover carries the name until the page paints; the
+    /// placeholder is built hidden.
     pub(super) fn add_session(&self, id: &SessionId, display_name: &str, view: &WebView) {
+        self.register_slot(id, display_name, Some(view));
+    }
+
+    /// Registers a restored account with no view yet (item 07 task 04). The
+    /// placeholder shows immediately — its line and button come from the next
+    /// `sync` reading the account's liveness — and the start queue attaches a
+    /// view later with [`SessionGrid::attach_view`].
+    pub(super) fn add_dormant_session(&self, id: &SessionId, display_name: &str) {
+        self.register_slot(id, display_name, None);
+    }
+
+    fn register_slot(&self, id: &SessionId, display_name: &str, view: Option<&WebView>) {
         let overlay = gtk::Overlay::new();
-        overlay.set_child(Some(view));
 
         let cover = build_cover(display_name);
         overlay.add_overlay(&cover);
-        hide_cover_once_painted(view, &cover);
 
         let placeholder = SlotPlaceholder::new();
         placeholder.set_name(display_name);
-        placeholder.set_state_text("Parked");
         placeholder.set_button_label("Start");
-        placeholder.set_visible(false);
         overlay.add_overlay(&placeholder);
 
         let grid = self.obj().downgrade();
@@ -146,6 +157,21 @@ impl SessionGrid {
                 handler(session.clone());
             }
         });
+
+        match view {
+            Some(view) => {
+                overlay.set_child(Some(view));
+                hide_cover_once_painted(view, &cover);
+                placeholder.set_state_text("Parked");
+                placeholder.set_visible(false);
+            }
+            None => {
+                // A restored account: the cover is for a loading view it does
+                // not have yet, and the placeholder's line and visibility come
+                // from the next `sync` reading its liveness.
+                cover.set_visible(false);
+            }
+        }
 
         overlay.set_parent(&*self.obj());
 
@@ -230,6 +256,7 @@ impl SessionGrid {
         for entry in self.slots.borrow_mut().iter_mut() {
             if let Some(session) = book.sessions().iter().find(|s| s.id() == &entry.id) {
                 entry.placement = session.visibility();
+                apply_placeholder(&entry.placeholder, placeholder_panel(session.liveness()));
             }
         }
 
@@ -354,6 +381,58 @@ fn grid_dimensions(layout: Layout) -> (usize, usize) {
     }
 }
 
+/// What a slot's placeholder panel reads for an account in `liveness`, or
+/// `None` when the account is live and its view fills the slot.
+///
+/// Derived during `sync` — not only from the imperative `release_view` /
+/// `attach_view` calls — so a slot drawn straight from a restored book reads
+/// correctly before any view exists (design rule 4, architecture rule 8). A
+/// queued account gets the line and no button at all: the start queue owns the
+/// order and there is nothing useful to press while it drains.
+fn placeholder_panel(liveness: Liveness) -> Option<PlaceholderPanel> {
+    match liveness {
+        Liveness::Parked => Some(PlaceholderPanel {
+            state_text: "Parked",
+            button_visible: true,
+            button_sensitive: true,
+        }),
+        Liveness::Queued => Some(PlaceholderPanel {
+            state_text: "Queued",
+            button_visible: false,
+            button_sensitive: false,
+        }),
+        Liveness::Starting => Some(PlaceholderPanel {
+            state_text: "Starting",
+            button_visible: true,
+            button_sensitive: false,
+        }),
+        Liveness::Live => None,
+    }
+}
+
+/// The three placeholder facts `placeholder_panel` derives from a liveness.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct PlaceholderPanel {
+    state_text: &'static str,
+    button_visible: bool,
+    button_sensitive: bool,
+}
+
+/// Pushes `panel` onto `placeholder`, or hides the panel when `panel` is
+/// `None`. The `Start` label is constant here; item 08's failure panel is the
+/// same widget with a different one.
+fn apply_placeholder(placeholder: &SlotPlaceholder, panel: Option<PlaceholderPanel>) {
+    let Some(panel) = panel else {
+        placeholder.set_visible(false);
+        return;
+    };
+    placeholder.set_state_text(panel.state_text);
+    placeholder.set_button_label("Start");
+    placeholder.set_button_visible(panel.button_visible);
+    placeholder.set_button_sensitive(panel.button_sensitive);
+    placeholder.set_visible(true);
+}
+
 /// Hides `cover` the first time `view` commits a page — the name shows on the
 /// window's own background until then, and the live page covers it after.
 fn hide_cover_once_painted(view: &WebView, cover: &gtk::Box) {
@@ -414,5 +493,36 @@ impl LayoutManagerImpl for SlotLayout {
             return;
         };
         grid.imp().allocate_slots(width, height);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_queued_account_gets_the_queued_line_and_no_button() {
+        let panel = placeholder_panel(Liveness::Queued).expect("a queued account shows a panel");
+
+        assert_eq!((panel.state_text, panel.button_visible), ("Queued", false));
+    }
+
+    #[test]
+    fn a_parked_accounts_panel_is_unchanged_by_the_queued_state() {
+        let panel = placeholder_panel(Liveness::Parked).expect("a parked account shows a panel");
+
+        assert_eq!(
+            (
+                panel.state_text,
+                panel.button_visible,
+                panel.button_sensitive
+            ),
+            ("Parked", true, true),
+        );
+    }
+
+    #[test]
+    fn a_live_account_shows_no_panel() {
+        assert_eq!(placeholder_panel(Liveness::Live), None);
     }
 }

@@ -13,9 +13,12 @@
 #![allow(unsafe_code, unreachable_pub)]
 
 mod add_game_dialog;
+mod message_strip;
+mod save_on_change;
 mod session_grid;
 mod session_sidebar;
 mod slot_placeholder;
+mod start_queue;
 mod web_view;
 mod window;
 
@@ -98,5 +101,36 @@ mod tests {
         .expect("look up the slot placeholder template by its resource path");
 
         assert!(!data.is_empty());
+    }
+
+    #[test]
+    fn the_message_strip_template_is_readable_from_the_registered_bundle() {
+        register_resources().expect("register the compiled bundle");
+
+        let data = gio::resources_lookup_data(
+            "/org/idlemanager/IdleManager/ui/message-strip.ui",
+            gio::ResourceLookupFlags::NONE,
+        )
+        .expect("look up the message strip template by its resource path");
+
+        assert!(!data.is_empty());
+    }
+
+    #[test]
+    fn the_sidebar_stylesheet_carries_a_distinct_queued_dot_class() {
+        register_resources().expect("register the compiled bundle");
+
+        let data = gio::resources_lookup_data(
+            "/org/idlemanager/IdleManager/css/sidebar.css",
+            gio::ResourceLookupFlags::NONE,
+        )
+        .expect("look up the sidebar stylesheet by its resource path");
+        let css = std::str::from_utf8(&data).expect("the stylesheet is UTF-8");
+
+        assert!(
+            css.contains(".status-queued") && css.contains("#dc8add"),
+            "sidebar.css must style a status-queued dot in a colour that is \
+             neither the starting #62a0ea nor the parked #9a9996"
+        );
     }
 }

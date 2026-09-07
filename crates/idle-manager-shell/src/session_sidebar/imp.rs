@@ -22,12 +22,13 @@ use super::row::{Row, status_label};
 
 /// The status-dot keys `sidebar.css` styles, one class each. Cleared and
 /// re-applied on every bind because the list recycles row widgets.
-const STATUS_CLASSES: [&str; 5] = [
+const STATUS_CLASSES: [&str; 6] = [
     "status-current",
     "status-visible",
     "status-background",
     "status-parked",
     "status-starting",
+    "status-queued",
 ];
 
 /// A handler run with the activated account's id when the user clicks a row.
