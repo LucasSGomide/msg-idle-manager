@@ -1,6 +1,6 @@
 # 06 — Presets and adding an account
 
-**Depends on:** 01, 04 · **Status:** in-progress · **Estimate:** 5
+**Depends on:** 01, 04 · **Status:** done · **Estimate:** 5
 
 ## Context
 

@@ -39,4 +39,4 @@ their own game takes anyway.
 | [02](02-reading-the-game-files.md) | Reading the game files from the configuration folder | back-end | 01 | 9/9 | done |
 | [03](03-the-shipped-games-and-seeding.md) | The shipped game files and first-run seeding | back-end | 02 | 7/7 | done |
 | [04](04-the-dialogs-game-chooser.md) | The add-game dialog's game chooser | front-end | 02 | 10/10 | done |
-| [05](05-the-games-zoom-and-identity.md) | A view drawn at the game's zoom and browser identity | front-end | 03, 04 | 7/9 | in-progress |
+| [05](05-the-games-zoom-and-identity.md) | A view drawn at the game's zoom and browser identity | front-end | 03, 04 | 9/9 | done |

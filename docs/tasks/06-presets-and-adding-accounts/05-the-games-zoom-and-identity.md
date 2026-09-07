@@ -97,7 +97,7 @@ game.
       first paint rather than after a visible resize
 - [x] `(manual)` an account created through "Something else" draws at the
       engine's ordinary size and reports the engine's own identity
-- [ ] `(manual)` an account created from each of the three shipped games loads
+- [x] `(manual)` an account created from each of the three shipped games loads
       that game at the zoom its file asks for and reaches the game's sign-in
       without being turned away as an unrecognised browser
 - [x] `(manual)` an account created from a game whose file names no browser
@@ -106,7 +106,7 @@ game.
       identity reports exactly that string, with nothing appended
 - [x] `(manual)` parking such an account and starting it again brings back the
       same size and the same identity on its fresh page
-- [ ] `(manual)` a sign-in popup opened by an account with an identity override
+- [x] `(manual)` a sign-in popup opened by an account with an identity override
       reports the same string as the account that opened it
 - [x] `(manual)` editing a game's file leaves an account already created from it
       drawing exactly as before, and the next account created from that game uses

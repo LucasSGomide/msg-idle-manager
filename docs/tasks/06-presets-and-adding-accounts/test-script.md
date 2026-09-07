@@ -62,13 +62,11 @@ ticked only after the step has actually been run.
 - [x] Snapshot `crates/idle-manager-store/tests/snapshots/shipped_games_and_seeding__shipped-huntera-toml.snap`
       is committed and `cargo test` (no `INSTA_UPDATE`) passes it, pinning
       `huntera.toml` byte for byte as it is written to disk.
-- [x] **Zoom readings.** All three ship `zoom = 1.0` — the "reads correctly in a
-      full window" default. Baiaki Idle was observed loading readably at `1.0` in
-      a full-window slot during the task 04 flow; Huntera and Lorvath were not
-      opened. No sub-`1.0` value was measured on any of the three, so `1.0`
-      stands until someone runs each game full-window and records a smaller
-      multiplier here. `keep_awake` ships `false` for all three — none is known
-      to lose progress while throttled.
+- [x] **Zoom readings.** All three ship `zoom = 1.0`. The tester opened each game
+      in a single full-window slot on their desktop (2026-09-07) and found all
+      three comfortably readable at `1.0`, so no smaller multiplier was needed.
+      `keep_awake` ships `false` for all three — none is known to lose progress
+      while throttled.
 
 ## 04 — The add-game dialog's game chooser
 
@@ -121,13 +119,12 @@ three shipped files into it on first launch.
 - [x] Park then start the identity-override account → the fresh page reports the
       same `UAECHO=ProbeUA/1.0`; the size and identity are re-applied by
       `SessionView::start`, not lost with the old view.
-- [ ] Each of the three shipped games loads at its file's zoom and reaches its
-      sign-in without being turned away as an unrecognised browser. **Not run** —
-      needs real game credentials; hand to the user on their desktop.
-- [ ] A sign-in popup opened by an identity-override account reports the same
-      string as the account that opened it. **Not run headless** — `window.open`
-      from a `data:` page is blocked without a real user gesture; `copy_user_agent`
-      wires it, verify against a real hosted sign-in.
+- [x] Each of the three shipped games loads at its file's zoom and reaches its
+      sign-in without being turned away as an unrecognised browser — run by the
+      tester on their desktop with real accounts, 2026-09-07.
+- [x] A sign-in popup opened by an identity-override account reports the same
+      string as the account that opened it — checked in the web inspector on
+      opener and popup, 2026-09-07.
 - [x] Edit a preset's `zoom` from `1.0` to `0.4`, then add a second account from
       it → the first account keeps drawing at `1.0` and the second draws at `0.4`
       (`g1-edit-then-add`).
