@@ -19,13 +19,16 @@ permanent ID, never renumbered**. Ordering lives in this table only.
 - The prose above the table is hand-written and says **why** the next item is
   next. The table sorts by estimate; that sort is not a priority.
 
-Items 01 to 04 and 06 are done. They built the base every other item assumes — a
+Items 01 to 04, 06 and 07 are done. They built the base every other item assumes — a
 session with its own storage on disk, a way to create one, the grid that holds
 views out of sight, and the sidebar index of every account — plus the two
 controls over what an account costs (parking, which hands memory back and takes
 it again, and keep-awake, which keeps a game running while the window is down)
 and the game catalogue that supplies an account's address, zoom and identity so
-adding one is a name and a click. Item 06 landing unblocked 07.
+adding one is a name and a click. Item 07 then made the arrangement durable: the
+workspace is written after every change and restored one account at a time on
+launch, so the application can be left running for days and reopened without
+thought.
 
 Item 04 also settled what the grid's off-grid trick is worth: an account with no
 place on screen is never marked hidden, so nothing throttles it. Keep-awake earns
@@ -37,14 +40,13 @@ a number on screen: what each account actually costs, and what parking actually
 returns. Everything before it asserted that; nothing has shown it. It also gives
 item 04's open question a way to be answered — the shim's frame interval is a
 guess with no measurement behind it, and a per-account readout is what would show
-what it costs to run. Items 07 and 08 then add durability across a restart and
-recovery from a crash nobody was awake to see.
+what it costs to run. Item 08 then adds recovery from a crash nobody was awake to
+see, building on the durable workspace 07 just landed.
 
 Item 09 is ready but is not next. It makes the window comfortable to read rather
-than making it work, and it is the first item to write anything on an account's
+than making it work. It is the first item to write anything on an account's
 behalf — a per-account state file whose one weakness, an identifier reused across
-a relaunch, is exactly what item 07 fixes. Landing 07 first costs 09 nothing and
-removes that wart before anyone can meet it.
+a relaunch, is exactly the wart item 07 removed, so 09 can now be met without it.
 
 The `### Back-end` and `### Front-end` headings inside each item map onto this
 repository's crates rather than onto a server and a browser: back-end means the
@@ -66,7 +68,6 @@ failure are shown inside a chooser without a modal of their own.
 
 | # | Item | Est | Depends on | Status |
 |---|---|---|---|---|
-| [07](07-workspace-restore/README.md) | Restoring the workspace on launch | 8 | 03, 04, 06 | in-progress |
 | [05](05-memory-accounting/README.md) | Memory accounting | 5 | 02, 03 | not-started |
 | [08](08-crash-recovery/README.md) | Surviving a crashed game | 5 | 03 | not-started |
 | [09](09-interactive-zoom/README.md) | Interactive zoom, remembered per arrangement | 5 | 03, 06 | not-started |
@@ -88,3 +89,4 @@ _(none)_
 | [03](03-parking-and-unparking/README.md) | Parking and unparking a session | 8 | 02 | done |
 | [04](04-keep-awake/README.md) | Keep-awake for hidden games | 5 | 02 | done |
 | [06](06-presets-and-adding-accounts/README.md) | Presets and adding an account | 5 | 01, 04 | done |
+| [07](07-workspace-restore/README.md) | Restoring the workspace on launch | 8 | 03, 04, 06 | done |

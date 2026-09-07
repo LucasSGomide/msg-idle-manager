@@ -108,7 +108,7 @@ rather than a label dropped into the window.
       queued and its slot shows the panel with the queued line and no button
 - [x] `(manual)` an account saved as parked comes back parked, reads as parked
       immediately, and never passes through queued or starting
-- [ ] `(manual)` a restored account keeps its name, its zoom and its browser
+- [x] `(manual)` a restored account keeps its name, its zoom and its browser
       identity, and starting it from the row menu loads its game already signed
       in, with no new login
 - [x] `(manual)` with no workspace file at all, the window opens as item 01's

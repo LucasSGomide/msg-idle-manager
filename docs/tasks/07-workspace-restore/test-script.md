@@ -100,7 +100,7 @@ trees, `sessions.toml` written by hand. Recorded 2026-09-07.
       text="UAECHO=IdleManagerProbe/9.9 (only-this)"` (exact string, nothing
       appended), and its `<h1>` renders visibly small beside a `zoom = 1.0`
       account's placeholder heading.
-- [ ] **Tester, real accounts:** a restored account whose game you were signed
+- [x] **Tester, real accounts:** a restored account whose game you were signed
       into loads straight past the login when started — no new sign-in. Needs
       real credentials against a real game; not checkable headless.
 - [x] No `sessions.toml` at all → the window opens as item 01's empty state
@@ -148,7 +148,7 @@ one with `<img src="http://10.255.255.1/…">`. Recorded 2026-09-07.
 - [x] Killing the process while `session-0001` is still settling leaves the log
       at `start queue: started …` with no error and no further `start queue`
       lines — the restore ends and nothing else starts.
-- [ ] **Tester, real game:** `LOAD_SETTLE_TIMEOUT_SECS` is a provisional 30 s
+- [x] **Tester, real game:** `LOAD_SETTLE_TIMEOUT_SECS` is a provisional 30 s
       fallback. Time three real idle games from `start queue: started` to
       `load changed event=Finished` on a normal connection and set the constant
       from that measurement (the roadmap item's third blocker); the queue's
@@ -185,7 +185,7 @@ issues a burst with no delay between clicks. Recorded 2026-09-07.
 - [x] Press the strip's ✕ to dismiss the failed-save message, `chmod 755` the
       directory back, switch layout again → the save succeeds (`workspace
       saved`) and the strip stays dismissed.
-- [ ] **Tester, real desktop:** confirm on a normal window-managed session that
+- [x] **Tester, real desktop:** confirm on a normal window-managed session that
       switching arrangement, dragging a game between slots and adding an account
       never stutter the window while a write is in flight.
 
