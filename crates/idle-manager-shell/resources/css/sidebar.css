@@ -1,11 +1,7 @@
-/* Sidebar row status marker (design rule 1). One dot class per status key in
- * session_sidebar/row.rs; items 03 and 08 add more keys and more rules here. */
-
-.sidebar-status {
-  font-size: 0.82em;
-  opacity: 0.7;
-  margin-right: 2px;
-}
+/* Sidebar row status marker (design rule 1): a dot-only marker, no word beside
+ * it, and the current row's dot the only one that glows. One dot class per
+ * status key in session_sidebar/row.rs; items 03 and 08 add more keys and more
+ * rules here. */
 
 .status-dot {
   min-width: 10px;
@@ -28,28 +24,23 @@
   background-color: #33d17a;
 }
 
-/* Running out of sight: amber, glowing. */
+/* Running out of sight: amber, flat. Only the current row's dot glows now
+ * (design rule 1) — the colour alone still separates it from a parked grey. */
 .status-dot.status-background {
   background-color: #f5c211;
-  box-shadow:
-    0 0 4px 1px alpha(#f5c211, 0.9),
-    0 0 9px 3px alpha(#f5c211, 0.45);
 }
 
 /* Parked: not running at all. Grey and unlit — the dot for a state that costs
  * nothing, distinct from the amber of a game still ticking out of sight. */
 .status-dot.status-parked {
   background-color: #9a9996;
-  box-shadow: none;
 }
 
-/* Starting: unparked, no page painted yet. Blue with a glow — a transient
- * working state, on its way to green. */
+/* Starting: unparked, no page painted yet. Blue and flat — a transient working
+ * state on its way to green; the glow is reserved for the current row alone
+ * (design rule 1). */
 .status-dot.status-starting {
   background-color: #62a0ea;
-  box-shadow:
-    0 0 4px 1px alpha(#62a0ea, 0.9),
-    0 0 9px 3px alpha(#62a0ea, 0.45);
 }
 
 /* Keep-awake indication (design rule 6). Quieter than every status-dot rule

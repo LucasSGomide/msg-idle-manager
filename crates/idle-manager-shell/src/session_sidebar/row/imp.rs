@@ -21,18 +21,18 @@ pub struct Row {
     #[property(get, set)]
     display_name: RefCell<String>,
     /// The status key for the trailing marker: `current`, `visible`,
-    /// `background`, `parked` or `starting`. Names both the word shown and the
-    /// dot's CSS class.
+    /// `background`, `parked` or `starting`. Names the dot's CSS class and,
+    /// through `status_label`, the dot's tooltip and accessible label.
     #[property(get, set)]
     status: RefCell<String>,
     /// The Pango markup for the name label — bold, dimmed or plain.
     #[property(get, set)]
     name_markup: RefCell<String>,
-    /// The trailing action button's label — `Park` while the account runs,
+    /// The Park/Start menu item's label — `Park` while the account runs,
     /// `Start` once it is parked. The factory binds it and never branches.
     #[property(get, set)]
     action_label: RefCell<String>,
-    /// Whether the trailing action button is pressable. `false` only while the
+    /// Whether the Park/Start menu item is sensitive. `false` only while the
     /// account is starting, so a second press cannot build a second view.
     #[property(get, set)]
     action_sensitive: Cell<bool>,

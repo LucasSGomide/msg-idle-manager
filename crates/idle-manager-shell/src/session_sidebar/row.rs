@@ -1,5 +1,6 @@
-//! One row in the sidebar list: an account's name, where it currently sits,
-//! whether it is running, and the action that toggles that.
+//! One row in the sidebar list: an account's name, a single coloured dot
+//! naming where it currently sits and whether it is running, and — behind the
+//! row's ⋯ menu — the action that toggles that.
 
 mod imp;
 
@@ -15,8 +16,8 @@ const KEEP_AWAKE_MARK: &str = "◆";
 
 glib::wrapper! {
     /// A list item's data: the account's id, the name markup the bound widget
-    /// shows, a status key naming its state marker, and the action button's
-    /// label. Build one with [`Row::new`]; update it in place with
+    /// shows, a status key naming its state marker, and the Park/Start menu
+    /// item's label. Build one with [`Row::new`]; update it in place with
     /// [`Row::refresh`].
     pub struct Row(ObjectSubclass<imp::Row>);
 }
@@ -76,7 +77,10 @@ pub(super) fn status_key(
     }
 }
 
-/// The word shown beside the status dot for `key`.
+/// The state word for `key`. No longer shown on the row — the dot is the only
+/// visible signal now (design rule 1) — but still the one source of the dot's
+/// tooltip and its accessible label, so a pointer and a screen reader can name
+/// the state the colour carries.
 pub(super) fn status_label(key: &str) -> &'static str {
     match key {
         "current" => "Current",
@@ -88,8 +92,8 @@ pub(super) fn status_label(key: &str) -> &'static str {
     }
 }
 
-/// The trailing action button's label: `Park` while the account runs, `Start`
-/// once it is parked or on its way back up. One control whose meaning inverts
+/// The Park/Start menu item's label: `Park` while the account runs, `Start`
+/// once it is parked or on its way back up. One item whose meaning inverts
 /// with the row's state (design rule 2).
 pub(super) fn action_label(liveness: Liveness) -> &'static str {
     match liveness {
@@ -98,10 +102,10 @@ pub(super) fn action_label(liveness: Liveness) -> &'static str {
     }
 }
 
-/// Whether the row's action button is pressable. Insensitive only while the
-/// account is starting, so an impatient second press cannot build a second
-/// view for one account (the domain models `Starting`, so this holds in every
-/// caller at once).
+/// Whether the row's Park/Start menu item is sensitive. Insensitive — shown,
+/// greyed — only while the account is starting, so an impatient second press
+/// cannot build a second view for one account (the domain models `Starting`,
+/// so this holds in every caller at once).
 pub(super) fn action_sensitive(liveness: Liveness) -> bool {
     !matches!(liveness, Liveness::Starting)
 }
