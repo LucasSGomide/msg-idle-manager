@@ -143,7 +143,7 @@ later slice; here the sizes live only as long as the window does.
       anywhere
 - [ ] `(manual)` a run of steps shows one figure that keeps updating rather than
       a queue of them, and it fades about a second after the last step
-- [ ] `(unit)` `session-grid.css` is readable from the compiled resource bundle,
+- [x] `(unit)` `session-grid.css` is readable from the compiled resource bundle,
       as the window and placeholder templates are
 
 ## References

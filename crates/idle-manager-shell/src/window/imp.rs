@@ -185,18 +185,33 @@ impl ObjectImpl for Window {
             }
         });
 
-        let reload_keys = gtk::EventControllerKey::new();
-        reload_keys.set_propagation_phase(gtk::PropagationPhase::Capture);
+        // The zoom gesture (item 09) joins this one controller rather than
+        // adding a second, so one place decides what a keypress means. Capture
+        // phase because `FR.11.1` says neither the reload nor the zoom keys are
+        // gated on a web view holding keyboard focus — a game that binds them
+        // on its own canvas must not swallow them first.
+        let key_controller = gtk::EventControllerKey::new();
+        key_controller.set_propagation_phase(gtk::PropagationPhase::Capture);
         let grid = self.grid.clone();
-        reload_keys.connect_key_pressed(move |_, key, _, modifiers| {
-            let ctrl_r = key == gdk::Key::r && modifiers.contains(gdk::ModifierType::CONTROL_MASK);
-            if key == gdk::Key::F5 || ctrl_r {
+        let window = self.obj().downgrade();
+        key_controller.connect_key_pressed(move |_, key, _, modifiers| {
+            let ctrl = modifiers.contains(gdk::ModifierType::CONTROL_MASK);
+
+            if key == gdk::Key::F5 || (ctrl && key == gdk::Key::r) {
                 grid.reload_focused();
                 return glib::Propagation::Stop;
             }
+
+            if ctrl && let Some(step) = zoom_step_for(key) {
+                if let Some(window) = window.upgrade() {
+                    window.imp().zoom_focused_account(step);
+                }
+                return glib::Propagation::Stop;
+            }
+
             glib::Propagation::Proceed
         });
-        self.obj().add_controller(reload_keys);
+        self.obj().add_controller(key_controller);
 
         self.connect_layout_toggle(&self.layout_single, Layout::Single);
         self.connect_layout_toggle(&self.layout_side_by_side, Layout::SideBySide);
@@ -613,6 +628,45 @@ impl Window {
         });
     }
 
+    /// A window-level zoom gesture from the keyboard: step the account in the
+    /// focused slot and show the figure over that place. A no-op when the grid
+    /// is empty or the focused slot holds nothing — the book returns `None` and
+    /// nothing is drawn (`FR.11.7`, item 09 wireframe).
+    fn zoom_focused_account(&self, step: ZoomStep) {
+        let Some(id) = self
+            .book
+            .borrow()
+            .focused_session()
+            .map(|session| session.id().clone())
+        else {
+            return;
+        };
+        self.apply_zoom_step(&id, step);
+    }
+
+    /// Applies `step` to `id`: the book decides what a step means and records it
+    /// against the current arrangement (architecture rule 8), the account's
+    /// holder is resized in place with no reload, and the figure is shown over
+    /// its place. Both the keyboard branch here and task 05's wheel branch land
+    /// here, so the two can never disagree. A no-op for an id the book does not
+    /// hold.
+    fn apply_zoom_step(&self, id: &SessionId, step: ZoomStep) {
+        let resolved = match step {
+            ZoomStep::In => self.book.borrow_mut().zoom_in(id),
+            ZoomStep::Out => self.book.borrow_mut().zoom_out(id),
+            ZoomStep::Reset => self.book.borrow_mut().reset_zoom(id),
+        };
+        let Some(zoom) = resolved else {
+            return;
+        };
+
+        if let Some(holder) = self.holders.borrow_mut().get_mut(id) {
+            holder.set_zoom(zoom);
+        }
+        self.grid
+            .flash_zoom_readout(id, &format!("{:.0}%", zoom.multiplier() * 100.0));
+    }
+
     fn redraw(&self) {
         let book = self.book.borrow();
         self.grid.sync(&book);
@@ -621,6 +675,35 @@ impl Window {
         let empty = book.sessions().is_empty();
         self.empty_state.set_visible(empty);
         self.grid.set_visible(!empty);
+    }
+}
+
+/// Which way a zoom gesture steps.
+#[derive(Debug, Clone, Copy)]
+pub(super) enum ZoomStep {
+    /// One step larger.
+    In,
+    /// One step smaller.
+    Out,
+    /// Back to the game file's size, forgetting the current arrangement's
+    /// chosen size.
+    Reset,
+}
+
+/// The zoom step a key names under the control modifier, or `None` for any
+/// other key.
+///
+/// Plus, equals and keypad-add all mean "in" because which one a keyboard
+/// delivers for `Ctrl`+`+` depends on its layout; minus and keypad-subtract
+/// mean "out"; zero and keypad-zero mean reset. The exact set the keyboard
+/// under test delivers is recorded in this item's `test-script.md` (code
+/// standards rule 18).
+fn zoom_step_for(key: gdk::Key) -> Option<ZoomStep> {
+    match key {
+        gdk::Key::plus | gdk::Key::equal | gdk::Key::KP_Add => Some(ZoomStep::In),
+        gdk::Key::minus | gdk::Key::KP_Subtract => Some(ZoomStep::Out),
+        gdk::Key::_0 | gdk::Key::KP_0 => Some(ZoomStep::Reset),
+        _ => None,
     }
 }
 

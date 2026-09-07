@@ -77,6 +77,13 @@ impl SessionGrid {
         self.imp().attach_view(session, view);
     }
 
+    /// Shows `figure` as the transient readout over `session`'s place, updating
+    /// whatever is already there and rearming its fade timer. A no-op if the
+    /// grid has no place for `session` (`FR.11.6`).
+    pub fn flash_zoom_readout(&self, session: &SessionId, figure: &str) {
+        self.imp().flash_zoom_readout(session, figure);
+    }
+
     /// Registers `handler` to run with an account's id when that account's slot
     /// placeholder button is pressed — the same start intent the sidebar row's
     /// button sends. Replaces any previous handler.

@@ -117,6 +117,23 @@ mod tests {
     }
 
     #[test]
+    fn the_session_grid_stylesheet_is_readable_from_the_registered_bundle() {
+        register_resources().expect("register the compiled bundle");
+
+        let data = gio::resources_lookup_data(
+            "/org/idlemanager/IdleManager/css/session-grid.css",
+            gio::ResourceLookupFlags::NONE,
+        )
+        .expect("look up the session-grid stylesheet by its resource path");
+        let css = std::str::from_utf8(&data).expect("the stylesheet is UTF-8");
+
+        assert!(
+            css.contains(".zoom-readout"),
+            "session-grid.css must style the transient .zoom-readout figure"
+        );
+    }
+
+    #[test]
     fn the_sidebar_stylesheet_carries_a_distinct_queued_dot_class() {
         register_resources().expect("register the compiled bundle");
 

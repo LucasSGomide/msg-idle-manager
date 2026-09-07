@@ -10,6 +10,9 @@
 )]
 
 use std::cell::{Cell, RefCell};
+use std::rc::Rc;
+use std::sync::Once;
+use std::time::Duration;
 
 use gtk::CompositeTemplate;
 use gtk::gdk;
@@ -31,6 +34,20 @@ type SlotFocusHandler = Box<dyn Fn(SlotId)>;
 /// pressed. Same intent the sidebar row's button sends (task 05).
 type StartHandler = Box<dyn Fn(SessionId)>;
 
+/// How long the zoom readout stays up after the last gesture before it fades,
+/// leaving nothing behind (`FR.11.6`). A run of gestures rearms it, so one
+/// figure keeps updating rather than a queue forming.
+const ZOOM_READOUT_FADE_MILLIS: u64 = 1000;
+
+/// The transient percentage figure over one place, plus the fade timer that is
+/// cancelled and rearmed on every gesture (item 09's new pattern). Held in an
+/// [`Rc`] so the timer callback can reach the timer slot to clear it and never
+/// double-remove a source that already fired.
+struct Readout {
+    label: gtk::Label,
+    timer: RefCell<Option<glib::SourceId>>,
+}
+
 /// One session's view and where it currently sits.
 struct SlotEntry {
     id: SessionId,
@@ -40,6 +57,9 @@ struct SlotEntry {
     /// The parked-account panel, an overlay kept for the slot's whole life and
     /// shown only while the account is parked or starting in this slot.
     placeholder: SlotPlaceholder,
+    /// The transient zoom figure, a third overlay layer over the same stack
+    /// that carries the cover and the panel — hidden until a gesture.
+    readout: Rc<Readout>,
     placement: Visibility,
 }
 
@@ -80,6 +100,8 @@ impl ObjectImpl for SessionGrid {
     fn constructed(&self) {
         self.parent_constructed();
 
+        install_styles();
+
         let obj = self.obj();
         // An off-grid child is allocated outside these bounds; clipping is what
         // keeps it invisible without unrealising it.
@@ -101,6 +123,9 @@ impl ObjectImpl for SessionGrid {
 
     fn dispose(&self) {
         for entry in self.slots.borrow().iter() {
+            if let Some(timer) = entry.readout.timer.borrow_mut().take() {
+                timer.remove();
+            }
             entry.overlay.unparent();
         }
     }
@@ -147,6 +172,9 @@ impl SessionGrid {
         placeholder.set_button_label("Start");
         overlay.add_overlay(&placeholder);
 
+        let readout = build_readout();
+        overlay.add_overlay(&readout.label);
+
         let grid = self.obj().downgrade();
         let session = id.clone();
         placeholder.connect_start_requested(move || {
@@ -180,6 +208,7 @@ impl SessionGrid {
             overlay,
             cover,
             placeholder,
+            readout,
             placement: Visibility::OffGrid,
         });
 
@@ -247,6 +276,36 @@ impl SessionGrid {
         });
         tracing::debug!(session = %id, "starting: view attached behind the placeholder");
         self.obj().queue_allocate();
+    }
+
+    /// Shows `figure` over `id`'s place, updating whatever is already there,
+    /// and cancels and rearms that place's fade timer so a run of gestures
+    /// shows one figure rather than a queue (`FR.11.6`). A no-op for an account
+    /// with no place in the grid.
+    pub(super) fn flash_zoom_readout(&self, id: &SessionId, figure: &str) {
+        let slots = self.slots.borrow();
+        let Some(entry) = slots.iter().find(|entry| &entry.id == id) else {
+            return;
+        };
+        let readout = Rc::clone(&entry.readout);
+
+        if let Some(timer) = readout.timer.borrow_mut().take() {
+            timer.remove();
+        }
+        readout.label.set_text(figure);
+        readout.label.set_visible(true);
+
+        let armed = Rc::downgrade(&readout);
+        let timer = glib::timeout_add_local_once(
+            Duration::from_millis(ZOOM_READOUT_FADE_MILLIS),
+            move || {
+                if let Some(readout) = armed.upgrade() {
+                    readout.timer.borrow_mut().take();
+                    readout.label.set_visible(false);
+                }
+            },
+        );
+        *readout.timer.borrow_mut() = Some(timer);
     }
 
     pub(super) fn sync(&self, book: &SessionBook) {
@@ -441,6 +500,42 @@ fn hide_cover_once_painted(view: &WebView, cover: &gtk::Box) {
         if matches!(event, LoadEvent::Committed | LoadEvent::Finished) {
             cover.set_visible(false);
         }
+    });
+}
+
+/// The transient zoom figure for one place: a short label on its own opaque
+/// ground, centred horizontally and low in the place so it never covers what
+/// the reader is adjusting (item 09 wireframe). Hidden until a gesture.
+fn build_readout() -> Rc<Readout> {
+    let label = gtk::Label::new(None);
+    label.add_css_class("zoom-readout");
+    label.set_halign(gtk::Align::Center);
+    label.set_valign(gtk::Align::End);
+    label.set_margin_bottom(24);
+    label.set_visible(false);
+
+    Rc::new(Readout {
+        label,
+        timer: RefCell::new(None),
+    })
+}
+
+/// Installs `session-grid.css` on the default display once. The provider is
+/// display-global, so the [`Once`] keeps a second grid from stacking it — the
+/// same shape as the sidebar's own install.
+fn install_styles() {
+    static ONCE: Once = Once::new();
+    ONCE.call_once(|| {
+        let Some(display) = gdk::Display::default() else {
+            return;
+        };
+        let provider = gtk::CssProvider::new();
+        provider.load_from_resource("/org/idlemanager/IdleManager/css/session-grid.css");
+        gtk::style_context_add_provider_for_display(
+            &display,
+            &provider,
+            gtk::STYLE_PROVIDER_PRIORITY_APPLICATION,
+        );
     });
 }
 
