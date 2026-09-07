@@ -28,4 +28,4 @@ runs alone in its own wave.
 | [02](02-what-the-engine-does-to-a-hidden-page.md) | What the engine does to a hidden page | front-end | — | 6/6 | done |
 | [03](03-the-row-menu-and-the-engines-switches.md) | The row menu and the engine's switches | front-end | 01, 02 | 8/9 | in-progress |
 | [04](04-the-frame-callback-shim.md) | The frame-callback shim | front-end | 03 | 7/9 | in-progress |
-| [05](05-the-rows-keep-awake-indication.md) | The row's keep-awake indication | front-end | 04 | 0/6 | not-started |
+| [05](05-the-rows-keep-awake-indication.md) | The row's keep-awake indication | front-end | 04 | 6/6 | done |

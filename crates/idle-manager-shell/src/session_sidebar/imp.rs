@@ -173,10 +173,10 @@ fn install_styles() {
 }
 
 /// Builds the factory that turns each [`Row`] into a name label, a trailing
-/// status marker — a word and a coloured dot — a park/start button and a
-/// settings menu button. The word and the dot's class both come from the
-/// row's status key, derived once in [`super::row`], so items 03 and 08
-/// extend that and never this.
+/// status marker — a word and a coloured dot — a keep-awake indication, a
+/// park/start button and a settings menu button. The word and the dot's class
+/// both come from the row's status key, derived once in [`super::row`], so
+/// items 03 and 08 extend that and never this.
 fn row_factory(sidebar: &super::SessionSidebar) -> gtk::SignalListItemFactory {
     let factory = gtk::SignalListItemFactory::new();
 
@@ -187,51 +187,7 @@ fn row_factory(sidebar: &super::SessionSidebar) -> gtk::SignalListItemFactory {
             .downcast_ref::<gtk::ListItem>()
             .expect("a list item factory is handed ListItems");
 
-        let name = gtk::Label::builder()
-            .use_markup(true)
-            .xalign(0.0)
-            .hexpand(true)
-            .ellipsize(pango::EllipsizeMode::End)
-            .build();
-
-        let status = gtk::Label::builder().xalign(1.0).build();
-        status.add_css_class("sidebar-status");
-
-        let dot = gtk::Box::builder()
-            .width_request(10)
-            .height_request(10)
-            .valign(gtk::Align::Center)
-            .build();
-        dot.add_css_class("status-dot");
-
-        let action = gtk::Button::builder().valign(gtk::Align::Center).build();
-        action.add_css_class("flat");
-
-        // The menu's content never varies between rows or binds — only the
-        // action behind "row.keep-awake" does, rebuilt on every bind below —
-        // so it is built once here rather than on every bind.
-        let settings_menu = gio::Menu::new();
-        settings_menu.append(
-            Some("Keep running when hidden"),
-            Some(&format!("{ROW_ACTION_GROUP}.{KEEP_AWAKE_ACTION}")),
-        );
-        let settings = gtk::MenuButton::builder()
-            .valign(gtk::Align::Center)
-            .icon_name("view-more-symbolic")
-            .menu_model(&settings_menu)
-            .build();
-        settings.add_css_class("flat");
-
-        let row = gtk::Box::builder()
-            .orientation(gtk::Orientation::Horizontal)
-            .spacing(6)
-            .build();
-        row.append(&name);
-        row.append(&status);
-        row.append(&dot);
-        row.append(&action);
-        row.append(&settings);
-
+        let (row, action) = build_row_widgets();
         item.set_child(Some(&row));
 
         // One handler for the life of the recycled widget: it reads whichever
@@ -274,7 +230,10 @@ fn row_factory(sidebar: &super::SessionSidebar) -> gtk::SignalListItemFactory {
         let Some(dot) = status.next_sibling() else {
             return;
         };
-        let Some(action) = dot.next_sibling().and_downcast::<gtk::Button>() else {
+        let Some(keep_awake_mark) = dot.next_sibling().and_downcast::<gtk::Label>() else {
+            return;
+        };
+        let Some(action) = keep_awake_mark.next_sibling().and_downcast::<gtk::Button>() else {
             return;
         };
         let Some(settings) = action.next_sibling().and_downcast::<gtk::MenuButton>() else {
@@ -288,12 +247,84 @@ fn row_factory(sidebar: &super::SessionSidebar) -> gtk::SignalListItemFactory {
             dot.remove_css_class(class);
         }
         dot.add_css_class(&format!("status-{key}"));
+        // Cleared and re-applied on every bind, like the dot's classes above:
+        // the list recycles this label across accounts, so a mark left set
+        // from a previous bind must not survive onto one with the flag off.
+        let mark = data.keep_awake_mark();
+        keep_awake_mark.set_label(&mark);
+        keep_awake_mark.set_visible(!mark.is_empty());
         action.set_label(&data.action_label());
         bind_keep_awake_action(&settings, &data, &bind_sidebar);
         action.set_sensitive(data.action_sensitive());
     });
 
     factory
+}
+
+/// Builds one row's widget tree — name, status word, status dot, keep-awake
+/// mark, park/start button and settings menu button, in that trailing order —
+/// wired to no signals and bound to no [`Row`] yet. Returns the row's
+/// container and the action button, the only child [`row_factory`]'s setup
+/// closure needs a handle to. Split out to keep that closure under clippy's
+/// line budget: building the tree is one level of abstraction, wiring its
+/// signals is another (code standards rule 6).
+fn build_row_widgets() -> (gtk::Box, gtk::Button) {
+    let name = gtk::Label::builder()
+        .use_markup(true)
+        .xalign(0.0)
+        .hexpand(true)
+        .ellipsize(pango::EllipsizeMode::End)
+        .build();
+
+    let status = gtk::Label::builder().xalign(1.0).build();
+    status.add_css_class("sidebar-status");
+
+    let dot = gtk::Box::builder()
+        .width_request(10)
+        .height_request(10)
+        .valign(gtk::Align::Center)
+        .build();
+    dot.add_css_class("status-dot");
+
+    // Hidden by default: shown only on a bind where the bound account's flag
+    // is on, so a recycled row never shows a stale mark left by whichever
+    // account it held before (code standards rule 18).
+    let keep_awake_mark = gtk::Label::builder()
+        .valign(gtk::Align::Center)
+        .visible(false)
+        .build();
+    keep_awake_mark.add_css_class("keep-awake-mark");
+
+    let action = gtk::Button::builder().valign(gtk::Align::Center).build();
+    action.add_css_class("flat");
+
+    // The menu's content never varies between rows or binds — only the
+    // action behind "row.keep-awake" does, rebuilt on every bind below — so
+    // it is built once here rather than on every bind.
+    let settings_menu = gio::Menu::new();
+    settings_menu.append(
+        Some("Keep running when hidden"),
+        Some(&format!("{ROW_ACTION_GROUP}.{KEEP_AWAKE_ACTION}")),
+    );
+    let settings = gtk::MenuButton::builder()
+        .valign(gtk::Align::Center)
+        .icon_name("view-more-symbolic")
+        .menu_model(&settings_menu)
+        .build();
+    settings.add_css_class("flat");
+
+    let row = gtk::Box::builder()
+        .orientation(gtk::Orientation::Horizontal)
+        .spacing(6)
+        .build();
+    row.append(&name);
+    row.append(&status);
+    row.append(&dot);
+    row.append(&keep_awake_mark);
+    row.append(&action);
+    row.append(&settings);
+
+    (row, action)
 }
 
 /// Rebuilds `settings`'s action group from `data`'s current flag and installs

@@ -57,3 +57,20 @@ citations, so append rather than reorder.
    nothing while closed, which is the point: something reached rarely is a
    click away behind its own affordance, not a fixture beside the one that
    matters every time.
+
+6. **When a row's trailing edge is asked to carry more than one fact, let the
+   account's name give way, never a fact at the edge — and size the sidebar so
+   that giving way costs the name only length, never legibility.** The name
+   label is the row's only hexpanding child and already ellipsises with
+   `pango::EllipsizeMode::End`, so it is the one part built to lose length;
+   every fact after it — place, state, keep-awake, the action button, the menu
+   button — keeps its full width and its full position, whatever the account
+   is called. But the sidebar's `width-request` is not a number fixed once and
+   forgotten: it is the trailing edge's total natural width plus enough room
+   left over for a short name to still render in full, and it is *derived*
+   from that edge, not the other way around. Item 04's keep-awake mark moved
+   it from 220 to 240 for exactly this reason — at 220 a four-letter name
+   collapsed to a bare ellipsis, which is the edge eating the name rather than
+   the name giving way to it. The next item that adds another trailing fact
+   owes the same check: settle the width by eye, with a short name on screen,
+   rather than let the name silently absorb a fact's cost.

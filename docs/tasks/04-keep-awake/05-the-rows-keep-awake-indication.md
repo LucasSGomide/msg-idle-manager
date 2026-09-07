@@ -78,20 +78,20 @@ more style, and the two design rules the feature owes.
 
 ## Acceptance criteria
 
-- [ ] `(unit)` the keep-awake indication derivation returns the indication only
+- [x] `(unit)` the keep-awake indication derivation returns the indication only
       when the account's flag is on
-- [ ] `(unit)` `status_key` returns the same key for an account whether or not
+- [x] `(unit)` `status_key` returns the same key for an account whether or not
       its keep-awake flag is on — liveness and place still decide the state
       marker alone
-- [ ] `(manual)` an account with keep-awake on shows the indication on its row's
+- [x] `(manual)` an account with keep-awake on shows the indication on its row's
       trailing edge without the menu being opened, and an account with it off
       shows nothing there
-- [ ] `(manual)` turning the setting on shows the indication once the page has
+- [x] `(manual)` turning the setting on shows the indication once the page has
       painted, and turning it off removes it on the next redraw
-- [ ] `(manual)` the indication renders correctly beside every state the row
+- [x] `(manual)` the indication renders correctly beside every state the row
       already draws — `Current`, `Visible`, `Background`, `Parked` and
       `Starting` — and reads distinctly from the status dot next to it
-- [ ] `(manual)` at the sidebar's fixed width a long account name is ellipsised
+- [x] `(manual)` at the sidebar's fixed width a long account name is ellipsised
       rather than pushing the state marker, the indication, the action button or
       the menu button off the row
 

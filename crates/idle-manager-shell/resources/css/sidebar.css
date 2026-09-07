@@ -51,3 +51,12 @@
     0 0 4px 1px alpha(#62a0ea, 0.9),
     0 0 9px 3px alpha(#62a0ea, 0.45);
 }
+
+/* Keep-awake indication (design rule 6). Quieter than every status-dot rule
+ * above and never glows: it marks a configuration nobody is about to change,
+ * not a state the dot beside it is already carrying. */
+.keep-awake-mark {
+  font-size: 0.75em;
+  opacity: 0.45;
+  margin-right: 2px;
+}

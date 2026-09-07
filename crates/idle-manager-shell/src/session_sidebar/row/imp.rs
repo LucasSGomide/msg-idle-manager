@@ -42,6 +42,12 @@ pub struct Row {
     /// into the book (naming rule 12).
     #[property(get, set)]
     is_kept_awake: Cell<bool>,
+    /// The trailing keep-awake indication's text: the glyph when the account
+    /// is kept awake, empty otherwise. A separate property from
+    /// `is_kept_awake` because the two are read by different widgets — the
+    /// menu's checkbox reads the raw flag, the indicator label reads this.
+    #[property(get, set)]
+    keep_awake_mark: RefCell<String>,
 }
 
 impl std::fmt::Debug for Row {

@@ -54,6 +54,20 @@
 - [ ] With keep-awake **on** for an account running the `## Setup` frame-counter page, minimise for ~20s on a real desktop and read the counter, then restore — expect `frames` to keep advancing roughly every 250ms instead of freezing, against the 22-second freeze recorded above. **Not run here:** the Xvfb display has no window manager. This is also the only check that exercises the hand-over of the request outstanding at the moment of hiding, so a freeze here means that path is wrong rather than the shim being absent.
 - [ ] With keep-awake **off** for the same account, minimise for ~20s and read the same counter, then restore — expect it to freeze while minimised and resume on restore. **Not run here:** same reason.
 
+## 05 — The row's keep-awake indication
+
+- [x] `cargo test -p idle-manager-shell session_sidebar::row::tests::the_keep_awake_indication_shows_only_when_the_flag_is_on` — `test result: ok. 1 passed`
+- [x] `cargo test -p idle-manager-shell session_sidebar::row::tests::status_key_is_the_same_whether_or_not_the_account_is_kept_awake` — `test result: ok. 1 passed`
+- [x] `make verify` — all stages pass; nextest reports `58 tests run: 58 passed, 0 skipped`, the two above being new.
+- [x] Start the app per `## Setup`, add an account "Main" and read its row — name, `Current`, green dot, `Park`, `⋮`, and no keep-awake mark anywhere on the row.
+- [x] Open the row's `⋮` menu and choose "Keep running when hidden" — the popover closes, the row runs one `Starting`/blue-dot reload cycle, then settles back to `Current`/`Park` with a small grey diamond after the dot.
+- [x] Choose the item again to turn it off — one more reload cycle, and the diamond is gone on the next redraw.
+- [x] With keep-awake on for "Main", add a second account "Farm" so "Farm" becomes `Current` and "Main" drops to `Background` — "Main" shows the amber glowing dot plus the diamond; "Farm" shows no diamond.
+- [x] Click `Park` on "Main" — the row reads `Parked` with the unlit grey dot and a `Start` button, and the diamond is still shown beside the dimmed name.
+- [x] Add an account at the hanging address `http://10.255.255.1/` and turn its keep-awake on — the row holds at `Starting` with the blue glowing dot and an insensitive `Start`, with the diamond shown throughout.
+- [x] Switch the layout to "2" and turn keep-awake on for the account sitting `Visible` (in-slot, not focused) — its plain green dot and the diamond read distinctly from the focused row's glowing dot.
+- [ ] With four rows on screen across different states, one of them keep-awake on and one named with 70 characters, read the sidebar at its `240px` width — the long name ellipsises, every trailing element stays un-clipped, and a short name like "Main" renders in full rather than collapsing to an ellipsis. **Not re-run at the final width:** the width was raised from 220 to 240 to fix exactly that collapse, and the run that would have confirmed it was cut short. Confirm by eye on the next real run.
+
 ## Teardown
 
 - [x] `kill <dbus-run-session PID> <idle-manager PID>` then `kill <Xvfb PID>` — all three are gone from `ps -eo pid,cmd`. Never `pkill -f target/debug/idle-manager`: that pattern matches the driving shell's own argv and kills it.
