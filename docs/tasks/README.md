@@ -12,4 +12,4 @@ item's header carries `Landed:` or `Merged:`. Items 01–03 are `done`.
 
 | # | Roadmap item | Tasks | Progress | Status |
 |---|---|---|---|---|
-| [04](04-keep-awake/) | Keep-awake for hidden games | 5 | 1/5 | in-progress |
+| [04](04-keep-awake/) | Keep-awake for hidden games | 5 | 2/5 | in-progress |

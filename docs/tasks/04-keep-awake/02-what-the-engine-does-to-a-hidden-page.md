@@ -107,16 +107,10 @@ on top of.
 - [x] `(manual)` with the application open and one account out of sight, that
       page's `document.visibilityState` and `document.hidden` are read and
       recorded in `test-script.md`
-- [ ] `(manual)` with the window minimised, a page that held a slot reports
+- [x] `(manual)` with the window minimised, a page that held a slot reports
       itself hidden, and the reading is recorded beside the out-of-sight one —
-      UNTICKED: this box on `:99` has no window manager (verified — none of
-      openbox/icewm/xfwm4/fluxbox/twm/mutter/awesome/i3/bspwm/matchbox is
-      installed, and none is being installed to force one). The header bar's
-      minimize button was clicked for real; the click reached GTK (it
-      highlighted) but nothing above GTK ever answers the iconify request, so
-      the window stayed fully mapped and the page kept reporting `visible`. No
-      genuine minimized reading was taken; see the runbook note for the
-      practical read on `FR.6.4`.
+      taken on a real desktop, since the Xvfb display has no window manager to
+      answer an iconify request
 - [x] `(manual)` nothing the sidebar or the grid draws changes: rows, dots,
       state words, action buttons and slots render exactly as before, and every
       account still loads its game

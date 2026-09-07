@@ -244,19 +244,35 @@ case or only the minimised one.
   what makes keep-awake a per-account setting rather than an application-wide
   one.
 
-## Blockers
+## Measured
 
-- Whether the engine marks an out-of-sight account's page as hidden is unknown
-  and decides how much this item is worth. Item 01 keeps those views laid out
-  precisely so the engine does not treat them as hidden; if that succeeds, this
-  item only matters while the window is minimised, and `FR.6.4` in
-  `docs/requirements.md` reads two ways on the point. It is measurable in an
-  afternoon and nothing else in the item can be judged until it is measured.
-- The exact identifiers for hidden-page timer throttling and hidden-page
-  animation suspension are not in the `webkit6` crate — `src/auto/feature.rs`
-  exposes only the accessors, and the values come from the engine build. They
-  have to be read from a running build by listing every feature, and they may
-  differ between the versions `docs/stack.md` allows.
+Both of the first two blockers were settled by task 02 on 2026-09-06, against
+WebKitGTK 2.52.6 and `webkit6` 0.6.1. The answers narrow this item rather than
+cancelling it, and they correct the Context above.
+
+- **An out-of-sight account is not hidden.** With the window open and an account
+  pushed off-grid, its page reports `visibilityState = "visible"` continuously.
+  Item 01's trick of keeping the view laid out just outside the window's bounds
+  works, so the engine never throttles it and keep-awake buys nothing here. The
+  Context's claim that this is "the case that matters most" is wrong, and
+  `FR.6.4` resolves to the narrow reading.
+- **A minimised window is hidden, and both mechanisms bite.** Over a 20-second
+  minimise the page reports `hidden = true` throughout, its one-second timer
+  stretches from `1004ms` to a steady `2000ms`, and its frame counter freezes
+  entirely — `fps` 60 to 0, not one callback in 22 seconds — recovering only on
+  restore. A timer-driven game runs at half speed while minimised; a
+  frame-driven game earns nothing at all.
+- **The two identifiers are `HiddenPageDOMTimerThrottling` and
+  `HiddenPageCSSAnimationSuspension`**, both `is_default_value = true` in this
+  build, read off the start-up feature walk task 02 added. They are not in the
+  `webkit6` crate — `src/auto/feature.rs` exposes only the accessors — so a
+  future engine may rename either; the walk is how they are re-read.
+
+So this item protects one case: a minimised window. That is the overnight case,
+and the measured cost of not protecting it is half a night's progress for one
+kind of game and all of it for the other.
+
+## Blockers
 - Replacing the frame-callback API is visible to any game that inspects it, and
   nothing in `docs/requirements.md` says whether a game rejecting a patched
   browser is acceptable. No game has been tested.

@@ -125,10 +125,11 @@ page is built with the same switches already off.
 - [ ] `(manual)` from the moment the item is chosen until the page paints, the
       row's marker reads `Starting` with its blue dot and the row's action button
       is insensitive, then returns to the marker it had before
-- [ ] `(manual)` with keep-awake on and the account hidden, a page timer set to
-      tick once a second keeps that rate, and with keep-awake off the same timer
-      is stretched — both readings recorded in `test-script.md`, using the case
-      task 02 found actually marks a page hidden
+- [ ] `(manual)` with keep-awake on and the window minimised — the one case task
+      02 found actually marks a page hidden — a page timer set to tick once a
+      second holds its `~1000ms` gap, where with keep-awake off task 02 measured
+      it stretched to `2000ms`; both readings recorded in `test-script.md`. Needs
+      a desktop with a window manager, since the Xvfb display cannot minimise
 - [ ] `(manual)` turning keep-awake on for one account leaves every other
       account's page loaded, running and untouched
 - [ ] `(manual)` an account with keep-awake on that is parked and started again
