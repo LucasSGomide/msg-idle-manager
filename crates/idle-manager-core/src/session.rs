@@ -548,6 +548,54 @@ impl SessionBook {
         }
     }
 
+    /// Steps `account`'s size one step larger for the book's **current**
+    /// layout, records it against that arrangement only, and returns the new
+    /// size. `None` for an id the book does not hold. Liveness and visibility
+    /// are untouched — a zoom is not a reload (`FR.11.5`).
+    pub fn zoom_in(&mut self, account: &SessionId) -> Option<ZoomLevel> {
+        self.step_zoom(account, ZoomLevel::stepped_in)
+    }
+
+    /// Steps `account`'s size one step smaller for the book's current layout,
+    /// otherwise exactly [`SessionBook::zoom_in`].
+    pub fn zoom_out(&mut self, account: &SessionId) -> Option<ZoomLevel> {
+        self.step_zoom(account, ZoomLevel::stepped_out)
+    }
+
+    fn step_zoom(
+        &mut self,
+        account: &SessionId,
+        step: impl FnOnce(ZoomLevel) -> ZoomLevel,
+    ) -> Option<ZoomLevel> {
+        let layout = self.layout;
+        let session = self.sessions.iter_mut().find(|s| &s.id == account)?;
+        let stepped = step(session.zoom_for(layout));
+        session.remembered_zoom.set(layout, stepped);
+        Some(stepped)
+    }
+
+    /// Drops `account`'s remembered size for the book's current layout and
+    /// returns the baseline the game file supplied. Entries for the other
+    /// arrangements are left in place. `None` for an id the book does not hold
+    /// (`FR.11.2`).
+    pub fn reset_zoom(&mut self, account: &SessionId) -> Option<ZoomLevel> {
+        let layout = self.layout;
+        let session = self.sessions.iter_mut().find(|s| &s.id == account)?;
+        session.remembered_zoom.clear(layout);
+        Some(session.preset_zoom)
+    }
+
+    /// The account sitting in the focused slot, or `None` when that slot holds
+    /// nothing. The one place the shell asks which account a keyboard gesture
+    /// acts on.
+    #[must_use]
+    pub fn focused_session(&self) -> Option<&Session> {
+        let focused = Visibility::InSlot(self.focused);
+        self.sessions
+            .iter()
+            .find(|session| session.visibility == focused)
+    }
+
     fn liveness_of(&self, session: &SessionId) -> Option<Liveness> {
         self.sessions
             .iter()
@@ -1605,6 +1653,175 @@ mod tests {
         book.restore_zoom(&id, [(Layout::Single, accepted(3.0))].into_iter().collect());
 
         assert_eq!(book.workspace().accounts[0].zoom, accepted(1.2));
+    }
+
+    #[test]
+    fn zoom_in_returns_the_stepped_size_and_records_it_against_the_current_layout() {
+        let mut book = SessionBook::new();
+        let id = book.add("One", "https://example.test/one");
+
+        let stepped = book.zoom_in(&id).expect("the account is in the book");
+
+        assert_eq!(
+            (stepped, session(&book, &id).zoom_for(Layout::Single)),
+            (
+                ZoomLevel::DEFAULT.stepped_in(),
+                ZoomLevel::DEFAULT.stepped_in()
+            ),
+        );
+    }
+
+    #[test]
+    fn zoom_out_returns_the_stepped_down_size_and_records_it_the_same_way() {
+        let mut book = SessionBook::new();
+        let id = book.add("One", "https://example.test/one");
+
+        let stepped = book.zoom_out(&id).expect("the account is in the book");
+
+        assert_eq!(
+            (stepped, session(&book, &id).zoom_for(Layout::Single)),
+            (
+                ZoomLevel::DEFAULT.stepped_out(),
+                ZoomLevel::DEFAULT.stepped_out(),
+            ),
+        );
+    }
+
+    #[test]
+    fn a_step_records_nothing_for_the_two_layouts_that_are_not_current() {
+        let mut book = SessionBook::new();
+        book.set_layout(Layout::Grid);
+        let id = book.add("One", "https://example.test/one");
+
+        book.zoom_in(&id);
+
+        let session = session(&book, &id);
+        assert_eq!(
+            (
+                session.zoom_for(Layout::Single),
+                session.zoom_for(Layout::SideBySide),
+            ),
+            (ZoomLevel::DEFAULT, ZoomLevel::DEFAULT),
+        );
+    }
+
+    #[test]
+    fn a_step_at_the_ranges_edge_returns_and_records_the_clamped_size() {
+        let mut book = SessionBook::new();
+        let id = book.add("One", "https://example.test/one");
+        book.restore_zoom(
+            &id,
+            [(Layout::Single, accepted(ZoomLevel::MAX))]
+                .into_iter()
+                .collect(),
+        );
+
+        let stepped = book.zoom_in(&id).expect("the account is in the book");
+
+        assert_eq!(
+            (stepped, session(&book, &id).zoom_for(Layout::Single)),
+            (accepted(ZoomLevel::MAX), accepted(ZoomLevel::MAX)),
+        );
+    }
+
+    #[test]
+    fn reset_zoom_drops_the_current_entry_keeps_the_others_and_returns_the_baseline() {
+        let mut book = SessionBook::new();
+        let id = book.add_from_preset(
+            "Alt",
+            &Preset {
+                zoom: accepted(0.8),
+                ..a_preset()
+            },
+        );
+        book.restore_zoom(
+            &id,
+            [
+                (Layout::Single, accepted(2.0)),
+                (Layout::Grid, accepted(1.5)),
+            ]
+            .into_iter()
+            .collect(),
+        );
+
+        let baseline = book.reset_zoom(&id).expect("the account is in the book");
+
+        let session = session(&book, &id);
+        assert_eq!(
+            (
+                baseline,
+                session.zoom_for(Layout::Single),
+                session.zoom_for(Layout::Grid),
+            ),
+            (accepted(0.8), accepted(0.8), accepted(1.5)),
+        );
+    }
+
+    #[test]
+    fn the_zoom_transitions_return_none_for_an_id_the_book_does_not_hold() {
+        let mut book = SessionBook::new();
+        let id = book.add("One", "https://example.test/one");
+        let unknown = SessionId::new("session-9999");
+
+        let outcomes = (
+            book.zoom_in(&unknown),
+            book.zoom_out(&unknown),
+            book.reset_zoom(&unknown),
+        );
+
+        assert_eq!(
+            (outcomes, session(&book, &id).zoom_for(Layout::Single),),
+            ((None, None, None), ZoomLevel::DEFAULT),
+        );
+    }
+
+    #[test]
+    fn a_step_leaves_the_accounts_liveness_and_visibility_exactly_as_they_were() {
+        let mut book = SessionBook::new();
+        let id = book.add("One", "https://example.test/one");
+        book.park(&id);
+        let before = (liveness_of(&book, &id), visibility_of(&book, &id));
+
+        book.zoom_in(&id);
+
+        assert_eq!((liveness_of(&book, &id), visibility_of(&book, &id)), before,);
+    }
+
+    #[test]
+    fn switching_layout_changes_what_zoom_for_answers_without_changing_a_stored_size() {
+        let mut book = SessionBook::new();
+        let id = book.add("One", "https://example.test/one");
+        let chosen = book.zoom_in(&id).expect("the account is in the book");
+
+        book.set_layout(Layout::Grid);
+        let while_grid = session(&book, &id).zoom_for(Layout::Grid);
+        book.set_layout(Layout::Single);
+
+        assert_eq!(
+            (while_grid, session(&book, &id).zoom_for(Layout::Single)),
+            (ZoomLevel::DEFAULT, chosen),
+        );
+    }
+
+    #[test]
+    fn focused_session_returns_the_account_in_the_focused_slot() {
+        let mut book = SessionBook::new();
+        book.set_layout(Layout::SideBySide);
+        book.add("One", "https://example.test/one");
+        let two = book.add("Two", "https://example.test/two");
+        book.set_focused(SlotId::new(1));
+
+        assert_eq!(book.focused_session().map(Session::id), Some(&two));
+    }
+
+    #[test]
+    fn focused_session_is_none_when_the_focused_slot_holds_nothing() {
+        let mut book = SessionBook::new();
+        book.set_layout(Layout::SideBySide);
+        book.add("One", "https://example.test/one");
+        book.set_focused(SlotId::new(1));
+
+        assert!(book.focused_session().is_none());
     }
 
     #[test]

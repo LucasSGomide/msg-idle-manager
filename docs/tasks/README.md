@@ -12,4 +12,4 @@ item's header carries `Landed:` or `Merged:`. Items 01–04, 06 and 07 are `done
 
 | # | Roadmap item | Tasks | Progress | Status |
 |---|---|---|---|---|
-| [09](09-interactive-zoom/) | Interactive zoom, remembered per arrangement | 7 | 1/7 | in-progress |
+| [09](09-interactive-zoom/) | Interactive zoom, remembered per arrangement | 7 | 2/7 | in-progress |

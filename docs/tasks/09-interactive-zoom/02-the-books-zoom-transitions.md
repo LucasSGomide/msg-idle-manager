@@ -64,22 +64,22 @@ can later share.
 
 ## Acceptance criteria
 
-- [ ] `(unit)` `zoom_in` returns the stepped size and records it against the
+- [x] `(unit)` `zoom_in` returns the stepped size and records it against the
       book's current layout
-- [ ] `(unit)` `zoom_out` returns the stepped-down size and records it the same
+- [x] `(unit)` `zoom_out` returns the stepped-down size and records it the same
       way
-- [ ] `(unit)` a step records nothing for the two layouts that are not current
-- [ ] `(unit)` a step at the range's edge returns the clamped size and records
+- [x] `(unit)` a step records nothing for the two layouts that are not current
+- [x] `(unit)` a step at the range's edge returns the clamped size and records
       that clamped size
-- [ ] `(unit)` `reset_zoom` drops the current layout's entry, leaves the other
+- [x] `(unit)` `reset_zoom` drops the current layout's entry, leaves the other
       layouts' entries in place, and returns the baseline
-- [ ] `(unit)` all three return `None` for an id the book does not hold and
+- [x] `(unit)` all three return `None` for an id the book does not hold and
       change nothing about any account
-- [ ] `(unit)` a step leaves the account's liveness and visibility exactly as
+- [x] `(unit)` a step leaves the account's liveness and visibility exactly as
       they were
-- [ ] `(unit)` switching the book's layout changes what `zoom_for` answers for an
+- [x] `(unit)` switching the book's layout changes what `zoom_for` answers for an
       account without changing any size it has stored
-- [ ] `(unit)` `focused_session` returns the account sitting in the focused slot,
+- [x] `(unit)` `focused_session` returns the account sitting in the focused slot,
       and `None` when that slot holds nothing
 
 ## References

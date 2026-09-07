@@ -44,7 +44,7 @@ needs the port from 03.
 | # | Task | Scope | Depends on | Criteria | Status |
 |---|---|---|---|---|---|
 | [01](01-per-arrangement-zoom-in-the-domain.md) | Per-arrangement zoom in the domain | back-end | — | 8/8 | done |
-| [02](02-the-books-zoom-transitions.md) | The book's zoom transitions and the focused account | back-end | 01 | 0/9 | not-started |
+| [02](02-the-books-zoom-transitions.md) | The book's zoom transitions and the focused account | back-end | 01 | 9/9 | done |
 | [03](03-the-account-state-file.md) | The zoom memory port and the account state file | back-end | 01 | 0/8 | not-started |
 | [04](04-the-keyboard-gesture-and-the-readout.md) | Zooming the focused account from the keyboard | front-end | 02 | 0/10 | not-started |
 | [05](05-the-wheel-gesture-over-a-place.md) | Zooming the account under the pointer | front-end | 04 | 0/9 | not-started |
