@@ -40,6 +40,12 @@ guess with no measurement behind it, and a per-account readout is what would sho
 what it costs to run. Items 07 and 08 then add durability across a restart and
 recovery from a crash nobody was awake to see.
 
+Item 09 is ready but is not next. It makes the window comfortable to read rather
+than making it work, and it is the first item to write anything on an account's
+behalf — a per-account state file whose one weakness, an identifier reused across
+a relaunch, is exactly what item 07 fixes. Landing 07 first costs 09 nothing and
+removes that wart before anyone can meet it.
+
 The `### Back-end` and `### Front-end` headings inside each item map onto this
 repository's crates rather than onto a server and a browser: back-end means the
 non-widget crates — the pure domain in `idle-manager-core`, the disk adapter in
@@ -63,6 +69,7 @@ failure are shown inside a chooser without a modal of their own.
 | [07](07-workspace-restore/README.md) | Restoring the workspace on launch | 8 | 03, 04, 06 | not-started |
 | [05](05-memory-accounting/README.md) | Memory accounting | 5 | 02, 03 | not-started |
 | [08](08-crash-recovery/README.md) | Surviving a crashed game | 5 | 03 | not-started |
+| [09](09-interactive-zoom/README.md) | Interactive zoom, remembered per arrangement | 5 | 03, 06 | not-started |
 
 ## Blocked
 
