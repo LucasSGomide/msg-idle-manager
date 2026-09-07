@@ -1,6 +1,6 @@
 # 07 — Restoring the workspace on launch
 
-**Depends on:** 03, 04, 06 · **Status:** done · **Estimate:** 8
+**Depends on:** 03, 04, 06 · **Status:** done · **Estimate:** 8 · **Merged:** 2026-09-07
 
 ## Context
 
@@ -233,6 +233,39 @@ after another, and that the parked one stays parked.
   no criterion for when one is finished. The engine's load-finished signal plus
   a timeout is the pair that covers both a game that loads and a game that does
   not.
+
+## As built
+
+- All four blockers below were closed before the item was sliced, not during it.
+  **Two copies at once** needed no code: `gtk::Application` built with an
+  application id and default flags already activates the open window instead of
+  starting a second process, so task 04 pins it with a criterion and builds
+  nothing. **No version field** was answered by writing `version = 1` as the
+  first line of the file from its very first write, so every file this build has
+  ever produced is already versioned. **A saved slot the restored layout cannot
+  show** reuses item 01's placement rule unchanged — the account goes off-grid
+  with its slot remembered — rather than becoming a new rule.
+- **What "settled" means for an idle game** stays a measured guess, not a solved
+  problem. The queue advances on whichever comes first of the engine's
+  load-finished signal or a named `LOAD_SETTLE_TIMEOUT_SECS` constant; the
+  one-at-a-time behaviour does not depend on the exact value, and the value was
+  set against real games during acceptance. A game that never finishes loading
+  is bounded by the timeout and never strands the queue.
+- A restored-but-not-started account became a fourth `Liveness` value
+  (`Queued`) in the core rather than a set of identifiers the shell carries
+  alongside the book, because the row's marker already derives from liveness
+  alone. `SessionBook::workspace` flattens `Queued` and `Starting` back to
+  `running` on write, so quitting mid-restore saves those accounts as running
+  and they come back queued on the next launch.
+- The file carries each account's address, zoom and identity outright, not a
+  reference to the preset it came from, so deleting a preset by hand cannot
+  break a saved arrangement.
+- The design-doc debt both patterns owed is paid. `docs/design.md` rule 1 now
+  carries the `queued` state **and** a fixed "first key that applies" walk over
+  the whole six-value vocabulary, so item 08's seventh state slots into the list
+  and needs no new rule. Rule 9 is new: one reusable `message_strip` widget,
+  shared by the unreadable-workspace case and the failed-save case, that never
+  dismisses on its own.
 
 ## Blockers
 
