@@ -42,6 +42,23 @@ pub fn presets_dir() -> Result<PathBuf, LocatorSetup> {
     Ok(dirs.config_dir().join("presets"))
 }
 
+/// The workspace file the application saves its arrangement into:
+/// `<XDG config>/idle-manager/sessions.toml`.
+///
+/// Under the XDG **config** directory, beside the `presets/` folder and never
+/// the data directory the profiles use (`FR.8.3`): the workspace is
+/// configuration a curious user may open and edit. The path is read from the
+/// environment, so a moved home directory or an unusual `XDG_CONFIG_HOME` keeps
+/// working.
+///
+/// # Errors
+///
+/// [`LocatorSetup::NoHome`] if no home directory can be determined.
+pub fn workspace_file() -> Result<PathBuf, LocatorSetup> {
+    let dirs = ProjectDirs::from("", "", APP_NAME).ok_or(LocatorSetup::NoHome)?;
+    Ok(dirs.config_dir().join("sessions.toml"))
+}
+
 /// Locates session profiles under `<XDG data>/idle-manager/profiles/<id>/`.
 ///
 /// The data root is read from the environment, never hardcoded, so moving a
@@ -117,5 +134,32 @@ fn classify(dir: &Path, source: io::Error) -> ProfileError {
             path: dir.to_owned(),
             source,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn the_workspace_file_resolves_beside_the_presets_folder_under_xdg_config() {
+        let dirs = ProjectDirs::from("", "", APP_NAME).expect("a home directory to resolve from");
+        let workspace = workspace_file().expect("resolve the workspace file");
+        let presets = presets_dir().expect("resolve the presets directory");
+
+        assert_eq!(
+            (
+                workspace.parent(),
+                presets.parent(),
+                workspace.starts_with(dirs.config_dir()),
+                workspace.starts_with(dirs.data_dir()),
+            ),
+            (
+                Some(dirs.config_dir()),
+                Some(dirs.config_dir()),
+                true,
+                false,
+            ),
+        );
     }
 }

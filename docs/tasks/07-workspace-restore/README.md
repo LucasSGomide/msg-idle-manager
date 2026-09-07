@@ -48,7 +48,7 @@ the one that can wait.
 | # | Task | Scope | Depends on | Criteria | Status |
 |---|---|---|---|---|---|
 | [01](01-the-workspace-in-the-domain.md) | The workspace in the domain, and coming back from one | back-end | — | 9/9 | done |
-| [02](02-the-workspace-file-on-disk.md) | The workspace file on disk | back-end | 01 | 0/9 | not-started |
+| [02](02-the-workspace-file-on-disk.md) | The workspace file on disk | back-end | 01 | 9/9 | done |
 | [03](03-the-queued-row-and-placeholder.md) | The queued row and the queued slot | front-end | 01 | 0/7 | not-started |
 | [04](04-restoring-the-arrangement-on-launch.md) | Restoring the arrangement on launch | full-stack | 02, 03 | 0/8 | not-started |
 | [05](05-the-start-queue.md) | The start queue | front-end | 04 | 0/7 | not-started |

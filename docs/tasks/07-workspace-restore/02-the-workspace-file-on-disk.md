@@ -85,27 +85,27 @@ files, not with the accounts' stored data. Nothing hardcodes that path.
 
 ## Acceptance criteria
 
-- [ ] `(integration)` writing a workspace and reading it back yields the same
+- [x] `(integration)` writing a workspace and reading it back yields the same
       accounts in the same order, with the same names, addresses, states, slots,
       keep-awake flags, zooms and identities, and the same active layout
-- [ ] `(integration)` the written file matches its `insta` snapshot, `version`
+- [x] `(integration)` the written file matches its `insta` snapshot, `version`
       key included
-- [ ] `(integration)` reading a directory that holds no workspace file reports
+- [x] `(integration)` reading a directory that holds no workspace file reports
       the missing case, distinct from every parse failure
-- [ ] `(integration)` a file that is not valid TOML reports the malformed case,
+- [x] `(integration)` a file that is not valid TOML reports the malformed case,
       is renamed aside under the name the error carries, and its original bytes
       are still readable there
-- [ ] `(integration)` a file whose `version` this build does not understand
+- [x] `(integration)` a file whose `version` this build does not understand
       reports its own case and is kept aside the same way, rather than being read
       as if it were current
-- [ ] `(integration)` a liveness value, a layout or a key the domain cannot
+- [x] `(integration)` a liveness value, a layout or a key the domain cannot
       represent is a parse failure naming the problem, never a default
-- [ ] `(integration)` a write over an existing workspace file leaves no
+- [x] `(integration)` a write over an existing workspace file leaves no
       temporary file behind, and the temporary it used was in the target's own
       directory
-- [ ] `(integration)` an account saved off-grid reads back off-grid, and one
+- [x] `(integration)` an account saved off-grid reads back off-grid, and one
       saved in a slot reads back in that slot
-- [ ] `(unit)` the workspace file resolves under the XDG configuration
+- [x] `(unit)` the workspace file resolves under the XDG configuration
       directory beside the presets folder, from the environment rather than a
       hardcoded path
 

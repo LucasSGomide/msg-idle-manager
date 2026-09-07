@@ -28,7 +28,23 @@ appends its own `## NN — Title` section and never rewrites another's.
       `Finished` with no warning, so `Workspace`, `Account`, `SavedLiveness` and
       the `WorkspaceStore` port meet the code standards.
 
+## 02 — The workspace file on disk
+
+- [x] `cargo test -p idle-manager-store` → `test result: ok` for every binary,
+      including `the-workspace-file-on-disk` (9 integration cases: the field-for
+      -field round trip, the `insta` snapshot with `version = 1` as line one,
+      the missing case distinct from `Ok(None)` at the port, an invalid file
+      reported malformed and moved to `sessions.bad` with its bytes still
+      readable, an unknown `version` kept aside its own way, an unrepresentable
+      liveness and an unknown key each a parse failure, no `.tmp` left after two
+      writes, and off-grid vs in-slot visibility surviving the round trip) and
+      the `paths` unit test placing `sessions.toml` beside `presets/` under XDG
+      config.
+- [x] `cargo clippy -p idle-manager-store --all-targets -- -D warnings` →
+      `Finished` with no warning.
+
 ## Teardown
 
-- [x] Slices 01–03 touch no disk outside `cargo`'s target directory and leave
-      nothing to remove.
+- [x] Slices 01–03 touch no disk outside `cargo`'s target directory (the
+      integration tests clean their own throwaway directories on drop) and
+      leave nothing to remove.

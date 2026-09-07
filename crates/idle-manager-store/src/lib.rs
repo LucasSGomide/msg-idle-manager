@@ -7,6 +7,8 @@
 
 mod paths;
 mod preset;
+mod session_file;
 
-pub use paths::{LocatorSetup, XdgProfileLocator, presets_dir};
+pub use paths::{LocatorSetup, XdgProfileLocator, presets_dir, workspace_file};
 pub use preset::{PresetFileError, TomlPresetCatalogue};
+pub use session_file::{SessionFileError, SessionWriteError, TomlWorkspaceStore};
