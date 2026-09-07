@@ -17,6 +17,7 @@ mod message_strip;
 mod session_grid;
 mod session_sidebar;
 mod slot_placeholder;
+mod start_queue;
 mod web_view;
 mod window;
 

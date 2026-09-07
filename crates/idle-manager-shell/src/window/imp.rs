@@ -11,8 +11,8 @@ use gtk::glib;
 use gtk::prelude::*;
 use gtk::subclass::prelude::*;
 use gtk4 as gtk;
-use webkit6::LoadEvent;
 use webkit6::prelude::WebViewExt;
+use webkit6::{LoadEvent, WebView};
 
 use idle_manager_core::{
     Layout, Liveness, Preset, PresetCatalogue, ProfileLocator, Session, SessionBook, SessionId,
@@ -23,6 +23,7 @@ use crate::add_game_dialog::{AddGameDialog, Confirmed};
 use crate::message_strip::MessageStrip;
 use crate::session_grid::SessionGrid;
 use crate::session_sidebar::SessionSidebar;
+use crate::start_queue::StartQueue;
 use crate::web_view::SessionView;
 
 /// The composite-template backing object for [`super::Window`].
@@ -73,6 +74,9 @@ pub struct Window {
     /// reference to the same view; this map is what a later slice asks to stop
     /// or start.
     holders: RefCell<HashMap<SessionId, SessionView>>,
+    /// The queue that brings restored accounts up one at a time, alive only
+    /// while a restore is draining (task 05).
+    start_queue: RefCell<Option<StartQueue>>,
 }
 
 impl std::fmt::Debug for Window {
@@ -292,6 +296,14 @@ impl Window {
         self.select_layout_toggle(layout);
 
         tracing::info!(accounts = self.holders.borrow().len(), "workspace restored");
+
+        // The arrangement is drawn; now bring the running accounts back one at
+        // a time (task 05). Nothing queued means nothing to do.
+        let order = self.book.borrow().start_order();
+        if !order.is_empty() {
+            self.start_queue
+                .replace(Some(StartQueue::begin(self.obj().downgrade(), order)));
+        }
     }
 
     /// Sets the header's layout toggle group to `layout` without the user
@@ -426,7 +438,9 @@ impl Window {
 
         match liveness {
             Some(Liveness::Live) => self.park_session(id),
-            Some(Liveness::Parked) => self.start_session(id),
+            Some(Liveness::Parked) => {
+                self.start_session(id);
+            }
             // Starting and Queued both keep the row's Start item insensitive, so
             // a press that still arrives is a stale event; during a restore the
             // start queue owns a queued account's turn. An unknown id has
@@ -448,12 +462,14 @@ impl Window {
         self.redraw();
     }
 
-    /// Starts a parked account, in the order the roadmap item's second diagram
-    /// fixes: unpark in the book (which returns `Starting`, since no page has
-    /// painted), redraw so the row shows it and the button goes insensitive,
-    /// then build a new view against the kept network session and hand it to
-    /// the grid (architecture rule 8).
-    fn start_session(&self, id: &SessionId) {
+    /// Starts a parked or queued account, in the order the roadmap item's second
+    /// diagram fixes: unpark in the book (which returns `Starting`, since no page
+    /// has painted), redraw so the row shows it and the button goes insensitive,
+    /// then build a new view against the kept network session and hand it to the
+    /// grid (architecture rule 8). Returns the new view, or `None` when the
+    /// account has no holder to start. The start queue (task 05) is the only
+    /// caller that reads the return.
+    pub(crate) fn start_session(&self, id: &SessionId) -> Option<WebView> {
         self.book.borrow_mut().unpark(id);
         self.redraw();
 
@@ -461,7 +477,7 @@ impl Window {
             let mut holders = self.holders.borrow_mut();
             let Some(holder) = holders.get_mut(id) else {
                 tracing::error!(session = %id, "no holder to start");
-                return;
+                return None;
             };
             holder.start().clone()
         };
@@ -473,15 +489,28 @@ impl Window {
         // "first paint" is the roadmap item's fourth blocker and has to be
         // checked against a real game.
         let window = self.obj().downgrade();
-        let id = id.clone();
+        let owned_id = id.clone();
         view.connect_load_changed(move |_, event| {
             if !matches!(event, LoadEvent::Committed | LoadEvent::Finished) {
                 return;
             }
             if let Some(window) = window.upgrade() {
-                window.imp().finish_starting(&id);
+                window.imp().finish_starting(&owned_id);
             }
         });
+
+        Some(view)
+    }
+
+    /// Whether the book still reports `id` as [`Liveness::Queued`]. The start
+    /// queue asks before each turn, so a state that changed while it was
+    /// draining is never overwritten by a start nobody asked for.
+    pub(crate) fn is_queued(&self, id: &SessionId) -> bool {
+        self.book
+            .borrow()
+            .sessions()
+            .iter()
+            .any(|session| session.id() == id && session.liveness() == Liveness::Queued)
     }
 
     /// The shell reports a started account's first paint: end its starting

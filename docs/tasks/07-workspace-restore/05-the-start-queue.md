@@ -84,23 +84,23 @@ to get stuck in.
 
 ## Acceptance criteria
 
-- [ ] `(manual)` reopening with three accounts saved as running loads them one
+- [x] `(manual)` reopening with three accounts saved as running loads them one
       after another: each reads starting then running before the next leaves
       queued, and at no moment do two read as starting
-- [ ] `(manual)` while the queue drains, every account still waiting shows the
+- [x] `(manual)` while the queue drains, every account still waiting shows the
       queued panel with no button in its slot, and the one in progress shows the
       starting panel
-- [ ] `(manual)` an account saved as parked is never started by the queue and
+- [x] `(manual)` an account saved as parked is never started by the queue and
       reads as parked throughout the whole restore
-- [ ] `(manual)` once the last account is up, no row reads as queued, no panel is
+- [x] `(manual)` once the last account is up, no row reads as queued, no panel is
       left over a loaded game, and parking and starting by hand behave exactly as
       they did before
-- [ ] `(manual)` an account whose page never finishes loading holds the queue no
+- [x] `(manual)` an account whose page never finishes loading holds the queue no
       longer than the named timeout, after which the accounts behind it come up
       normally
-- [ ] `(manual)` closing the window while the queue is still draining ends the
+- [x] `(manual)` closing the window while the queue is still draining ends the
       restore without an error in the log and starts nothing further
-- [ ] `(unit)` the next-up decision skips an identifier the book no longer
+- [x] `(unit)` the next-up decision skips an identifier the book no longer
       reports as queued, and reports the queue finished when none remain
 
 ## References

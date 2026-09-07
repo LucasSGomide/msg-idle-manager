@@ -118,6 +118,42 @@ trees, `sessions.toml` written by hand. Recorded 2026-09-07.
       without ever logging `activated; presenting the main window`, and the
       first instance keeps running — no second process, no second window.
 
+## 05 — The start queue
+
+Run headless on `:95`; game pages are `data:text/html,…` URLs, a hung page is
+one with `<img src="http://10.255.255.1/…">`. Recorded 2026-09-07.
+
+- [x] `cargo test -p idle-manager-shell --lib start_queue` → the two `next_up`
+      cases pass: it skips an identifier the book no longer reports as queued
+      and returns `None` when none remain.
+- [x] Workspace of four accounts, slots 0–3, `session-0002` parked and the rest
+      running. Launch → the log shows `start queue: started … session-0001`,
+      then `… session-0003`, then `… session-0004`, then `nothing queued;
+      restoration finished` — one at a time, in book order, `session-0002`
+      never started.
+- [x] Mid-drain screenshot: `session-0002` and the not-yet-reached accounts
+      show their **Queued** panels with no button; the account in progress shows
+      its slot (the "Starting" panel is up only until the page's first commit —
+      item 03's accepted behaviour, inherited unchanged — after which the
+      painting page shows).
+- [x] `session-0002` (parked) keeps its grey dot and **Parked** panel with a
+      pressable **Start** through the whole restore; the queue never touches it.
+- [x] After the drain: no row reads queued, no panel stands over a loaded game,
+      and parking / starting by hand work as before (verified in task 04's run).
+- [x] Two accounts, the first with a hung `<img>`: the log shows
+      `start queue: started … session-0001` at `T`, then exactly
+      `LOAD_SETTLE_TIMEOUT_SECS` (30 s) later `a page did not settle in time;
+      moving on` and `start queue: started … session-0002`, then `restoration
+      finished`. The hung account holds the queue no longer than the timeout.
+- [x] Killing the process while `session-0001` is still settling leaves the log
+      at `start queue: started …` with no error and no further `start queue`
+      lines — the restore ends and nothing else starts.
+- [ ] **Tester, real game:** `LOAD_SETTLE_TIMEOUT_SECS` is a provisional 30 s
+      fallback. Time three real idle games from `start queue: started` to
+      `load changed event=Finished` on a normal connection and set the constant
+      from that measurement (the roadmap item's third blocker); the queue's
+      one-at-a-time behaviour above does not depend on the exact value.
+
 ## Teardown
 
 - [x] Kill the harness: `kill` the stored Xvfb and `idle-manager` PIDs (or

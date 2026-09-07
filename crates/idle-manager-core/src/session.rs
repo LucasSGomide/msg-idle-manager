@@ -410,15 +410,16 @@ impl SessionBook {
         self.set_liveness(session, Liveness::Parked)
     }
 
-    /// Unpark `session`: a parked session becomes [`Liveness::Starting`],
-    /// because no page has painted yet. A live or already-starting session is
-    /// left as it is. Visibility is never touched. Returns the session's
-    /// liveness after the call.
+    /// Unpark `session`: a parked *or* queued session becomes
+    /// [`Liveness::Starting`], because no page has painted yet — a queued
+    /// account is one the start queue has just reached. A live or
+    /// already-starting session is left as it is. Visibility is never touched.
+    /// Returns the session's liveness after the call.
     pub fn unpark(&mut self, session: &SessionId) -> Liveness {
         let Some(current) = self.liveness_of(session) else {
             return Liveness::Live;
         };
-        if current == Liveness::Parked {
+        if current == Liveness::Parked || current == Liveness::Queued {
             self.set_liveness(session, Liveness::Starting)
         } else {
             current
@@ -1392,6 +1393,23 @@ mod tests {
         let restored = SessionBook::restore(workspace.clone());
 
         assert_eq!(restored.workspace(), workspace);
+    }
+
+    #[test]
+    fn unparking_a_queued_account_returns_starting() {
+        let workspace = Workspace {
+            accounts: vec![Account {
+                liveness: SavedLiveness::Running,
+                ..saved_account("session-0001", "Queued")
+            }],
+            layout: Layout::Single,
+        };
+        let mut book = SessionBook::restore(workspace);
+        let id = book.sessions()[0].id().clone();
+
+        let state = book.unpark(&id);
+
+        assert_eq!(state, Liveness::Starting);
     }
 
     #[test]

@@ -51,5 +51,5 @@ the one that can wait.
 | [02](02-the-workspace-file-on-disk.md) | The workspace file on disk | back-end | 01 | 9/9 | done |
 | [03](03-the-queued-row-and-placeholder.md) | The queued row and the queued slot | front-end | 01 | 7/7 | done |
 | [04](04-restoring-the-arrangement-on-launch.md) | Restoring the arrangement on launch | full-stack | 02, 03 | 7/8 | in-progress |
-| [05](05-the-start-queue.md) | The start queue | front-end | 04 | 0/7 | not-started |
+| [05](05-the-start-queue.md) | The start queue | front-end | 04 | 7/7 | done |
 | [06](06-saving-after-every-change.md) | Saving after every change | front-end | 04, 05 | 0/8 | not-started |
