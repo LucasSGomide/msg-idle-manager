@@ -321,9 +321,11 @@ impl Window {
         match liveness {
             Some(Liveness::Live) => self.park_session(id),
             Some(Liveness::Parked) => self.start_session(id),
-            // Starting keeps its button insensitive, so a press that still
-            // arrives is a stale event; an unknown id has nothing to toggle.
-            Some(Liveness::Starting) | None => {}
+            // Starting and Queued both keep the row's Start item insensitive, so
+            // a press that still arrives is a stale event; during a restore the
+            // start queue owns a queued account's turn. An unknown id has
+            // nothing to toggle.
+            Some(Liveness::Starting | Liveness::Queued) | None => {}
         }
     }
 

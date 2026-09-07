@@ -83,19 +83,19 @@ like on screen is confirmed by hand in the slices that can produce one.
 
 ## Acceptance criteria
 
-- [ ] `(unit)` a queued account's status key is `queued` whether it holds a slot
+- [x] `(unit)` a queued account's status key is `queued` whether it holds a slot
       or is off-grid, and whether or not its slot is the current one
-- [ ] `(unit)` the queued key's label is the word a tooltip and a screen reader
+- [x] `(unit)` the queued key's label is the word a tooltip and a screen reader
       can read, not an empty string
-- [ ] `(unit)` a queued account's Park/Start item reads "Start"
-- [ ] `(unit)` a queued account's Park/Start item is insensitive, so nothing but
+- [x] `(unit)` a queued account's Park/Start item reads "Start"
+- [x] `(unit)` a queued account's Park/Start item is insensitive, so nothing but
       the queue can start it
-- [ ] `(unit)` a queued account's name is dimmed under the existing rule, with no
+- [x] `(unit)` a queued account's name is dimmed under the existing rule, with no
       second rule added for it
-- [ ] `(unit)` the placeholder panel derived for a queued account carries the
+- [x] `(unit)` the placeholder panel derived for a queued account carries the
       queued line and no button, while the one derived for a parked account is
       unchanged — same line, same "Start" button, still pressable
-- [ ] `(unit)` `sidebar.css` carries a `status-queued` dot class distinct from
+- [x] `(unit)` `sidebar.css` carries a `status-queued` dot class distinct from
       `status-starting` and `status-parked`, and the compiled resource bundle
       still loads
 

@@ -43,6 +43,21 @@ appends its own `## NN — Title` section and never rewrites another's.
 - [x] `cargo clippy -p idle-manager-store --all-targets -- -D warnings` →
       `Finished` with no warning.
 
+## 03 — The queued row and the queued slot
+
+- [x] `cargo test -p idle-manager-shell` → `test result: ok. 18 passed` for the
+      lib, including: `status_key` → `"queued"` for a queued account whatever its
+      slot or focus; `status_label("queued")` → `"Queued"`; `action_label` →
+      `"Start"` and `action_sensitive` → `false` for a queued account;
+      `name_markup` for a queued account equals the parked one (dimmed under the
+      one existing not-running rule); `placeholder_panel(Queued)` → the `"Queued"`
+      line with `button_visible = false` while `placeholder_panel(Parked)` is
+      unchanged (`"Parked"`, button visible and sensitive); and the compiled
+      bundle carries `.status-queued { #dc8add }`, distinct from the starting
+      `#62a0ea` and parked `#9a9996`.
+- [x] `make verify` exits `0` — fmt, clippy, the 117-test suite, audit,
+      arch-check and roadmap-check all pass with the queued vocabulary in place.
+
 ## Teardown
 
 - [x] Slices 01–03 touch no disk outside `cargo`'s target directory (the

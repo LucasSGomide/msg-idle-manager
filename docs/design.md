@@ -23,9 +23,20 @@ citations, so append rather than reorder.
    bold; `visible` (on screen, not focused) — green dot, flat; `background`
    (running out of sight) — amber dot, flat, name dimmed to 55% alpha; `parked`
    (not running, whatever place it still holds) — grey dot, flat, name dimmed to
-   55% alpha; `starting` (unparked, no page painted yet) — blue dot, flat. The
-   glow is `current`'s alone: it marks the one row you are looking at, not every
-   row that is busy.
+   55% alpha; `starting` (unparked, no page painted yet) — blue dot, flat;
+   `queued` (restored and waiting its turn in the start queue, item 07) — purple
+   dot, flat, name dimmed to 55% alpha. The glow is `current`'s alone: it marks
+   the one row you are looking at, not every row that is busy.
+
+   **The ordering, now that there are six.** A key is chosen by walking a fixed
+   list and taking the first that applies, so a new state slots into the list
+   rather than adding a branch. Liveness comes before visibility: an account
+   that is not simply running says so first, whatever slot it still holds —
+   `parked`, then `starting`, then `queued`, each a weaker claim than the last
+   (stopped outranks starting-up outranks waiting-for-a-turn). Only a running
+   account reaches the visibility keys, and there `current` outranks `visible`
+   outranks `background`. The list is the whole vocabulary; the seventh state
+   item 08 adds names where it falls in it and needs no new rule.
 
 2. **Give a row's Park/Start action one control whose label and effect invert
    with the row's state — `Park` while it runs, `Start` once it is parked — and

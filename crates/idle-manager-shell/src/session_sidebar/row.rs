@@ -55,11 +55,15 @@ impl Row {
 /// The state a row's trailing marker names, as a stable key.
 ///
 /// The single place a domain state becomes a marker. Item 03 added `"parked"`
-/// here, item 04 `"starting"`, and item 08 adds `"unresponsive"`, so the
-/// factory that builds each row — and `sidebar.css`, which styles one dot class
-/// per key — grow one arm, never a branch (design rule 1). Liveness wins over
-/// every place: an account that is not simply running says so first, whatever
-/// slot it still holds.
+/// here, item 04 `"starting"`, item 07 `"queued"`, and item 08 adds
+/// `"unresponsive"`, so the factory that builds each row — and `sidebar.css`,
+/// which styles one dot class per key — grow one arm, never a branch (design
+/// rule 1). Liveness wins over every visibility key: an account that is not
+/// simply running says so first, whatever slot it still holds. Among the
+/// not-simply-running states, waiting for a turn (`"queued"`) is a weaker claim
+/// than being on its way up (`"starting"`), which is a weaker claim than being
+/// stopped (`"parked"`) — but each account is in exactly one, so the order is a
+/// reading aid, not a precedence the code resolves.
 pub(super) fn status_key(
     liveness: Liveness,
     visibility: Visibility,
@@ -68,6 +72,7 @@ pub(super) fn status_key(
     match liveness {
         Liveness::Parked => return "parked",
         Liveness::Starting => return "starting",
+        Liveness::Queued => return "queued",
         Liveness::Live => {}
     }
     match visibility {
@@ -88,26 +93,27 @@ pub(super) fn status_label(key: &str) -> &'static str {
         "background" => "Background",
         "parked" => "Parked",
         "starting" => "Starting",
+        "queued" => "Queued",
         _ => "",
     }
 }
 
 /// The Park/Start menu item's label: `Park` while the account runs, `Start`
-/// once it is parked or on its way back up. One item whose meaning inverts
-/// with the row's state (design rule 2).
+/// once it is parked, queued, or on its way back up. One item whose meaning
+/// inverts with the row's state (design rule 2).
 pub(super) fn action_label(liveness: Liveness) -> &'static str {
     match liveness {
         Liveness::Live => "Park",
-        Liveness::Parked | Liveness::Starting => "Start",
+        Liveness::Parked | Liveness::Starting | Liveness::Queued => "Start",
     }
 }
 
 /// Whether the row's Park/Start menu item is sensitive. Insensitive — shown,
-/// greyed — only while the account is starting, so an impatient second press
-/// cannot build a second view for one account (the domain models `Starting`,
-/// so this holds in every caller at once).
+/// greyed — while the account is starting *or* queued: a second press must not
+/// build a second view, and during a restore the start queue owns the order, so
+/// nothing but the queue may start a queued account (design rule 2).
 pub(super) fn action_sensitive(liveness: Liveness) -> bool {
-    !matches!(liveness, Liveness::Starting)
+    !matches!(liveness, Liveness::Starting | Liveness::Queued)
 }
 
 /// The row's trailing keep-awake indication: the glyph while the account's
@@ -120,8 +126,9 @@ pub(super) fn keep_awake_indication(is_kept_awake: bool) -> &'static str {
 }
 
 /// The name label's Pango markup. Dimmed for an account that is not on screen
-/// *or* not running — the two states share the style (design rule 3); bold for
-/// the current row; plain otherwise (design rule 1).
+/// *or* not running — parked and queued are both "not running" and share the
+/// style (design rule 3); bold for the current row; plain otherwise (design
+/// rule 1).
 fn name_markup(
     display_name: &str,
     liveness: Liveness,
@@ -129,7 +136,9 @@ fn name_markup(
     current: bool,
 ) -> String {
     let name = glib::markup_escape_text(display_name);
-    if matches!(liveness, Liveness::Parked) || matches!(visibility, Visibility::OffGrid) {
+    if matches!(liveness, Liveness::Parked | Liveness::Queued)
+        || matches!(visibility, Visibility::OffGrid)
+    {
         format!("<span alpha=\"55%\">{name}</span>")
     } else if current {
         format!("<b>{name}</b>")
@@ -170,6 +179,51 @@ mod tests {
         let off_grid = status_key(Liveness::Starting, Visibility::OffGrid, false);
 
         assert_eq!((in_slot, off_grid), ("starting", "starting"));
+    }
+
+    #[test]
+    fn a_queued_account_keys_as_queued_whatever_its_slot_or_focus() {
+        let in_current_slot = status_key(Liveness::Queued, Visibility::InSlot(SlotId::FIRST), true);
+        let in_other_slot = status_key(Liveness::Queued, Visibility::InSlot(SlotId::FIRST), false);
+        let off_grid = status_key(Liveness::Queued, Visibility::OffGrid, false);
+
+        assert_eq!(
+            (in_current_slot, in_other_slot, off_grid),
+            ("queued", "queued", "queued")
+        );
+    }
+
+    #[test]
+    fn the_queued_key_has_a_word_a_tooltip_and_a_screen_reader_can_read() {
+        assert_eq!(status_label("queued"), "Queued");
+    }
+
+    #[test]
+    fn a_queued_accounts_park_start_item_reads_start() {
+        assert_eq!(action_label(Liveness::Queued), "Start");
+    }
+
+    #[test]
+    fn a_queued_accounts_park_start_item_is_insensitive() {
+        assert!(!action_sensitive(Liveness::Queued));
+    }
+
+    #[test]
+    fn a_queued_accounts_name_is_dimmed_under_the_existing_not_running_rule() {
+        let queued = name_markup(
+            "Farm",
+            Liveness::Queued,
+            Visibility::InSlot(SlotId::FIRST),
+            false,
+        );
+        let parked = name_markup(
+            "Farm",
+            Liveness::Parked,
+            Visibility::InSlot(SlotId::FIRST),
+            false,
+        );
+
+        assert_eq!(queued, parked);
     }
 
     #[test]

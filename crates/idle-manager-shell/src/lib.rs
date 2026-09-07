@@ -99,4 +99,22 @@ mod tests {
 
         assert!(!data.is_empty());
     }
+
+    #[test]
+    fn the_sidebar_stylesheet_carries_a_distinct_queued_dot_class() {
+        register_resources().expect("register the compiled bundle");
+
+        let data = gio::resources_lookup_data(
+            "/org/idlemanager/IdleManager/css/sidebar.css",
+            gio::ResourceLookupFlags::NONE,
+        )
+        .expect("look up the sidebar stylesheet by its resource path");
+        let css = std::str::from_utf8(&data).expect("the stylesheet is UTF-8");
+
+        assert!(
+            css.contains(".status-queued") && css.contains("#dc8add"),
+            "sidebar.css must style a status-queued dot in a colour that is \
+             neither the starting #62a0ea nor the parked #9a9996"
+        );
+    }
 }

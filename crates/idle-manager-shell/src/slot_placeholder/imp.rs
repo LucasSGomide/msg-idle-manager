@@ -40,6 +40,11 @@ pub struct SlotPlaceholder {
     /// Whether the button is pressable. `false` while the account is starting.
     #[property(get, set, default = true)]
     button_sensitive: Cell<bool>,
+    /// Whether the button is shown at all. `false` for a queued account (item
+    /// 07): the start queue owns the order, so there is nothing useful to press
+    /// while it drains. Defaults visible, so every present caller is unchanged.
+    #[property(get, set, default = true)]
+    button_visible: Cell<bool>,
 
     pub(super) on_start_requested: RefCell<Option<StartHandler>>,
 }
@@ -81,6 +86,9 @@ impl ObjectImpl for SlotPlaceholder {
             .sync_create()
             .build();
         obj.bind_property("button-sensitive", &*self.action_button, "sensitive")
+            .sync_create()
+            .build();
+        obj.bind_property("button-visible", &*self.action_button, "visible")
             .sync_create()
             .build();
 
