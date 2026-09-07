@@ -165,6 +165,24 @@ impl ObjectImpl for Window {
             }
         });
 
+        // The wheel half of the zoom gesture (task 05): it acts on the account
+        // the pointer is over, and lands in the same window method as the
+        // keyboard half so the domain is the only thing that decides what a
+        // step means (architecture rule 8). A notch up (negative delta) is a
+        // step in.
+        let window = self.obj().downgrade();
+        self.grid.connect_zoom_scrolled(move |id, delta_y| {
+            let Some(window) = window.upgrade() else {
+                return;
+            };
+            let step = match delta_y.partial_cmp(&0.0) {
+                Some(std::cmp::Ordering::Less) => ZoomStep::In,
+                Some(std::cmp::Ordering::Greater) => ZoomStep::Out,
+                _ => return,
+            };
+            window.imp().apply_zoom_step(&id, step);
+        });
+
         for button in [self.add_game_button.get(), self.add_first_game_button.get()] {
             let window = self.obj().downgrade();
             button.connect_clicked(move |_| {

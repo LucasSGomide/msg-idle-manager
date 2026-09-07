@@ -34,6 +34,11 @@ type SlotFocusHandler = Box<dyn Fn(SlotId)>;
 /// pressed. Same intent the sidebar row's button sends (task 05).
 type StartHandler = Box<dyn Fn(SessionId)>;
 
+/// A handler run with an account's id and the wheel's vertical delta when
+/// `Ctrl` and the wheel turn over that account's place. Negative is a notch
+/// up; the window decides what a notch means (architecture rule 8).
+type ScrollZoomHandler = Box<dyn Fn(SessionId, f64)>;
+
 /// How long the zoom readout stays up after the last gesture before it fades,
 /// leaving nothing behind (`FR.11.6`). A run of gestures rearms it, so one
 /// figure keeps updating rather than a queue forming.
@@ -72,6 +77,7 @@ pub struct SessionGrid {
     focused: Cell<usize>,
     pub(super) on_slot_focused: RefCell<Option<SlotFocusHandler>>,
     pub(super) on_start_requested: RefCell<Option<StartHandler>>,
+    pub(super) on_zoom_scrolled: RefCell<Option<ScrollZoomHandler>>,
 }
 
 #[glib::object_subclass]
@@ -174,6 +180,39 @@ impl SessionGrid {
 
         let readout = build_readout();
         overlay.add_overlay(&readout.label);
+
+        // The wheel-zoom controller goes on the overlay, not the view: the
+        // overlay lives for the account's whole life while the view is
+        // destroyed and rebuilt on every park and start, and the controller
+        // must survive that. Capture phase for the same reason the click
+        // gesture uses it — the web view would otherwise consume the event on
+        // the way down. Whether a capture-phase scroll controller here actually
+        // sees a wheel event bound for the WebKitGTK view underneath (WebKit
+        // scrolls in its own process) is verified in this item's
+        // test-script.md; if the view wins, this moves onto the view and
+        // `SessionView::start` re-attaches it on every rebuild (code standards
+        // rule 18).
+        let scroll = gtk::EventControllerScroll::new(gtk::EventControllerScrollFlags::VERTICAL);
+        scroll.set_propagation_phase(gtk::PropagationPhase::Capture);
+        let scroll_grid = self.obj().downgrade();
+        let scroll_session = id.clone();
+        scroll.connect_scroll(move |controller, _dx, dy| {
+            let ctrl_held = controller.current_event().is_some_and(|event| {
+                event
+                    .modifier_state()
+                    .contains(gdk::ModifierType::CONTROL_MASK)
+            });
+            if !ctrl_held {
+                return glib::Propagation::Proceed;
+            }
+            if let Some(grid) = scroll_grid.upgrade()
+                && let Some(handler) = grid.imp().on_zoom_scrolled.borrow().as_ref()
+            {
+                handler(scroll_session.clone(), dy);
+            }
+            glib::Propagation::Stop
+        });
+        overlay.add_controller(scroll);
 
         let grid = self.obj().downgrade();
         let session = id.clone();

@@ -74,8 +74,36 @@ several checks depend on minimising the window, which a bare `Xvfb` cannot do
       the two-place arrangement, then remove both accounts so the grid is empty.
       Press `Ctrl` `+`, `Ctrl` `-`, `Ctrl` `0`: nothing happens and no figure
       appears anywhere.
-- [ ] `grep -c 'session-grid.css' <(strings target/debug/idle-manager)` is not
-      needed — instead confirm the readout is styled: the figure has an opaque
-      dark rounded background, not plain text on the page. *(The `(unit)` check
+- [ ] Confirm the readout is styled: the figure has an opaque dark rounded
+      background, not plain text on the page. *(The `(unit)` check
       `the_session_grid_stylesheet_is_readable_from_the_registered_bundle`
       backs the bundle side.)*
+
+## 05 — Zooming the account under the pointer
+
+- [ ] Add accounts `A` and `B` from "Probe", switch to the two-place
+      arrangement. Hold `Ctrl` and turn the wheel one notch up with the pointer
+      over slot A: A's digit grows one step, the figure `110%` appears over
+      slot A, and slot B is unchanged. One notch down: A shrinks one step back.
+- [ ] With `Ctrl` held and the pointer over a probe page tall enough to scroll
+      (resize the window narrow so the digit overflows, or use a probe URL with
+      a `2000px` spacer div): turning the wheel zooms and the page content does
+      **not** scroll.
+- [ ] Release `Ctrl` and turn the wheel over the same page: the page scrolls
+      exactly as it did before this slice, no zoom, no figure.
+- [ ] Click slot B to focus it, then turn `Ctrl`+wheel over slot A: slot A
+      changes size, slot B (the focused one) does not.
+- [ ] Park account A and start it again, then `Ctrl`+wheel over slot A: the
+      gesture still zooms it and shows the figure — the controller survived the
+      view rebuild.
+- [ ] `Ctrl`+wheel up over slot A until it stops growing: the figure reads
+      `500%` on each further notch and the page does not grow. Down until it
+      stops: `25%` on each further notch.
+- [ ] Park account B. `Ctrl`+wheel over B's parked panel: the figure appears
+      over the panel, the panel keeps its three elements, and starting B opens
+      it at the size the figure named.
+- [ ] Add a third account `C` so the two-place grid is full and `C` pushes one
+      account off-grid (check its sidebar dot is amber). There is nowhere on
+      screen to point at the off-grid account, so no wheel gesture reaches it;
+      bring it into a slot (click its sidebar row) and it appears at the size it
+      already had, not reset.
