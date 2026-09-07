@@ -388,9 +388,36 @@ impl Window {
                 let imp = window.imp();
                 imp.book.borrow_mut().set_layout(layout);
                 imp.redraw();
+                imp.snap_all_zoom();
                 imp.request_save();
             }
         });
+    }
+
+    /// After an arrangement switch, redraw every account at the size it last
+    /// chose for the arrangement now in force, falling back to the game file's
+    /// size. No readout is shown — nobody asked for a size change, the
+    /// arrangement did (`FR.11.6`). Every account with a holder, not only the
+    /// visible ones: an off-grid or parked account is then already the right
+    /// size the moment it is next brought into a place, with no second code
+    /// path and no visible correction (`FR.11.7`). Nothing is written — a
+    /// switch consumes chosen sizes and never records one (`FR.12.4`).
+    fn snap_all_zoom(&self) {
+        let layout = self.book.borrow().layout();
+        let resolved: Vec<(SessionId, ZoomLevel)> = self
+            .book
+            .borrow()
+            .sessions()
+            .iter()
+            .map(|session| (session.id().clone(), session.zoom_for(layout)))
+            .collect();
+
+        let mut holders = self.holders.borrow_mut();
+        for (id, zoom) in resolved {
+            if let Some(holder) = holders.get_mut(&id) {
+                holder.set_zoom(zoom);
+            }
+        }
     }
 
     fn present_add_game_dialog(&self) {

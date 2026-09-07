@@ -107,3 +107,24 @@ several checks depend on minimising the window, which a bare `Xvfb` cannot do
       screen to point at the off-grid account, so no wheel gesture reaches it;
       bring it into a slot (click its sidebar row) and it appears at the size it
       already had, not reset.
+
+## 06 — Snapping every account on an arrangement switch
+
+- [ ] Accounts `A`..`D` from "Probe". In the four-place arrangement, `Ctrl` `+`
+      over A twice (A reads `121%`). Switch to the single arrangement, `Ctrl` `-`
+      over A twice (A reads `82%`). Switch back to four places: A snaps to
+      `121%`. Switch to single: A snaps to `82%`. Repeat once more — each
+      arrangement returns A to its own size.
+- [ ] During those switches, no percentage figure appears over any slot.
+- [ ] Account B was never zoomed: in every arrangement B is drawn at 100% (the
+      "Probe" file's size), silently.
+- [ ] With four accounts and the grid showing two, one account is off-grid.
+      Zoom the visible ones, switch two→four→two, then bring the off-grid
+      account into a slot (click its row): it is already at its remembered size
+      for the two-place arrangement the instant it appears — no wrong size drawn
+      first and then corrected, and no figure.
+- [ ] Set a size for A in the four-place arrangement, park A, switch to single
+      and back to four, then start A: it opens at the four-place size.
+- [ ] Across every switch above, no probe digit resets to 0 and
+      `grep -c PROBE-LOADED "$IM/app.log"` is unchanged — no game reloaded — and
+      no sidebar row passed through "Starting".
