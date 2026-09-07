@@ -9,9 +9,11 @@ use anyhow::Context;
 use gtk::glib;
 use gtk::prelude::*;
 use gtk4 as gtk;
-use idle_manager_core::{PresetCatalogue, ProfileLocator, WorkspaceStore};
-use idle_manager_shell::Window;
-use idle_manager_store::{TomlPresetCatalogue, TomlWorkspaceStore, XdgProfileLocator};
+use idle_manager_core::{PresetCatalogue, ProfileLocator, WorkspaceStore, ZoomMemory};
+use idle_manager_shell::{Window, WindowPorts};
+use idle_manager_store::{
+    TomlPresetCatalogue, TomlWorkspaceStore, TomlZoomMemory, XdgProfileLocator,
+};
 
 /// The application's D-Bus and settings identifier.
 const APP_ID: &str = "org.idlemanager.IdleManager";
@@ -44,6 +46,9 @@ fn run() -> anyhow::Result<ExitCode> {
     let store = TomlWorkspaceStore::new().context("resolve the XDG config directory")?;
     let store: Arc<dyn WorkspaceStore> = Arc::new(store);
 
+    let zoom_memory = TomlZoomMemory::new().context("resolve the XDG data directory")?;
+    let zoom_memory: Rc<dyn ZoomMemory> = Rc::new(zoom_memory);
+
     let app = gtk::Application::builder().application_id(APP_ID).build();
 
     // A second launch re-activates this window rather than starting a second
@@ -58,9 +63,12 @@ fn run() -> anyhow::Result<ExitCode> {
         let read_outcome = store.read();
         let window = Window::new(
             app,
-            Rc::clone(&locator),
-            Rc::clone(&catalogue),
-            Arc::clone(&store),
+            WindowPorts {
+                locator: Rc::clone(&locator),
+                catalogue: Rc::clone(&catalogue),
+                store: Arc::clone(&store),
+                zoom_memory: Rc::clone(&zoom_memory),
+            },
             read_outcome,
         );
         window.present();

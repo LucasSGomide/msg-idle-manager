@@ -26,7 +26,7 @@ use gtk::gio;
 use gtk::glib;
 use gtk4 as gtk;
 
-pub use window::Window;
+pub use window::{Window, WindowPorts};
 
 /// The compiled-in UI resource bundle could not be registered.
 #[derive(Debug, thiserror::Error)]

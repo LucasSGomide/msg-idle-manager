@@ -4,7 +4,7 @@
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::rc::Rc;
-use std::sync::Arc;
+use std::time::Duration;
 
 use gtk::CompositeTemplate;
 use gtk::gdk;
@@ -17,7 +17,7 @@ use webkit6::{LoadEvent, WebView};
 
 use idle_manager_core::{
     Layout, Liveness, Preset, PresetCatalogue, ProfileLocator, Session, SessionBook, SessionId,
-    Workspace, WorkspaceReadError, WorkspaceStore, ZoomLevel,
+    Workspace, WorkspaceReadError, ZoomLevel, ZoomMemory,
 };
 
 use crate::add_game_dialog::{AddGameDialog, Confirmed};
@@ -78,6 +78,13 @@ pub struct Window {
     /// The queue that brings restored accounts up one at a time, alive only
     /// while a restore is draining (task 05).
     start_queue: RefCell<Option<StartQueue>>,
+    /// Reads and stores each account's chosen zoom sizes (item 09 task 07).
+    /// The shell never learns a file is behind it.
+    zoom_memory: RefCell<Option<Rc<dyn ZoomMemory>>>,
+    /// One settle timer per account: a zoom gesture rearms that account's
+    /// timer, and only when the gestures stop does the settled map get written
+    /// once (`FR.12.5`).
+    zoom_save_timers: RefCell<HashMap<SessionId, glib::SourceId>>,
 }
 
 impl std::fmt::Debug for Window {
@@ -259,15 +266,14 @@ impl ApplicationWindowImpl for Window {}
 impl Window {
     pub(super) fn attach_ports(
         &self,
-        locator: Rc<dyn ProfileLocator>,
-        catalogue: Rc<dyn PresetCatalogue>,
-        store: Arc<dyn WorkspaceStore>,
+        ports: super::WindowPorts,
         read_outcome: Result<Option<Workspace>, WorkspaceReadError>,
     ) {
-        self.locator.replace(Some(locator));
-        self.catalogue.replace(Some(catalogue));
+        self.locator.replace(Some(ports.locator));
+        self.catalogue.replace(Some(ports.catalogue));
+        self.zoom_memory.replace(Some(ports.zoom_memory));
         self.saver
-            .replace(Some(Saver::new(store, self.message_strip.clone())));
+            .replace(Some(Saver::new(ports.store, self.message_strip.clone())));
         self.apply_read_outcome(read_outcome);
     }
 
@@ -310,6 +316,23 @@ impl Window {
         };
 
         *self.book.borrow_mut() = SessionBook::restore(workspace);
+
+        // Install every account's chosen sizes onto the book before any holder
+        // is built, so a relaunched account is right before it is ever drawn
+        // and the start queue does not have to correct it (`FR.12.7`).
+        if let Some(memory) = self.zoom_memory.borrow().clone() {
+            let ids: Vec<SessionId> = self
+                .book
+                .borrow()
+                .sessions()
+                .iter()
+                .map(|session| session.id().clone())
+                .collect();
+            for id in ids {
+                let remembered = memory.read(&id);
+                self.book.borrow_mut().restore_zoom(&id, remembered);
+            }
+        }
 
         // Each dormant holder opens at the size resolved for the arrangement
         // being restored, not the game-file baseline (`FR.12.2`): a switch
@@ -473,6 +496,15 @@ impl Window {
             tracing::error!("no profile locator attached; cannot create an account");
             return;
         };
+
+        // Install the account's chosen sizes onto the book before resolving the
+        // size to open at, so the page is never drawn at the baseline and then
+        // jumps to the remembered size (`FR.12.7`). A fresh account has no
+        // stored sizes and reads back an empty map.
+        if let Some(memory) = self.zoom_memory.borrow().clone() {
+            let remembered = memory.read(id);
+            self.book.borrow_mut().restore_zoom(id, remembered);
+        }
 
         let layout = self.book.borrow().layout();
         let Some((name, address, zoom, identity)) =
@@ -710,6 +742,54 @@ impl Window {
         }
         self.grid
             .flash_zoom_readout(id, &format!("{:.0}%", zoom.multiplier() * 100.0));
+        self.schedule_zoom_save(id);
+    }
+
+    /// Restarts `id`'s settle timer. When the gestures stop, the settled
+    /// remembered map is read off the book and written once (`FR.12.5`) — a
+    /// burst of twenty wheel notches costs one write, not twenty. Nothing else
+    /// writes `state.toml` (`FR.12.4`).
+    fn schedule_zoom_save(&self, id: &SessionId) {
+        if let Some(timer) = self.zoom_save_timers.borrow_mut().remove(id) {
+            timer.remove();
+        }
+
+        let window = self.obj().downgrade();
+        let account = id.clone();
+        let timer = glib::timeout_add_local_once(
+            Duration::from_millis(ZOOM_SAVE_SETTLE_MILLIS),
+            move || {
+                if let Some(window) = window.upgrade() {
+                    window.imp().zoom_save_timers.borrow_mut().remove(&account);
+                    window.imp().write_zoom_now(&account);
+                }
+            },
+        );
+        self.zoom_save_timers.borrow_mut().insert(id.clone(), timer);
+    }
+
+    /// Writes `id`'s settled remembered map through the port now. A failure is
+    /// logged with the account id and a reason and otherwise ignored — the size
+    /// is still right on screen, it just will not survive a restart (code
+    /// standards rules 14, 15).
+    fn write_zoom_now(&self, id: &SessionId) {
+        let Some(memory) = self.zoom_memory.borrow().clone() else {
+            return;
+        };
+        let Some(remembered) = self
+            .book
+            .borrow()
+            .sessions()
+            .iter()
+            .find(|session| session.id() == id)
+            .map(|session| session.remembered_zoom().clone())
+        else {
+            return;
+        };
+
+        if let Err(error) = memory.write(id, &remembered) {
+            tracing::warn!(session = %id, reason = %error, "could not persist the remembered zoom");
+        }
     }
 
     fn redraw(&self) {
@@ -722,6 +802,11 @@ impl Window {
         self.grid.set_visible(!empty);
     }
 }
+
+/// How long after the last zoom gesture the settled size is written, so a
+/// burst of wheel notches collapses into one write (`FR.12.5`, code standards
+/// rule 5). Each gesture restarts the account's timer.
+const ZOOM_SAVE_SETTLE_MILLIS: u64 = 500;
 
 /// Which way a zoom gesture steps.
 #[derive(Debug, Clone, Copy)]

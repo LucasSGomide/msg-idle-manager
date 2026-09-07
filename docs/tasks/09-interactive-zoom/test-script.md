@@ -128,3 +128,36 @@ several checks depend on minimising the window, which a bare `Xvfb` cannot do
 - [ ] Across every switch above, no probe digit resets to 0 and
       `grep -c PROBE-LOADED "$IM/app.log"` is unchanged — no game reloaded — and
       no sidebar row passed through "Starting".
+
+## 07 — Remembering the sizes across a restart
+
+- [ ] `STATE=$IM/data/idle-manager/profiles/session-0001/state.toml`. With one
+      "Probe" account, `Ctrl`+wheel up over it twenty times fast, then wait two
+      seconds. `ls -1 "$IM"/data/idle-manager/profiles/session-0001/state.toml*`
+      lists exactly one file (no `.tmp` left behind) and `cat "$STATE"` shows a
+      single `single` (or current-layout) key holding the settled multiplier —
+      not an intermediate value.
+- [ ] `Ctrl` `0` over that account, wait two seconds: the current arrangement's
+      key is gone from `"$STATE"` and any other arrangement's key is still there
+      (set one in another arrangement first to see this).
+- [ ] `cp "$STATE" /tmp/state-before`. Switch arrangement, park the account,
+      click a different slot, then close the window. `diff /tmp/state-before "$STATE"`
+      is empty — none of those wrote the file.
+- [ ] Set distinct sizes for the account in two arrangements, wait for the
+      writes, close the app, relaunch with the same `$IM`: the account comes
+      back at the size stored for the arrangement being restored. Switch to the
+      other arrangement — it snaps to that arrangement's stored size.
+- [ ] Park the account, relaunch, then start it: it opens at its stored size
+      for the arrangement in force, not 100%.
+- [ ] Remove `"$STATE"`, relaunch: the account opens at the "Probe" file's size
+      (100%) and `grep -iE 'could not.*zoom|state file' "$IM/app.log"` finds no
+      failure line for it.
+- [ ] Write `"$STATE"` by hand as `[zoom]\nsingle = 1.5\ngrid = 99.0\n`,
+      relaunch in the grid arrangement: the grid opens at 100%, switching to
+      single opens at 150%, and `grep 'out of range' "$IM/app.log"` names the
+      `grid` key.
+- [ ] `chmod 555 "$IM/data/idle-manager/profiles/session-0001"`. `Ctrl`+wheel
+      over the account: the page still resizes and the figure still shows, the
+      window keeps working, and after two seconds
+      `grep 'could not persist the remembered zoom' "$IM/app.log"` shows the
+      account id and a reason. `chmod 755` it back afterwards.

@@ -208,6 +208,14 @@ impl Session {
     pub fn zoom_for(&self, layout: Layout) -> ZoomLevel {
         self.remembered_zoom.get(layout).unwrap_or(self.preset_zoom)
     }
+
+    /// The sizes this account's owner has chosen, per arrangement — for an
+    /// adapter about to write them down (`FR.12.5`). Empty until a gesture
+    /// records one.
+    #[must_use]
+    pub fn remembered_zoom(&self) -> &RememberedZoom {
+        &self.remembered_zoom
+    }
 }
 
 /// The application's sessions in the order they were added, together with the
