@@ -10,11 +10,13 @@ mod layout;
 mod ports;
 mod preset;
 mod session;
+mod workspace;
 
 pub use layout::{Layout, Outcome, Placement, SlotId, arrange};
 pub use ports::{
     PresetCatalogue, PresetCatalogueReading, PresetFailure, ProfileDirectories, ProfileError,
-    ProfileLocator,
+    ProfileLocator, WorkspaceReadError, WorkspaceStore, WorkspaceWriteError,
 };
 pub use preset::{InvalidZoom, Preset, PresetId, ZoomLevel};
 pub use session::{Liveness, Session, SessionBook, SessionId, Visibility};
+pub use workspace::{Account, SavedLiveness, Workspace};

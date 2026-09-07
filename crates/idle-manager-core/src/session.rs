@@ -5,6 +5,7 @@ use std::collections::HashMap;
 
 use crate::layout::{Layout, Placement, SlotId, arrange, bring_into_focus};
 use crate::preset::{Preset, ZoomLevel};
+use crate::workspace::{Account, SavedLiveness, Workspace};
 
 /// The identifier the program mints for a session.
 ///
@@ -53,7 +54,10 @@ pub enum Visibility {
 /// on screen are two separate choices the user makes (code standards rule 1).
 /// `Starting` is the interval between unparking and the shell's first paint —
 /// modelling it in the domain rather than as a flag on a button is what makes a
-/// double-press impossible in every caller at once.
+/// double-press impossible in every caller at once. `Queued` is one step
+/// earlier still: the user wants the account up and nothing has started it yet,
+/// which is the state every running account is restored into so the shell can
+/// bring them back one at a time.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Liveness {
     /// The rendering process is running.
@@ -63,6 +67,10 @@ pub enum Liveness {
     /// No page has painted yet — either just unparked, or reloading after a
     /// change that only takes effect on the next load, such as keep-awake.
     Starting,
+    /// The user wants this account running and its turn has not come: restored
+    /// from a saved workspace, waiting for the start queue. Distinct from
+    /// `Starting`, which means a view already exists.
+    Queued,
 }
 
 /// One game account: its minted identity, the name and start address it was
@@ -161,10 +169,124 @@ impl SessionBook {
         }
     }
 
+    /// Rebuilds a book from a saved [`Workspace`].
+    ///
+    /// The accounts come back in the order the workspace held them. One saved
+    /// as running becomes [`Liveness::Queued`] — nothing is running yet — and
+    /// one saved as parked stays [`Liveness::Parked`], costing nothing. The
+    /// saved layout becomes active and each account's remembered slot is
+    /// seeded, so visibility is normalised through the same placement a layout
+    /// switch uses: an account whose saved slot the layout cannot show lands
+    /// off-grid and returns to that slot when a layout with it is chosen
+    /// (`FR.3.2`). Identifier minting resumes above the highest restored id, so
+    /// the next account added collides with none of them.
+    #[must_use]
+    pub fn restore(workspace: Workspace) -> Self {
+        let Workspace { accounts, layout } = workspace;
+
+        let minted = accounts
+            .iter()
+            .filter_map(|account| account.id.as_str().strip_prefix("session-"))
+            .filter_map(|suffix| suffix.parse::<u64>().ok())
+            .max()
+            .unwrap_or(0);
+
+        let mut remembered: HashMap<SessionId, SlotId> = HashMap::new();
+        for account in &accounts {
+            let slot = account.remembered_slot.or(match account.visibility {
+                Visibility::InSlot(slot) => Some(slot),
+                Visibility::OffGrid => None,
+            });
+            if let Some(slot) = slot {
+                remembered.insert(account.id.clone(), slot);
+            }
+        }
+
+        let order: Vec<SessionId> = accounts.iter().map(|account| account.id.clone()).collect();
+        let placement = arrange(layout, &order, &remembered);
+
+        let sessions = accounts
+            .into_iter()
+            .map(|account| Session {
+                visibility: placement
+                    .get(&account.id)
+                    .copied()
+                    .unwrap_or(Visibility::OffGrid),
+                liveness: match account.liveness {
+                    SavedLiveness::Running => Liveness::Queued,
+                    SavedLiveness::Parked => Liveness::Parked,
+                },
+                id: account.id,
+                display_name: account.display_name,
+                start_address: account.start_address,
+                is_kept_awake: account.is_kept_awake,
+                browser_identity: account.browser_identity,
+                zoom: account.zoom,
+            })
+            .collect();
+
+        Self {
+            sessions,
+            layout,
+            focused: SlotId::FIRST,
+            remembered,
+            minted,
+        }
+    }
+
     /// The sessions, in the order they were added.
     #[must_use]
     pub fn sessions(&self) -> &[Session] {
         &self.sessions
+    }
+
+    /// The whole arrangement as one value, ready to be saved.
+    ///
+    /// Accounts in add order, each carrying its name, address, zoom, identity,
+    /// keep-awake flag, and where it sits, plus the active layout. A
+    /// [`Liveness::Starting`] or [`Liveness::Queued`] account is reported as
+    /// [`SavedLiveness::Running`]: those describe a moment, not a wish.
+    #[must_use]
+    pub fn workspace(&self) -> Workspace {
+        let accounts = self
+            .sessions
+            .iter()
+            .map(|session| Account {
+                id: session.id.clone(),
+                display_name: session.display_name.clone(),
+                start_address: session.start_address.clone(),
+                liveness: match session.liveness {
+                    Liveness::Parked => SavedLiveness::Parked,
+                    Liveness::Live | Liveness::Starting | Liveness::Queued => {
+                        SavedLiveness::Running
+                    }
+                },
+                visibility: session.visibility,
+                remembered_slot: self.remembered.get(&session.id).copied(),
+                is_kept_awake: session.is_kept_awake,
+                browser_identity: session.browser_identity.clone(),
+                zoom: session.zoom,
+            })
+            .collect();
+
+        Workspace {
+            accounts,
+            layout: self.layout,
+        }
+    }
+
+    /// The queued accounts in book order, and nothing else.
+    ///
+    /// The order the start queue brings restored accounts back in. Parked
+    /// accounts are absent entirely — that is the whole point of parking
+    /// surviving a restart (`FR.8.2`).
+    #[must_use]
+    pub fn start_order(&self) -> Vec<SessionId> {
+        self.sessions
+            .iter()
+            .filter(|session| session.liveness == Liveness::Queued)
+            .map(|session| session.id.clone())
+            .collect()
     }
 
     /// The layout the book is currently arranged for.
@@ -1067,6 +1189,236 @@ mod tests {
         assert_eq!(
             (account.browser_identity(), account.zoom()),
             (None, ZoomLevel::DEFAULT),
+        );
+    }
+
+    fn saved_account(id: &str, name: &str) -> Account {
+        Account {
+            id: SessionId::new(id),
+            display_name: name.to_owned(),
+            start_address: format!("https://example.test/{id}"),
+            liveness: SavedLiveness::Running,
+            visibility: Visibility::OffGrid,
+            remembered_slot: None,
+            is_kept_awake: false,
+            browser_identity: None,
+            zoom: ZoomLevel::DEFAULT,
+        }
+    }
+
+    fn in_slot(account: Account, slot: usize) -> Account {
+        Account {
+            visibility: Visibility::InSlot(SlotId::new(slot)),
+            remembered_slot: Some(SlotId::new(slot)),
+            ..account
+        }
+    }
+
+    #[test]
+    fn restoring_a_workspace_yields_its_accounts_in_order_with_their_saved_settings() {
+        let workspace = Workspace {
+            accounts: vec![
+                Account {
+                    is_kept_awake: true,
+                    browser_identity: Some("PresetUA/1.0".to_owned()),
+                    zoom: ZoomLevel::new(0.8).expect("0.8 is an accepted multiplier"),
+                    ..saved_account("session-0001", "Main")
+                },
+                saved_account("session-0002", "Alt"),
+            ],
+            layout: Layout::SideBySide,
+        };
+
+        let book = SessionBook::restore(workspace);
+
+        let first = &book.sessions()[0];
+        assert_eq!(
+            (
+                book.sessions()
+                    .iter()
+                    .map(Session::display_name)
+                    .collect::<Vec<_>>(),
+                first.start_address(),
+                first.zoom(),
+                first.browser_identity(),
+                first.is_kept_awake(),
+                book.layout(),
+            ),
+            (
+                vec!["Main", "Alt"],
+                "https://example.test/session-0001",
+                ZoomLevel::new(0.8).expect("0.8 is an accepted multiplier"),
+                Some("PresetUA/1.0"),
+                true,
+                Layout::SideBySide,
+            ),
+        );
+    }
+
+    #[test]
+    fn an_account_saved_as_running_comes_back_queued() {
+        let workspace = Workspace {
+            accounts: vec![Account {
+                liveness: SavedLiveness::Running,
+                ..saved_account("session-0001", "Main")
+            }],
+            layout: Layout::Single,
+        };
+
+        let book = SessionBook::restore(workspace);
+
+        assert_eq!(book.sessions()[0].liveness(), Liveness::Queued);
+    }
+
+    #[test]
+    fn an_account_saved_as_parked_comes_back_parked() {
+        let workspace = Workspace {
+            accounts: vec![Account {
+                liveness: SavedLiveness::Parked,
+                ..saved_account("session-0001", "Main")
+            }],
+            layout: Layout::Single,
+        };
+
+        let book = SessionBook::restore(workspace);
+
+        assert_eq!(book.sessions()[0].liveness(), Liveness::Parked);
+    }
+
+    #[test]
+    fn the_start_order_lists_the_queued_accounts_in_workspace_order() {
+        let workspace = Workspace {
+            accounts: vec![
+                Account {
+                    liveness: SavedLiveness::Running,
+                    ..saved_account("session-0001", "A")
+                },
+                Account {
+                    liveness: SavedLiveness::Parked,
+                    ..saved_account("session-0002", "B")
+                },
+                Account {
+                    liveness: SavedLiveness::Running,
+                    ..saved_account("session-0003", "C")
+                },
+            ],
+            layout: Layout::Grid,
+        };
+
+        let book = SessionBook::restore(workspace);
+
+        let order = book.start_order();
+
+        let ids: Vec<&str> = order.iter().map(SessionId::as_str).collect();
+        assert_eq!(ids, vec!["session-0001", "session-0003"]);
+    }
+
+    #[test]
+    fn a_parked_account_is_absent_from_the_start_order() {
+        let workspace = Workspace {
+            accounts: vec![Account {
+                liveness: SavedLiveness::Parked,
+                ..saved_account("session-0001", "Parked")
+            }],
+            layout: Layout::Single,
+        };
+
+        let book = SessionBook::restore(workspace);
+
+        assert!(book.start_order().is_empty());
+    }
+
+    #[test]
+    fn an_account_whose_saved_slot_the_layout_cannot_show_comes_back_off_grid_then_reclaims_it() {
+        let workspace = Workspace {
+            accounts: vec![
+                in_slot(saved_account("session-0001", "A"), 0),
+                in_slot(saved_account("session-0002", "B"), 1),
+            ],
+            layout: Layout::Single,
+        };
+        let mut book = SessionBook::restore(workspace);
+        let while_single = book.sessions()[1].visibility();
+
+        book.set_layout(Layout::SideBySide);
+
+        assert_eq!(
+            (while_single, book.sessions()[1].visibility()),
+            (Visibility::OffGrid, Visibility::InSlot(SlotId::new(1))),
+        );
+    }
+
+    #[test]
+    fn an_account_added_after_a_restore_gets_an_identifier_distinct_from_every_restored_one() {
+        let workspace = Workspace {
+            accounts: vec![
+                saved_account("session-0001", "A"),
+                saved_account("session-0007", "B"),
+            ],
+            layout: Layout::Single,
+        };
+        let mut book = SessionBook::restore(workspace);
+
+        let fresh = book.add("C", "https://example.test/c");
+
+        let restored: Vec<SessionId> = book
+            .sessions()
+            .iter()
+            .take(2)
+            .map(|s| s.id().clone())
+            .collect();
+        assert!(!restored.contains(&fresh));
+    }
+
+    #[test]
+    fn the_workspace_read_off_a_restored_book_reproduces_the_one_it_was_restored_from() {
+        let workspace = Workspace {
+            accounts: vec![
+                Account {
+                    liveness: SavedLiveness::Running,
+                    is_kept_awake: true,
+                    zoom: ZoomLevel::new(1.2).expect("1.2 is an accepted multiplier"),
+                    ..in_slot(saved_account("session-0001", "A"), 0)
+                },
+                Account {
+                    liveness: SavedLiveness::Parked,
+                    browser_identity: Some("UA/2".to_owned()),
+                    ..in_slot(saved_account("session-0002", "B"), 1)
+                },
+            ],
+            layout: Layout::SideBySide,
+        };
+
+        let restored = SessionBook::restore(workspace.clone());
+
+        assert_eq!(restored.workspace(), workspace);
+    }
+
+    #[test]
+    fn a_starting_account_is_written_to_the_workspace_as_running() {
+        let mut book = SessionBook::new();
+        let id = book.add("One", "https://example.test/one");
+        book.set_keep_awake(&id, true);
+
+        let saved = book.workspace();
+
+        assert_eq!(saved.accounts[0].liveness, SavedLiveness::Running);
+    }
+
+    #[test]
+    fn restoring_an_empty_workspace_leaves_an_empty_book() {
+        let book = SessionBook::restore(Workspace {
+            accounts: Vec::new(),
+            layout: Layout::default(),
+        });
+
+        assert_eq!(
+            (
+                book.sessions().len(),
+                book.start_order().len(),
+                book.layout()
+            ),
+            (0, 0, Layout::default()),
         );
     }
 }

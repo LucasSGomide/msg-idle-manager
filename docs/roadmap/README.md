@@ -66,7 +66,7 @@ failure are shown inside a chooser without a modal of their own.
 
 | # | Item | Est | Depends on | Status |
 |---|---|---|---|---|
-| [07](07-workspace-restore/README.md) | Restoring the workspace on launch | 8 | 03, 04, 06 | not-started |
+| [07](07-workspace-restore/README.md) | Restoring the workspace on launch | 8 | 03, 04, 06 | in-progress |
 | [05](05-memory-accounting/README.md) | Memory accounting | 5 | 02, 03 | not-started |
 | [08](08-crash-recovery/README.md) | Surviving a crashed game | 5 | 03 | not-started |
 | [09](09-interactive-zoom/README.md) | Interactive zoom, remembered per arrangement | 5 | 03, 06 | not-started |

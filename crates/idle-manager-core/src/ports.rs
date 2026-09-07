@@ -5,6 +5,7 @@ use std::path::PathBuf;
 
 use crate::preset::Preset;
 use crate::session::SessionId;
+use crate::workspace::Workspace;
 
 /// The data and cache directories that belong to one session.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -51,6 +52,70 @@ pub trait ProfileLocator: std::fmt::Debug {
     /// made, [`ProfileError::NotWritable`] if it exists but the process cannot
     /// write into it.
     fn locate(&self, session: &SessionId) -> Result<ProfileDirectories, ProfileError>;
+}
+
+/// The saved workspace could not be read.
+///
+/// Three-way at the call site: [`WorkspaceStore::read`] returns `Ok(None)` for
+/// a first run with no file, `Ok(Some(_))` for a workspace, and this for a
+/// failure — two cases a caller must tell apart, because one keeps the bad
+/// bytes aside to name to the user and the other has nothing to show.
+#[derive(Debug, thiserror::Error)]
+pub enum WorkspaceReadError {
+    /// A file was there and would not parse — bad TOML, a value the domain
+    /// cannot represent, or a version this build does not understand. The
+    /// original bytes have been moved to `kept` and never overwritten, so a
+    /// caller can name that path and open as a first run.
+    #[error("the saved workspace was unreadable and kept at {}: {reason}", .kept.display())]
+    Unreadable {
+        /// Where the unreadable file was moved, for naming to the user.
+        kept: PathBuf,
+        /// One line describing what was wrong, ready to show as-is.
+        reason: String,
+    },
+    /// The workspace location could not be reached at all — a permission or I/O
+    /// failure with no single file to set aside.
+    #[error("the workspace location could not be read: {reason}")]
+    Inaccessible {
+        /// One line describing what was wrong, ready to show as-is.
+        reason: String,
+    },
+}
+
+/// The workspace could not be written.
+#[derive(Debug, thiserror::Error)]
+#[error("the workspace could not be saved: {reason}")]
+pub struct WorkspaceWriteError {
+    /// One line describing what was wrong, ready to show as-is.
+    pub reason: String,
+}
+
+/// Saves the whole arrangement and gives back the one it saved, without the
+/// domain knowing a file is involved.
+///
+/// Named for the capability, not the technology behind it (naming rule 10) and
+/// implemented outside the core (architecture rules 5, 6). The read is
+/// three-way — no file, a workspace, or a failure — and the write is atomic
+/// from the caller's point of view: it either replaces the saved workspace
+/// entirely or leaves the previous one intact.
+pub trait WorkspaceStore: std::fmt::Debug {
+    /// Reads the saved workspace now.
+    ///
+    /// # Errors
+    ///
+    /// [`WorkspaceReadError::Unreadable`] if a file is present but will not
+    /// parse — the bytes are kept aside at the path the error carries;
+    /// [`WorkspaceReadError::Inaccessible`] if the location cannot be read.
+    /// A first run with no file is `Ok(None)`, not an error.
+    fn read(&self) -> Result<Option<Workspace>, WorkspaceReadError>;
+
+    /// Writes `workspace`, replacing any previously saved one.
+    ///
+    /// # Errors
+    ///
+    /// [`WorkspaceWriteError`] if the write could not be completed; the
+    /// previously saved workspace is left intact in that case.
+    fn write(&self, workspace: &Workspace) -> Result<(), WorkspaceWriteError>;
 }
 
 /// One preset entry the catalogue could not turn into a [`Preset`].

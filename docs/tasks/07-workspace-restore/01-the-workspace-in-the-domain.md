@@ -87,23 +87,23 @@ so it is the existing rule applied to a new caller, not a new rule.
 
 ## Acceptance criteria
 
-- [ ] `(unit)` restoring a workspace yields its accounts in the saved order, each
+- [x] `(unit)` restoring a workspace yields its accounts in the saved order, each
       carrying its name, start address, zoom, browser identity and keep-awake
       flag, with the saved layout active
-- [ ] `(unit)` an account saved as running comes back `Queued`, never `Live`
-- [ ] `(unit)` an account saved as parked comes back `Parked`
-- [ ] `(unit)` the start order lists exactly the queued accounts, in the order
+- [x] `(unit)` an account saved as running comes back `Queued`, never `Live`
+- [x] `(unit)` an account saved as parked comes back `Parked`
+- [x] `(unit)` the start order lists exactly the queued accounts, in the order
       the workspace held them
-- [ ] `(unit)` a parked account is absent from the start order
-- [ ] `(unit)` an account whose saved slot the restored layout has no room for
+- [x] `(unit)` a parked account is absent from the start order
+- [x] `(unit)` an account whose saved slot the restored layout has no room for
       comes back off-grid, and takes that slot back when a layout that has it is
       chosen
-- [ ] `(unit)` an account added after a restore is minted an identifier distinct
+- [x] `(unit)` an account added after a restore is minted an identifier distinct
       from every restored one
-- [ ] `(unit)` the workspace read off a restored book reproduces the one it was
+- [x] `(unit)` the workspace read off a restored book reproduces the one it was
       restored from, field for field, with a `Starting` or `Queued` account
       reported as running
-- [ ] `(unit)` restoring an empty workspace leaves an empty book, an empty start
+- [x] `(unit)` restoring an empty workspace leaves an empty book, an empty start
       order and the default layout
 
 ## References
