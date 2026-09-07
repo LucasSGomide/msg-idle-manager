@@ -29,6 +29,11 @@ const PAGE_CONSOLE_HANDLER: &str = "pageConsole";
 /// keeps the read infallible so the holder needs no error path for it.
 const PAGE_CONSOLE_JS: &str = include_str!("../resources/js/page-console.js");
 
+/// The frame-callback shim (`FR.6.3`), brought in the same way and for the same
+/// reason as [`PAGE_CONSOLE_JS`]: this is its only caller, it is needed before
+/// any widget exists, and `include_str!` keeps the read infallible.
+const KEEP_AWAKE_JS: &str = include_str!("../resources/js/keep-awake.js");
+
 /// The size an authentication popup opens at before its own page resizes it.
 const POPUP_WIDTH: i32 = 480;
 /// The size an authentication popup opens at before its own page resizes it.
@@ -117,11 +122,16 @@ impl SessionView {
     /// area cannot be remade on the old view (`FR.5.4`, code-standards
     /// rule 18). Applying keep-awake here — not just in
     /// [`SessionView::set_keep_awake`] — is what makes a parked-and-restarted
-    /// account come back with the same switches already off (`FR.6.1`).
+    /// account come back with the same switches already off (`FR.6.1`). The
+    /// content manager is built with the frame-callback shim already in its
+    /// script set when `keep_awake` is on, because the manager is a
+    /// construct-only property of the view (`webkit6` 0.6.1,
+    /// `web_view.rs:163`) and cannot gain a document-start script afterwards
+    /// (`FR.6.3`).
     pub fn start(&mut self) -> &WebView {
         let view = WebView::builder()
             .network_session(&self.network_session)
-            .user_content_manager(&page_console_bridge())
+            .user_content_manager(&build_content_manager(self.keep_awake))
             .build();
 
         configure(&view);
@@ -134,12 +144,11 @@ impl SessionView {
     }
 
     /// Turns keep-awake on or off for this account: flips the two hidden-page
-    /// engine switches on the current view's settings and reloads, since
-    /// there is no API to make a settings change reach a page that has
-    /// already loaded (`FR.6.2`, `webkit6` 0.6.1,
-    /// `src/auto/user_script.rs:22`'s doc explains the same limit for the
-    /// script half of this feature). Returns the reloaded view, or `None`
-    /// while the account is parked.
+    /// engine switches on the current view's settings, rebuilds the script set
+    /// on its content manager to match, and reloads, since there is no API to
+    /// make either change reach a page that has already loaded (`FR.6.2`,
+    /// `FR.6.3`, `webkit6` 0.6.1, `src/auto/user_script.rs:22`). Returns the
+    /// reloaded view, or `None` while the account is parked.
     ///
     /// Remembers `on` regardless of whether a view exists, so a later
     /// [`SessionView::start`] builds its fresh view with the same switches
@@ -149,6 +158,7 @@ impl SessionView {
         let view = self.view.as_ref()?;
 
         apply_keep_awake(view, on, &self.id);
+        rebuild_script_set(view, on);
         view.reload();
 
         Some(view)
@@ -220,16 +230,30 @@ fn configure(view: &WebView) {
     wire_diagnostics(view);
 }
 
-/// A content manager carrying the document-start script that forwards the
-/// page's console output and uncaught errors into `tracing`.
+/// A fresh content manager carrying the page-console bridge, and the
+/// frame-callback shim as well when `keep_awake` is on.
 ///
-/// A page's `console.error` is the page's problem, not the application's, so it
-/// arrives as a `warn`; everything quieter than that arrives below the level
-/// `make dev` asks for, because one Cloudflare challenge frame alone logs
-/// hundreds of lines per load.
-fn page_console_bridge() -> UserContentManager {
+/// The manager is a construct-only property of the view (`webkit6` 0.6.1,
+/// `web_view.rs:163`), so a view that wants the shim from its first load must
+/// be built with it already in the set — there is no way to add a
+/// document-start script to a view afterwards (`FR.6.3`).
+fn build_content_manager(keep_awake: bool) -> UserContentManager {
     let content = UserContentManager::new();
+    register_page_console_handler(&content);
+    install_script_set(&content, keep_awake);
+    content
+}
 
+/// Registers the handler [`PAGE_CONSOLE_JS`] posts to, forwarding the page's
+/// console output and uncaught errors into `tracing`.
+///
+/// A page's `console.error` is the page's problem, not the application's, so
+/// it arrives as a `warn`; everything quieter than that arrives below the
+/// level `make dev` asks for, because one Cloudflare challenge frame alone
+/// logs hundreds of lines per load. Registered once per manager — calling
+/// this again on a manager that already has the handler would only repeat the
+/// warning below for nothing, so [`rebuild_script_set`] never calls it.
+fn register_page_console_handler(content: &UserContentManager) {
     if content.register_script_message_handler(PAGE_CONSOLE_HANDLER, None) {
         content.connect_script_message_received(Some(PAGE_CONSOLE_HANDLER), |_, message| {
             let field = |name: &str| {
@@ -252,7 +276,18 @@ fn page_console_bridge() -> UserContentManager {
             "the page console bridge could not be registered; page errors will not be traced"
         );
     }
+}
 
+/// Adds the manager's document-start scripts: the page-console bridge always,
+/// and [`KEEP_AWAKE_JS`] as well when `keep_awake` is on.
+///
+/// Split out of [`build_content_manager`] so [`rebuild_script_set`] can call
+/// it again on a manager that already exists, after
+/// [`UserContentManager::remove_all_scripts`] has cleared it — that call
+/// clears every script the manager holds, the bridge included, so turning
+/// keep-awake off has to put the bridge back rather than leaving the page's
+/// console silently unforwarded (code standards rule 18).
+fn install_script_set(content: &UserContentManager, keep_awake: bool) {
     content.add_script(&UserScript::new(
         PAGE_CONSOLE_JS,
         UserContentInjectedFrames::AllFrames,
@@ -260,7 +295,37 @@ fn page_console_bridge() -> UserContentManager {
         &[],
         &[],
     ));
-    content
+
+    if keep_awake {
+        content.add_script(&UserScript::new(
+            KEEP_AWAKE_JS,
+            UserContentInjectedFrames::AllFrames,
+            UserScriptInjectionTime::Start,
+            &[],
+            &[],
+        ));
+    }
+}
+
+/// Replaces `view`'s script set to match `keep_awake`, ready for the reload
+/// [`SessionView::set_keep_awake`] performs next.
+///
+/// `remove_all_scripts` is the only call available and it clears everything
+/// on the manager, the page-console bridge included, so every call here
+/// rebuilds the full set from scratch rather than only adding or removing the
+/// shim — that is what keeps the bridge alive across a keep-awake toggle. The
+/// message handler itself is untouched: it was registered once when the view
+/// was built and `remove_all_scripts` does not reach it.
+fn rebuild_script_set(view: &WebView, keep_awake: bool) {
+    let Some(content) = view.user_content_manager() else {
+        // Every view is built with a manager in `SessionView::start`; reaching
+        // here would mean that construct-only property was somehow absent.
+        tracing::warn!("view has no content manager; keep-awake script not applied");
+        return;
+    };
+
+    content.remove_all_scripts();
+    install_script_set(&content, keep_awake);
 }
 
 /// Logs the load lifecycle, subresource loads, script dialogs, permission

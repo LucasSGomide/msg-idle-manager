@@ -100,13 +100,13 @@ messages into its own logs, so that one has to be put back.
 
 ## Acceptance criteria
 
-- [ ] `(manual)` `keep-awake.js` opens with a comment naming the constraint that
+- [x] `(manual)` `keep-awake.js` opens with a comment naming the constraint that
       forced it — the engine suspends scripted animations for a hidden page with
       no setting to prevent it (code standards rule 18)
-- [ ] `(manual)` the interval and the identifier bookkeeping are named constants,
+- [x] `(manual)` the interval and the identifier bookkeeping are named constants,
       and the interval chosen is recorded in `test-script.md` with what it was
       tried against, since no measurement stands behind it
-- [ ] `(manual)` with keep-awake on, a page loaded into that account reports at
+- [x] `(manual)` with keep-awake on, a page loaded into that account reports at
       document start that its frame-callback function is the replacement, before
       any of the page's own scripts have run
 - [ ] `(manual)` with keep-awake on and the window minimised, a counter driven
@@ -115,16 +115,16 @@ messages into its own logs, so that one has to be put back.
       with a window manager, since the Xvfb display cannot minimise
 - [ ] `(manual)` with keep-awake off, the same counter stops while the window is
       minimised and resumes when it is restored
-- [ ] `(manual)` a frame request cancelled while the page is hidden never fires,
+- [x] `(manual)` a frame request cancelled while the page is hidden never fires,
       and one requested while hidden and still pending when the page becomes
       visible fires exactly once
-- [ ] `(manual)` turning keep-awake off removes the shim and leaves the
+- [x] `(manual)` turning keep-awake off removes the shim and leaves the
       page-console bridge working — the page's own console output still reaches
       `tracing`
-- [ ] `(manual)` at least one real idle game is loaded with the shim in place and
+- [x] `(manual)` at least one real idle game is loaded with the shim in place and
       either plays normally or is recorded in `test-script.md` as rejecting the
       patched frame callback
-- [ ] `(manual)` nothing new is drawn: the menu item's check, the `Starting`
+- [x] `(manual)` nothing new is drawn: the menu item's check, the `Starting`
       marker during the reload and the row's insensitive action button render
       exactly as the previous slice left them
 
