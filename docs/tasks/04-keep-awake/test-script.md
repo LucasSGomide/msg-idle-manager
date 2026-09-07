@@ -66,7 +66,7 @@
 - [x] Click `Park` on "Main" — the row reads `Parked` with the unlit grey dot and a `Start` button, and the diamond is still shown beside the dimmed name.
 - [x] Add an account at the hanging address `http://10.255.255.1/` and turn its keep-awake on — the row holds at `Starting` with the blue glowing dot and an insensitive `Start`, with the diamond shown throughout.
 - [x] Switch the layout to "2" and turn keep-awake on for the account sitting `Visible` (in-slot, not focused) — its plain green dot and the diamond read distinctly from the focused row's glowing dot.
-- [ ] With four rows on screen across different states, one of them keep-awake on and one named with 70 characters, read the sidebar at its `240px` width — the long name ellipsises, every trailing element stays un-clipped, and a short name like "Main" renders in full rather than collapsing to an ellipsis. **Not re-run at the final width:** the width was raised from 220 to 240 to fix exactly that collapse, and the run that would have confirmed it was cut short. Confirm by eye on the next real run.
+- [x] With rows on screen across different states, one of them keep-awake on, read the sidebar at its `240px` width — a short account name renders in full alongside its state word, dot, keep-awake diamond, `Park` button and `⋮` menu, and a long name ellipsises without pushing any of them off. Confirmed by eye on a real desktop after the width was raised from 220, which had collapsed even a four-letter name to a bare ellipsis.
 
 ## Teardown
 
