@@ -278,6 +278,10 @@ impl Window {
 
         *self.book.borrow_mut() = SessionBook::restore(workspace);
 
+        // Each dormant holder opens at the size resolved for the arrangement
+        // being restored, not the game-file baseline (`FR.12.2`): a switch
+        // later re-resolves, but the first draw is already right.
+        let layout = self.book.borrow().layout();
         let accounts: Vec<(SessionId, String, String, ZoomLevel, Option<String>)> = self
             .book
             .borrow()
@@ -288,7 +292,7 @@ impl Window {
                     session.id().clone(),
                     session.display_name().to_owned(),
                     session.start_address().to_owned(),
-                    session.zoom(),
+                    session.zoom_for(layout),
                     session.browser_identity().map(str::to_owned),
                 )
             })
@@ -410,13 +414,14 @@ impl Window {
             return;
         };
 
+        let layout = self.book.borrow().layout();
         let Some((name, address, zoom, identity)) =
             self.book.borrow().sessions().iter().find_map(|session| {
                 (session.id() == id).then(|| {
                     (
                         session.display_name().to_owned(),
                         session.start_address().to_owned(),
-                        session.zoom(),
+                        session.zoom_for(layout),
                         session.browser_identity().map(str::to_owned),
                     )
                 })

@@ -7,7 +7,7 @@ use std::collections::HashMap;
 use crate::session::{SessionId, Visibility};
 
 /// One of the three ways the window divides itself between sessions.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
 pub enum Layout {
     /// One session fills the window.
     #[default]

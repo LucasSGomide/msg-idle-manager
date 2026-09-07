@@ -70,7 +70,7 @@ failure are shown inside a chooser without a modal of their own.
 |---|---|---|---|---|
 | [05](05-memory-accounting/README.md) | Memory accounting | 5 | 02, 03 | not-started |
 | [08](08-crash-recovery/README.md) | Surviving a crashed game | 5 | 03 | not-started |
-| [09](09-interactive-zoom/README.md) | Interactive zoom, remembered per arrangement | 5 | 03, 06 | not-started |
+| [09](09-interactive-zoom/README.md) | Interactive zoom, remembered per arrangement | 5 | 03, 06 | in-progress |
 
 ## Blocked
 

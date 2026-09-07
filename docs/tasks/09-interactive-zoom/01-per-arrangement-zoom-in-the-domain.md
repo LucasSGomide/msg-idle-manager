@@ -74,21 +74,21 @@ also how this slice's own tests put a chosen size in place to check the rule.
 
 ## Acceptance criteria
 
-- [ ] `(unit)` `stepped_in` returns a level the step factor larger and
+- [x] `(unit)` `stepped_in` returns a level the step factor larger and
       `stepped_out` one the same factor smaller
-- [ ] `(unit)` a step in from `MAX` returns `MAX` and a step out from `MIN`
+- [x] `(unit)` a step in from `MAX` returns `MAX` and a step out from `MIN`
       returns `MIN`, neither of them erroring
-- [ ] `(unit)` `ZoomLevel::new` still rejects a multiplier outside
+- [x] `(unit)` `ZoomLevel::new` still rejects a multiplier outside
       `MIN..=MAX` and a non-finite one
-- [ ] `(unit)` `zoom_for` returns the baseline for a layout with no remembered
+- [x] `(unit)` `zoom_for` returns the baseline for a layout with no remembered
       size
-- [ ] `(unit)` `zoom_for` returns the remembered size for the one layout that has
+- [x] `(unit)` `zoom_for` returns the remembered size for the one layout that has
       one and the baseline for the other two
-- [ ] `(unit)` `preset_zoom` still answers the game file's value after a
+- [x] `(unit)` `preset_zoom` still answers the game file's value after a
       remembered size has been installed over it
-- [ ] `(unit)` `restore_zoom` installs a whole remembered map onto the named
+- [x] `(unit)` `restore_zoom` installs a whole remembered map onto the named
       account, and changes nothing for an id the book does not hold
-- [ ] `(unit)` the workspace an account produces still carries its baseline zoom,
+- [x] `(unit)` the workspace an account produces still carries its baseline zoom,
       so the split changes nothing a saved arrangement holds
 
 ## References

@@ -73,6 +73,59 @@ pub enum Liveness {
     Queued,
 }
 
+/// The sizes an account's owner has actually chosen, at most one per
+/// arrangement, holding nothing for an arrangement never adjusted.
+///
+/// A named type rather than a bare `HashMap` so the [`crate::ZoomMemory`] port
+/// can say what it carries (naming rules 6, 9). Empty is the normal state of a
+/// fresh account, whose size follows its preset baseline (`FR.12.1`).
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct RememberedZoom(HashMap<Layout, ZoomLevel>);
+
+impl RememberedZoom {
+    /// A set with nothing chosen for any arrangement.
+    #[must_use]
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// The chosen size for `layout`, or `None` when its owner has never changed
+    /// the size in that arrangement.
+    #[must_use]
+    pub fn get(&self, layout: Layout) -> Option<ZoomLevel> {
+        self.0.get(&layout).copied()
+    }
+
+    /// Records `zoom` as the chosen size for `layout`, replacing any earlier
+    /// choice for it.
+    pub fn set(&mut self, layout: Layout, zoom: ZoomLevel) {
+        self.0.insert(layout, zoom);
+    }
+
+    /// Drops the chosen size for `layout`; a no-op when none was chosen.
+    pub fn clear(&mut self, layout: Layout) {
+        self.0.remove(&layout);
+    }
+
+    /// Whether no size has been chosen for any arrangement.
+    #[must_use]
+    pub fn is_empty(&self) -> bool {
+        self.0.is_empty()
+    }
+
+    /// Each chosen `(arrangement, size)` pair, in no particular order — for an
+    /// adapter writing the set to disk.
+    pub fn entries(&self) -> impl Iterator<Item = (Layout, ZoomLevel)> + '_ {
+        self.0.iter().map(|(layout, zoom)| (*layout, *zoom))
+    }
+}
+
+impl FromIterator<(Layout, ZoomLevel)> for RememberedZoom {
+    fn from_iter<I: IntoIterator<Item = (Layout, ZoomLevel)>>(iter: I) -> Self {
+        Self(iter.into_iter().collect())
+    }
+}
+
 /// One game account: its minted identity, the name and start address it was
 /// created with, where it currently sits, and the view settings it carries from
 /// its preset.
@@ -85,7 +138,12 @@ pub struct Session {
     liveness: Liveness,
     is_kept_awake: bool,
     browser_identity: Option<String>,
-    zoom: ZoomLevel,
+    /// The size the game's file asked for, copied at creation and never changed
+    /// by a gesture — the baseline `Ctrl`+`0` returns to (`FR.11.2`).
+    preset_zoom: ZoomLevel,
+    /// The sizes the owner has chosen since, at most one per arrangement.
+    /// Empty until a gesture records one (`FR.12.1`).
+    remembered_zoom: RememberedZoom,
 }
 
 impl Session {
@@ -134,11 +192,21 @@ impl Session {
         self.browser_identity.as_deref()
     }
 
-    /// How large this account's page should be drawn. Copied from the preset at
-    /// creation; a typed-address account carries [`ZoomLevel::DEFAULT`].
+    /// The size the game's file asked for, copied at creation and never changed
+    /// by a gesture. A typed-address account carries [`ZoomLevel::DEFAULT`].
+    /// This is the baseline, not necessarily the size drawn now — for that ask
+    /// [`Session::zoom_for`].
     #[must_use]
-    pub fn zoom(&self) -> ZoomLevel {
-        self.zoom
+    pub fn preset_zoom(&self) -> ZoomLevel {
+        self.preset_zoom
+    }
+
+    /// The size to draw this account's page at in `layout`: the size its owner
+    /// chose for that arrangement if there is one, the baseline otherwise. The
+    /// whole resolution rule, in one place (`FR.12.1`).
+    #[must_use]
+    pub fn zoom_for(&self, layout: Layout) -> ZoomLevel {
+        self.remembered_zoom.get(layout).unwrap_or(self.preset_zoom)
     }
 }
 
@@ -221,7 +289,8 @@ impl SessionBook {
                 start_address: account.start_address,
                 is_kept_awake: account.is_kept_awake,
                 browser_identity: account.browser_identity,
-                zoom: account.zoom,
+                preset_zoom: account.zoom,
+                remembered_zoom: RememberedZoom::new(),
             })
             .collect();
 
@@ -265,7 +334,7 @@ impl SessionBook {
                 remembered_slot: self.remembered.get(&session.id).copied(),
                 is_kept_awake: session.is_kept_awake,
                 browser_identity: session.browser_identity.clone(),
-                zoom: session.zoom,
+                zoom: session.preset_zoom,
             })
             .collect();
 
@@ -329,7 +398,8 @@ impl SessionBook {
             liveness: Liveness::Live,
             is_kept_awake: false,
             browser_identity: None,
-            zoom: ZoomLevel::DEFAULT,
+            preset_zoom: ZoomLevel::DEFAULT,
+            remembered_zoom: RememberedZoom::new(),
         });
 
         id
@@ -359,7 +429,8 @@ impl SessionBook {
             liveness: Liveness::Live,
             is_kept_awake: false,
             browser_identity: preset.browser_identity.clone(),
-            zoom: preset.zoom,
+            preset_zoom: preset.zoom,
+            remembered_zoom: RememberedZoom::new(),
         });
 
         self.set_keep_awake(&id, preset.keep_awake_default);
@@ -466,6 +537,15 @@ impl SessionBook {
         }
 
         true
+    }
+
+    /// Installs a whole set of remembered sizes onto `account`, replacing
+    /// whatever it held, for the one caller that has just read one off disk.
+    /// An id the book does not hold changes nothing (`FR.12.8`).
+    pub fn restore_zoom(&mut self, account: &SessionId, remembered: RememberedZoom) {
+        if let Some(session) = self.sessions.iter_mut().find(|s| &s.id == account) {
+            session.remembered_zoom = remembered;
+        }
     }
 
     fn liveness_of(&self, session: &SessionId) -> Option<Liveness> {
@@ -1090,7 +1170,7 @@ mod tests {
         assert_eq!(
             (
                 account.start_address(),
-                account.zoom(),
+                account.preset_zoom(),
                 account.browser_identity(),
             ),
             (
@@ -1188,7 +1268,7 @@ mod tests {
 
         let account = session(&book, &id);
         assert_eq!(
-            (account.browser_identity(), account.zoom()),
+            (account.browser_identity(), account.preset_zoom()),
             (None, ZoomLevel::DEFAULT),
         );
     }
@@ -1240,7 +1320,7 @@ mod tests {
                     .map(Session::display_name)
                     .collect::<Vec<_>>(),
                 first.start_address(),
-                first.zoom(),
+                first.preset_zoom(),
                 first.browser_identity(),
                 first.is_kept_awake(),
                 book.layout(),
@@ -1421,6 +1501,110 @@ mod tests {
         let saved = book.workspace();
 
         assert_eq!(saved.accounts[0].liveness, SavedLiveness::Running);
+    }
+
+    fn accepted(multiplier: f64) -> ZoomLevel {
+        ZoomLevel::new(multiplier).expect("an accepted multiplier")
+    }
+
+    #[test]
+    fn zoom_for_returns_the_baseline_for_a_layout_with_no_remembered_size() {
+        let mut book = SessionBook::new();
+        let id = book.add("One", "https://example.test/one");
+
+        assert_eq!(
+            session(&book, &id).zoom_for(Layout::Single),
+            ZoomLevel::DEFAULT
+        );
+    }
+
+    #[test]
+    fn zoom_for_returns_the_remembered_size_for_the_one_layout_that_has_one() {
+        let mut book = SessionBook::new();
+        let id = book.add("One", "https://example.test/one");
+        book.restore_zoom(&id, [(Layout::Grid, accepted(1.5))].into_iter().collect());
+
+        let session = session(&book, &id);
+
+        assert_eq!(
+            (
+                session.zoom_for(Layout::Grid),
+                session.zoom_for(Layout::Single),
+                session.zoom_for(Layout::SideBySide),
+            ),
+            (accepted(1.5), ZoomLevel::DEFAULT, ZoomLevel::DEFAULT),
+        );
+    }
+
+    #[test]
+    fn preset_zoom_still_answers_the_game_files_value_after_a_remembered_size_is_installed() {
+        let mut book = SessionBook::new();
+        let id = book.add_from_preset(
+            "Alt",
+            &Preset {
+                zoom: accepted(0.8),
+                ..a_preset()
+            },
+        );
+        book.restore_zoom(&id, [(Layout::Single, accepted(2.0))].into_iter().collect());
+
+        assert_eq!(session(&book, &id).preset_zoom(), accepted(0.8));
+    }
+
+    #[test]
+    fn restore_zoom_installs_a_whole_remembered_map_onto_the_named_account() {
+        let mut book = SessionBook::new();
+        let id = book.add("One", "https://example.test/one");
+
+        book.restore_zoom(
+            &id,
+            [
+                (Layout::Single, accepted(0.5)),
+                (Layout::Grid, accepted(2.0)),
+            ]
+            .into_iter()
+            .collect(),
+        );
+
+        let session = session(&book, &id);
+        assert_eq!(
+            (
+                session.zoom_for(Layout::Single),
+                session.zoom_for(Layout::Grid),
+            ),
+            (accepted(0.5), accepted(2.0)),
+        );
+    }
+
+    #[test]
+    fn restore_zoom_changes_nothing_for_an_id_the_book_does_not_hold() {
+        let mut book = SessionBook::new();
+        let id = book.add("One", "https://example.test/one");
+
+        book.restore_zoom(
+            &SessionId::new("session-9999"),
+            [(Layout::Grid, accepted(2.0))].into_iter().collect(),
+        );
+
+        assert_eq!(
+            session(&book, &id).zoom_for(Layout::Grid),
+            ZoomLevel::DEFAULT
+        );
+    }
+
+    #[test]
+    fn the_workspace_an_account_produces_still_carries_its_baseline_zoom() {
+        let mut book = SessionBook::new();
+        let id = book.add_from_preset(
+            "Alt",
+            &Preset {
+                zoom: accepted(1.2),
+                ..a_preset()
+            },
+        );
+        book.restore_zoom(&id, [(Layout::Single, accepted(3.0))].into_iter().collect());
+
+        assert_eq!(book.workspace().accounts[0].zoom, accepted(1.2));
     }
 
     #[test]
