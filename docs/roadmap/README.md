@@ -19,7 +19,7 @@ permanent ID, never renumbered**. Ordering lives in this table only.
 - The prose above the table is hand-written and says **why** the next item is
   next. The table sorts by estimate; that sort is not a priority.
 
-Items 01 to 04, 06 and 07 are done. They built the base every other item assumes — a
+Items 01 to 04, 06, 07 and 09 are done. They built the base every other item assumes — a
 session with its own storage on disk, a way to create one, the grid that holds
 views out of sight, and the sidebar index of every account — plus the two
 controls over what an account costs (parking, which hands memory back and takes
@@ -43,10 +43,11 @@ guess with no measurement behind it, and a per-account readout is what would sho
 what it costs to run. Item 08 then adds recovery from a crash nobody was awake to
 see, building on the durable workspace 07 just landed.
 
-Item 09 is ready but is not next. It makes the window comfortable to read rather
-than making it work. It is the first item to write anything on an account's
-behalf — a per-account state file whose one weakness, an identifier reused across
-a relaunch, is exactly the wart item 07 removed, so 09 can now be met without it.
+Item 09 shipped the first file the application writes on an account's behalf — a
+per-account `state.toml` holding the zoom chosen per arrangement — and with it
+`Ctrl` +/-/0 and `Ctrl`+wheel resizing the focused game in place. It also set
+the shape design rule 10 now names for any transient acknowledgement over live
+content.
 
 The `### Back-end` and `### Front-end` headings inside each item map onto this
 repository's crates rather than onto a server and a browser: back-end means the
