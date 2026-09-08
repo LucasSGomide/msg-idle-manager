@@ -123,25 +123,25 @@ later slice; here the sizes live only as long as the window does.
 
 ## Acceptance criteria
 
-- [ ] `(manual)` control and plus grows the focused place's game in place and a
+- [x] `(manual)` control and plus grows the focused place's game in place and a
       percentage figure appears over that place reading the new size
-- [ ] `(manual)` control and equals, and the keypad add key, produce the same
+- [x] `(manual)` control and equals, and the keypad add key, produce the same
       step on the keyboard under test
-- [ ] `(manual)` control and minus shrinks the same game by the same step
-- [ ] `(manual)` control and zero returns the game to the size its game file asks
+- [x] `(manual)` control and minus shrinks the same game by the same step
+- [x] `(manual)` control and zero returns the game to the size its game file asks
       for, and the figure reads that percentage
-- [ ] `(manual)` no gesture reloads the page: a running game keeps its counter
+- [x] `(manual)` no gesture reloads the page: a running game keeps its counter
       and its login across a run of steps, and its sidebar row never reads
       starting
-- [ ] `(manual)` at the largest and the smallest size the application allows, a
+- [x] `(manual)` at the largest and the smallest size the application allows, a
       further step in the same direction leaves the page unchanged and still
       shows the figure
-- [ ] `(manual)` with a parked account in the focused place the figure appears
+- [x] `(manual)` with a parked account in the focused place the figure appears
       over the parked panel, the panel keeps its three elements, and starting the
       account opens it at the size chosen while it was parked
-- [ ] `(manual)` with an empty grid the keys do nothing and no figure appears
+- [x] `(manual)` with an empty grid the keys do nothing and no figure appears
       anywhere
-- [ ] `(manual)` a run of steps shows one figure that keeps updating rather than
+- [x] `(manual)` a run of steps shows one figure that keeps updating rather than
       a queue of them, and it fades about a second after the last step
 - [x] `(unit)` `session-grid.css` is readable from the compiled resource bundle,
       as the window and placeholder templates are

@@ -123,27 +123,27 @@ it was recorded against.
 
 ## Acceptance criteria
 
-- [ ] `(manual)` control and one wheel notch up over the focused game grows it
+- [x] `(manual)` control and one wheel notch up over the focused game grows it
       one step, and one notch down shrinks it one step
-- [ ] `(manual)` the percentage figure appears over the place the pointer is on
-- [ ] `(manual)` the page underneath does not scroll while control is held, on a
+- [x] `(manual)` the percentage figure appears over the place the pointer is on
+- [x] `(manual)` the page underneath does not scroll while control is held, on a
       game page long enough to scroll
-- [ ] `(manual)` the wheel without control scrolls the page exactly as it did
+- [x] `(manual)` the wheel without control scrolls the page exactly as it did
       before this slice
-- [ ] `(manual)` one notch is exactly one step on every pointing device to hand —
+- [x] `(manual)` one notch is exactly one step on every pointing device to hand —
       the figure reads the same percentage after one notch as after one keypress,
       and a high-resolution wheel or a touchpad does not take two or three steps
       for one notch
-- [ ] `(manual)` with the pointer over a place that is not the focused one,
+- [x] `(manual)` with the pointer over a place that is not the focused one,
       nothing changes size and no figure appears; clicking that place first and
       repeating the gesture then steps it
-- [ ] `(manual)` parking an account and starting it again leaves the wheel
+- [x] `(manual)` parking an account and starting it again leaves the wheel
       gesture still working over that place
-- [ ] `(manual)` at the largest and smallest size the application allows, a
+- [x] `(manual)` at the largest and smallest size the application allows, a
       further notch leaves the page unchanged and still shows the figure
-- [ ] `(manual)` a notch over a focused parked account's panel changes its
+- [x] `(manual)` a notch over a focused parked account's panel changes its
       remembered size and shows the figure, and the account starts at that size
-- [ ] `(manual)` an account with no place on screen is reachable by no wheel
+- [x] `(manual)` an account with no place on screen is reachable by no wheel
       gesture anywhere in the window, and comes into a place at the size it
       already had
 

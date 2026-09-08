@@ -91,22 +91,22 @@ is a small annoyance and refusing to run is not.
 
 ## Acceptance criteria
 
-- [ ] `(manual)` a run of twenty wheel notches over one account leaves exactly
+- [x] `(manual)` a run of twenty wheel notches over one account leaves exactly
       one `state.toml` for it, holding the settled size and no intermediate value
-- [ ] `(manual)` control and zero removes that arrangement's entry from the file
+- [x] `(manual)` control and zero removes that arrangement's entry from the file
       and leaves the other arrangements' entries in place
-- [ ] `(manual)` switching arrangement, parking an account, clicking a different
+- [x] `(manual)` switching arrangement, parking an account, clicking a different
       place and closing the window all leave `state.toml` byte-for-byte unchanged
-- [ ] `(manual)` closing and reopening the application brings every account back
+- [x] `(manual)` closing and reopening the application brings every account back
       at the size chosen for the arrangement that is restored
-- [ ] `(manual)` a parked account started again after a relaunch opens at its
+- [x] `(manual)` a parked account started again after a relaunch opens at its
       chosen size for the arrangement in force
-- [ ] `(manual)` an account with no `state.toml` opens at the size its game file
+- [x] `(manual)` an account with no `state.toml` opens at the size its game file
       asks for, and the launch logs no failure
-- [ ] `(manual)` a `state.toml` holding one out-of-range value opens that
+- [x] `(manual)` a `state.toml` holding one out-of-range value opens that
       arrangement at the game file's size, keeps the other arrangements' values,
       and logs a warning naming the dropped key
-- [ ] `(manual)` with the account's profile root made read-only, the gesture
+- [x] `(manual)` with the account's profile root made read-only, the gesture
       still resizes the page and shows the figure, the window carries on, and the
       failed write appears in the log with the account id and a reason
 

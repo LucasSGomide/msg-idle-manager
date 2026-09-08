@@ -80,19 +80,19 @@ never records one; making them survive a restart is the next and last slice.
 
 ## Acceptance criteria
 
-- [ ] `(manual)` set one size in the four-place arrangement and a different one
+- [x] `(manual)` set one size in the four-place arrangement and a different one
       in the single arrangement, then switch back and forth: each arrangement
       returns every game to its own size
-- [ ] `(manual)` no percentage figure appears over any place on an arrangement
+- [x] `(manual)` no percentage figure appears over any place on an arrangement
       switch
-- [ ] `(manual)` an account with nothing chosen for the arrangement being
+- [x] `(manual)` an account with nothing chosen for the arrangement being
       switched to is drawn at the size its game file asks for
-- [ ] `(manual)` an account off the grid during a switch is already at the right
+- [x] `(manual)` an account off the grid during a switch is already at the right
       size the moment it is brought into a place, with no visible correction and
       no figure
-- [ ] `(manual)` a parked account carried through a switch starts at the size
+- [x] `(manual)` a parked account carried through a switch starts at the size
       chosen for the arrangement now in force
-- [ ] `(manual)` no game reloads across a switch: a running counter and a login
+- [x] `(manual)` no game reloads across a switch: a running counter and a login
       both survive, and no row passes through starting
 
 ## References
