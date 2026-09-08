@@ -1,0 +1,13 @@
+/* The transient zoom readout (item 09's new pattern): a short percentage
+ * figure drawn over a place on a gesture and faded on a timer, never a
+ * permanent fixture. It sits low in the place and centred horizontally
+ * (session_grid/imp.rs build_readout) so it never covers what the reader is
+ * adjusting. On its own opaque ground so it stays legible over any game. */
+
+.zoom-readout {
+  padding: 4px 10px;
+  border-radius: 6px;
+  background-color: alpha(#000000, 0.72);
+  color: #ffffff;
+  font-weight: bold;
+}

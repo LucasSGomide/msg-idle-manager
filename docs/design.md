@@ -137,3 +137,22 @@ citations, so append rather than reorder.
    **one reusable widget** — `message_strip.rs` with `message-strip.ui` — set to
    a message and shown, or cleared, by whatever raises it; the launch failure
    and the mid-session failure must not drift into two shapes.
+
+10. **Acknowledge a direct gesture with a transient figure drawn over the place
+    it affected — low in the place, centred, on its own opaque ground — that
+    fades on a timer and leaves nothing behind; never draw one for a change the
+    user did not directly ask for.** Item 09's zoom gesture needs to be *seen*
+    even when it changes nothing visible: a step at the size limit, a step over
+    a parked account with no page to resize, a run of steps that would otherwise
+    look like one. So each gesture flashes the resulting percentage over that
+    place (`session_grid/imp.rs` `build_readout`), about a second
+    (`ZOOM_READOUT_FADE_MILLIS`), one figure that keeps updating rather than a
+    queue — the timer is cancelled and rearmed on every gesture. It sits low and
+    centred so it never covers what the reader is adjusting, and it is an
+    overlay so it costs no layout (rule 6). It is **never a permanent fixture**:
+    the size itself lives in the sidebar dot's vocabulary and the page, not in a
+    figure that stays. And it is **only for something the user did** — an
+    arrangement switch redraws every game at its remembered size and shows no
+    figure over any of them, because the arrangement asked for that change, not
+    the person. A future acknowledgement of a different direct gesture uses this
+    same shape rather than inventing a second.

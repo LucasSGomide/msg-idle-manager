@@ -77,6 +77,13 @@ impl SessionGrid {
         self.imp().attach_view(session, view);
     }
 
+    /// Shows `figure` as the transient readout over `session`'s place, updating
+    /// whatever is already there and rearming its fade timer. A no-op if the
+    /// grid has no place for `session` (`FR.11.6`).
+    pub fn flash_zoom_readout(&self, session: &SessionId, figure: &str) {
+        self.imp().flash_zoom_readout(session, figure);
+    }
+
     /// Registers `handler` to run with an account's id when that account's slot
     /// placeholder button is pressed — the same start intent the sidebar row's
     /// button sends. Replaces any previous handler.
@@ -89,6 +96,13 @@ impl SessionGrid {
     /// Registers `handler` to run whenever the user clicks a slot to focus it.
     pub fn connect_slot_focused(&self, handler: impl Fn(SlotId) + 'static) {
         self.imp().on_slot_focused.replace(Some(Box::new(handler)));
+    }
+
+    /// Registers `handler` to run with an account's id and the wheel's vertical
+    /// delta when `Ctrl` and the wheel turn over that account's place. Replaces
+    /// any previous handler (`FR.11.3`).
+    pub fn connect_zoom_scrolled(&self, handler: impl Fn(SessionId, f64) + 'static) {
+        self.imp().on_zoom_scrolled.replace(Some(Box::new(handler)));
     }
 }
 

@@ -78,7 +78,33 @@ impl ZoomLevel {
     pub fn multiplier(self) -> f64 {
         self.0
     }
+
+    /// This level one step larger — the multiplier times [`STEP_FACTOR_RATIO`]
+    /// — never above [`ZoomLevel::MAX`].
+    ///
+    /// A step in from `MAX` returns `MAX` rather than erroring: a person
+    /// pressing a key at the limit should have the gesture received, not
+    /// dropped (`FR.11.4`). That a value arriving from a file is still rejected
+    /// is [`ZoomLevel::new`]'s job, not this one's.
+    #[must_use]
+    pub fn stepped_in(self) -> Self {
+        ZoomLevel((self.0 * STEP_FACTOR_RATIO).min(Self::MAX))
+    }
+
+    /// This level one step smaller — the multiplier divided by
+    /// [`STEP_FACTOR_RATIO`] — never below [`ZoomLevel::MIN`], clamped for the
+    /// same reason as [`ZoomLevel::stepped_in`].
+    #[must_use]
+    pub fn stepped_out(self) -> Self {
+        ZoomLevel((self.0 / STEP_FACTOR_RATIO).max(Self::MIN))
+    }
 }
+
+/// What one zoom step multiplies by: a ratio, applied to the current
+/// multiplier, so a step in is `×1.1` and a step out `÷1.1` — about ±10%
+/// (`FR.11.1`). A ratio rather than a fixed increment keeps a step the same
+/// visual proportion at every size.
+const STEP_FACTOR_RATIO: f64 = 1.1;
 
 impl Default for ZoomLevel {
     fn default() -> Self {
@@ -148,5 +174,43 @@ mod tests {
         let zoom = ZoomLevel::new(0.5).expect("0.5 is an accepted multiplier");
 
         assert!((zoom.multiplier() - 0.5).abs() < f64::EPSILON);
+    }
+
+    #[test]
+    fn stepping_in_returns_a_level_the_step_factor_larger() {
+        let zoom = ZoomLevel::new(1.0).expect("1.0 is an accepted multiplier");
+
+        assert!((zoom.stepped_in().multiplier() - STEP_FACTOR_RATIO).abs() < f64::EPSILON);
+    }
+
+    #[test]
+    fn stepping_out_returns_a_level_the_step_factor_smaller() {
+        let zoom = ZoomLevel::new(1.0).expect("1.0 is an accepted multiplier");
+
+        assert!((zoom.stepped_out().multiplier() - 1.0 / STEP_FACTOR_RATIO).abs() < f64::EPSILON);
+    }
+
+    #[test]
+    fn a_step_in_from_the_maximum_clamps_to_the_maximum_without_erroring() {
+        let zoom = ZoomLevel::new(ZoomLevel::MAX).expect("MAX is an accepted multiplier");
+
+        assert!((zoom.stepped_in().multiplier() - ZoomLevel::MAX).abs() < f64::EPSILON);
+    }
+
+    #[test]
+    fn a_step_out_from_the_minimum_clamps_to_the_minimum_without_erroring() {
+        let zoom = ZoomLevel::new(ZoomLevel::MIN).expect("MIN is an accepted multiplier");
+
+        assert!((zoom.stepped_out().multiplier() - ZoomLevel::MIN).abs() < f64::EPSILON);
+    }
+
+    #[test]
+    fn a_zoom_level_still_rejects_a_multiplier_above_the_range() {
+        assert_eq!(ZoomLevel::new(6.0), Err(InvalidZoom(6.0)));
+    }
+
+    #[test]
+    fn a_zoom_level_still_rejects_a_non_finite_multiplier() {
+        assert!(ZoomLevel::new(f64::INFINITY).is_err());
     }
 }

@@ -15,8 +15,9 @@ mod workspace;
 pub use layout::{Layout, Outcome, Placement, SlotId, arrange};
 pub use ports::{
     PresetCatalogue, PresetCatalogueReading, PresetFailure, ProfileDirectories, ProfileError,
-    ProfileLocator, WorkspaceReadError, WorkspaceStore, WorkspaceWriteError,
+    ProfileLocator, WorkspaceReadError, WorkspaceStore, WorkspaceWriteError, ZoomMemory,
+    ZoomMemoryError,
 };
 pub use preset::{InvalidZoom, Preset, PresetId, ZoomLevel};
-pub use session::{Liveness, Session, SessionBook, SessionId, Visibility};
+pub use session::{Liveness, RememberedZoom, Session, SessionBook, SessionId, Visibility};
 pub use workspace::{Account, SavedLiveness, Workspace};

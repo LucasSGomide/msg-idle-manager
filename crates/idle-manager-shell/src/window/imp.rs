@@ -4,7 +4,7 @@
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::rc::Rc;
-use std::sync::Arc;
+use std::time::Duration;
 
 use gtk::CompositeTemplate;
 use gtk::gdk;
@@ -17,7 +17,7 @@ use webkit6::{LoadEvent, WebView};
 
 use idle_manager_core::{
     Layout, Liveness, Preset, PresetCatalogue, ProfileLocator, Session, SessionBook, SessionId,
-    Workspace, WorkspaceReadError, WorkspaceStore, ZoomLevel,
+    Workspace, WorkspaceReadError, ZoomLevel, ZoomMemory,
 };
 
 use crate::add_game_dialog::{AddGameDialog, Confirmed};
@@ -78,6 +78,13 @@ pub struct Window {
     /// The queue that brings restored accounts up one at a time, alive only
     /// while a restore is draining (task 05).
     start_queue: RefCell<Option<StartQueue>>,
+    /// Reads and stores each account's chosen zoom sizes (item 09 task 07).
+    /// The shell never learns a file is behind it.
+    zoom_memory: RefCell<Option<Rc<dyn ZoomMemory>>>,
+    /// One settle timer per account: a zoom gesture rearms that account's
+    /// timer, and only when the gestures stop does the settled map get written
+    /// once (`FR.12.5`).
+    zoom_save_timers: RefCell<HashMap<SessionId, glib::SourceId>>,
 }
 
 impl std::fmt::Debug for Window {
@@ -165,6 +172,25 @@ impl ObjectImpl for Window {
             }
         });
 
+        // The wheel half of the zoom gesture (task 05): it acts on the account
+        // the pointer is over, and only while that is also the focused place —
+        // the grid gates it, so the click is what arms the wheel. It lands in
+        // the same window method as the keyboard half so the domain is the only
+        // thing that decides what a step means (architecture rule 8). A notch up
+        // (negative delta) is a step in.
+        let window = self.obj().downgrade();
+        self.grid.connect_zoom_scrolled(move |id, delta_y| {
+            let Some(window) = window.upgrade() else {
+                return;
+            };
+            let step = match delta_y.partial_cmp(&0.0) {
+                Some(std::cmp::Ordering::Less) => ZoomStep::In,
+                Some(std::cmp::Ordering::Greater) => ZoomStep::Out,
+                _ => return,
+            };
+            window.imp().apply_zoom_step(&id, step);
+        });
+
         for button in [self.add_game_button.get(), self.add_first_game_button.get()] {
             let window = self.obj().downgrade();
             button.connect_clicked(move |_| {
@@ -185,18 +211,33 @@ impl ObjectImpl for Window {
             }
         });
 
-        let reload_keys = gtk::EventControllerKey::new();
-        reload_keys.set_propagation_phase(gtk::PropagationPhase::Capture);
+        // The zoom gesture (item 09) joins this one controller rather than
+        // adding a second, so one place decides what a keypress means. Capture
+        // phase because `FR.11.1` says neither the reload nor the zoom keys are
+        // gated on a web view holding keyboard focus — a game that binds them
+        // on its own canvas must not swallow them first.
+        let key_controller = gtk::EventControllerKey::new();
+        key_controller.set_propagation_phase(gtk::PropagationPhase::Capture);
         let grid = self.grid.clone();
-        reload_keys.connect_key_pressed(move |_, key, _, modifiers| {
-            let ctrl_r = key == gdk::Key::r && modifiers.contains(gdk::ModifierType::CONTROL_MASK);
-            if key == gdk::Key::F5 || ctrl_r {
+        let window = self.obj().downgrade();
+        key_controller.connect_key_pressed(move |_, key, _, modifiers| {
+            let ctrl = modifiers.contains(gdk::ModifierType::CONTROL_MASK);
+
+            if key == gdk::Key::F5 || (ctrl && key == gdk::Key::r) {
                 grid.reload_focused();
                 return glib::Propagation::Stop;
             }
+
+            if ctrl && let Some(step) = zoom_step_for(key) {
+                if let Some(window) = window.upgrade() {
+                    window.imp().zoom_focused_account(step);
+                }
+                return glib::Propagation::Stop;
+            }
+
             glib::Propagation::Proceed
         });
-        self.obj().add_controller(reload_keys);
+        self.obj().add_controller(key_controller);
 
         self.connect_layout_toggle(&self.layout_single, Layout::Single);
         self.connect_layout_toggle(&self.layout_side_by_side, Layout::SideBySide);
@@ -226,15 +267,14 @@ impl ApplicationWindowImpl for Window {}
 impl Window {
     pub(super) fn attach_ports(
         &self,
-        locator: Rc<dyn ProfileLocator>,
-        catalogue: Rc<dyn PresetCatalogue>,
-        store: Arc<dyn WorkspaceStore>,
+        ports: super::WindowPorts,
         read_outcome: Result<Option<Workspace>, WorkspaceReadError>,
     ) {
-        self.locator.replace(Some(locator));
-        self.catalogue.replace(Some(catalogue));
+        self.locator.replace(Some(ports.locator));
+        self.catalogue.replace(Some(ports.catalogue));
+        self.zoom_memory.replace(Some(ports.zoom_memory));
         self.saver
-            .replace(Some(Saver::new(store, self.message_strip.clone())));
+            .replace(Some(Saver::new(ports.store, self.message_strip.clone())));
         self.apply_read_outcome(read_outcome);
     }
 
@@ -278,6 +318,27 @@ impl Window {
 
         *self.book.borrow_mut() = SessionBook::restore(workspace);
 
+        // Install every account's chosen sizes onto the book before any holder
+        // is built, so a relaunched account is right before it is ever drawn
+        // and the start queue does not have to correct it (`FR.12.7`).
+        if let Some(memory) = self.zoom_memory.borrow().clone() {
+            let ids: Vec<SessionId> = self
+                .book
+                .borrow()
+                .sessions()
+                .iter()
+                .map(|session| session.id().clone())
+                .collect();
+            for id in ids {
+                let remembered = memory.read(&id);
+                self.book.borrow_mut().restore_zoom(&id, remembered);
+            }
+        }
+
+        // Each dormant holder opens at the size resolved for the arrangement
+        // being restored, not the game-file baseline (`FR.12.2`): a switch
+        // later re-resolves, but the first draw is already right.
+        let layout = self.book.borrow().layout();
         let accounts: Vec<(SessionId, String, String, ZoomLevel, Option<String>)> = self
             .book
             .borrow()
@@ -288,7 +349,7 @@ impl Window {
                     session.id().clone(),
                     session.display_name().to_owned(),
                     session.start_address().to_owned(),
-                    session.zoom(),
+                    session.zoom_for(layout),
                     session.browser_identity().map(str::to_owned),
                 )
             })
@@ -351,9 +412,36 @@ impl Window {
                 let imp = window.imp();
                 imp.book.borrow_mut().set_layout(layout);
                 imp.redraw();
+                imp.snap_all_zoom();
                 imp.request_save();
             }
         });
+    }
+
+    /// After an arrangement switch, redraw every account at the size it last
+    /// chose for the arrangement now in force, falling back to the game file's
+    /// size. No readout is shown — nobody asked for a size change, the
+    /// arrangement did (`FR.11.6`). Every account with a holder, not only the
+    /// visible ones: an off-grid or parked account is then already the right
+    /// size the moment it is next brought into a place, with no second code
+    /// path and no visible correction (`FR.11.7`). Nothing is written — a
+    /// switch consumes chosen sizes and never records one (`FR.12.4`).
+    fn snap_all_zoom(&self) {
+        let layout = self.book.borrow().layout();
+        let resolved: Vec<(SessionId, ZoomLevel)> = self
+            .book
+            .borrow()
+            .sessions()
+            .iter()
+            .map(|session| (session.id().clone(), session.zoom_for(layout)))
+            .collect();
+
+        let mut holders = self.holders.borrow_mut();
+        for (id, zoom) in resolved {
+            if let Some(holder) = holders.get_mut(&id) {
+                holder.set_zoom(zoom);
+            }
+        }
     }
 
     fn present_add_game_dialog(&self) {
@@ -410,13 +498,23 @@ impl Window {
             return;
         };
 
+        // Install the account's chosen sizes onto the book before resolving the
+        // size to open at, so the page is never drawn at the baseline and then
+        // jumps to the remembered size (`FR.12.7`). A fresh account has no
+        // stored sizes and reads back an empty map.
+        if let Some(memory) = self.zoom_memory.borrow().clone() {
+            let remembered = memory.read(id);
+            self.book.borrow_mut().restore_zoom(id, remembered);
+        }
+
+        let layout = self.book.borrow().layout();
         let Some((name, address, zoom, identity)) =
             self.book.borrow().sessions().iter().find_map(|session| {
                 (session.id() == id).then(|| {
                     (
                         session.display_name().to_owned(),
                         session.start_address().to_owned(),
-                        session.zoom(),
+                        session.zoom_for(layout),
                         session.browser_identity().map(str::to_owned),
                     )
                 })
@@ -608,6 +706,93 @@ impl Window {
         });
     }
 
+    /// A window-level zoom gesture from the keyboard: step the account in the
+    /// focused slot and show the figure over that place. A no-op when the grid
+    /// is empty or the focused slot holds nothing — the book returns `None` and
+    /// nothing is drawn (`FR.11.7`, item 09 wireframe).
+    fn zoom_focused_account(&self, step: ZoomStep) {
+        let Some(id) = self
+            .book
+            .borrow()
+            .focused_session()
+            .map(|session| session.id().clone())
+        else {
+            return;
+        };
+        self.apply_zoom_step(&id, step);
+    }
+
+    /// Applies `step` to `id`: the book decides what a step means and records it
+    /// against the current arrangement (architecture rule 8), the account's
+    /// holder is resized in place with no reload, and the figure is shown over
+    /// its place. Both the keyboard branch here and task 05's wheel branch land
+    /// here, so the two can never disagree. A no-op for an id the book does not
+    /// hold.
+    fn apply_zoom_step(&self, id: &SessionId, step: ZoomStep) {
+        let resolved = match step {
+            ZoomStep::In => self.book.borrow_mut().zoom_in(id),
+            ZoomStep::Out => self.book.borrow_mut().zoom_out(id),
+            ZoomStep::Reset => self.book.borrow_mut().reset_zoom(id),
+        };
+        let Some(zoom) = resolved else {
+            return;
+        };
+
+        if let Some(holder) = self.holders.borrow_mut().get_mut(id) {
+            holder.set_zoom(zoom);
+        }
+        self.grid
+            .flash_zoom_readout(id, &format!("{:.0}%", zoom.multiplier() * 100.0));
+        self.schedule_zoom_save(id);
+    }
+
+    /// Restarts `id`'s settle timer. When the gestures stop, the settled
+    /// remembered map is read off the book and written once (`FR.12.5`) — a
+    /// burst of twenty wheel notches costs one write, not twenty. Nothing else
+    /// writes `state.toml` (`FR.12.4`).
+    fn schedule_zoom_save(&self, id: &SessionId) {
+        if let Some(timer) = self.zoom_save_timers.borrow_mut().remove(id) {
+            timer.remove();
+        }
+
+        let window = self.obj().downgrade();
+        let account = id.clone();
+        let timer = glib::timeout_add_local_once(
+            Duration::from_millis(ZOOM_SAVE_SETTLE_MILLIS),
+            move || {
+                if let Some(window) = window.upgrade() {
+                    window.imp().zoom_save_timers.borrow_mut().remove(&account);
+                    window.imp().write_zoom_now(&account);
+                }
+            },
+        );
+        self.zoom_save_timers.borrow_mut().insert(id.clone(), timer);
+    }
+
+    /// Writes `id`'s settled remembered map through the port now. A failure is
+    /// logged with the account id and a reason and otherwise ignored — the size
+    /// is still right on screen, it just will not survive a restart (code
+    /// standards rules 14, 15).
+    fn write_zoom_now(&self, id: &SessionId) {
+        let Some(memory) = self.zoom_memory.borrow().clone() else {
+            return;
+        };
+        let Some(remembered) = self
+            .book
+            .borrow()
+            .sessions()
+            .iter()
+            .find(|session| session.id() == id)
+            .map(|session| session.remembered_zoom().clone())
+        else {
+            return;
+        };
+
+        if let Err(error) = memory.write(id, &remembered) {
+            tracing::warn!(session = %id, reason = %error, "could not persist the remembered zoom");
+        }
+    }
+
     fn redraw(&self) {
         let book = self.book.borrow();
         self.grid.sync(&book);
@@ -616,6 +801,40 @@ impl Window {
         let empty = book.sessions().is_empty();
         self.empty_state.set_visible(empty);
         self.grid.set_visible(!empty);
+    }
+}
+
+/// How long after the last zoom gesture the settled size is written, so a
+/// burst of wheel notches collapses into one write (`FR.12.5`, code standards
+/// rule 5). Each gesture restarts the account's timer.
+const ZOOM_SAVE_SETTLE_MILLIS: u64 = 500;
+
+/// Which way a zoom gesture steps.
+#[derive(Debug, Clone, Copy)]
+pub(super) enum ZoomStep {
+    /// One step larger.
+    In,
+    /// One step smaller.
+    Out,
+    /// Back to the game file's size, forgetting the current arrangement's
+    /// chosen size.
+    Reset,
+}
+
+/// The zoom step a key names under the control modifier, or `None` for any
+/// other key.
+///
+/// Plus, equals and keypad-add all mean "in" because which one a keyboard
+/// delivers for `Ctrl`+`+` depends on its layout; minus and keypad-subtract
+/// mean "out"; zero and keypad-zero mean reset. The exact set the keyboard
+/// under test delivers is recorded in this item's `test-script.md` (code
+/// standards rule 18).
+fn zoom_step_for(key: gdk::Key) -> Option<ZoomStep> {
+    match key {
+        gdk::Key::plus | gdk::Key::equal | gdk::Key::KP_Add => Some(ZoomStep::In),
+        gdk::Key::minus | gdk::Key::KP_Subtract => Some(ZoomStep::Out),
+        gdk::Key::_0 | gdk::Key::KP_0 => Some(ZoomStep::Reset),
+        _ => None,
     }
 }
 

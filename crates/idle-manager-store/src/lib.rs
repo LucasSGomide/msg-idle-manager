@@ -5,10 +5,12 @@
 //! domain types they map to. That separation is what lets the domain be
 //! refactored without rewriting files a user already has on disk.
 
+mod account_state;
 mod paths;
 mod preset;
 mod session_file;
 
+pub use account_state::TomlZoomMemory;
 pub use paths::{LocatorSetup, XdgProfileLocator, presets_dir, workspace_file};
 pub use preset::{PresetFileError, TomlPresetCatalogue};
 pub use session_file::{SessionFileError, SessionWriteError, TomlWorkspaceStore};

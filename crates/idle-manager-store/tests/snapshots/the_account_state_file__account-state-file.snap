@@ -1,0 +1,7 @@
+---
+source: crates/idle-manager-store/tests/the-account-state-file.rs
+expression: on_disk
+---
+[zoom]
+grid = 0.75
+side-by-side = 0.9

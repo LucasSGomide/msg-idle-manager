@@ -10,6 +10,9 @@
 )]
 
 use std::cell::{Cell, RefCell};
+use std::rc::Rc;
+use std::sync::Once;
+use std::time::Duration;
 
 use gtk::CompositeTemplate;
 use gtk::gdk;
@@ -31,6 +34,25 @@ type SlotFocusHandler = Box<dyn Fn(SlotId)>;
 /// pressed. Same intent the sidebar row's button sends (task 05).
 type StartHandler = Box<dyn Fn(SessionId)>;
 
+/// A handler run with an account's id and the wheel's vertical delta when
+/// `Ctrl` and the wheel turn over that account's place. Negative is a notch
+/// up; the window decides what a notch means (architecture rule 8).
+type ScrollZoomHandler = Box<dyn Fn(SessionId, f64)>;
+
+/// How long the zoom readout stays up after the last gesture before it fades,
+/// leaving nothing behind (`FR.11.6`). A run of gestures rearms it, so one
+/// figure keeps updating rather than a queue forming.
+const ZOOM_READOUT_FADE_MILLIS: u64 = 1000;
+
+/// The transient percentage figure over one place, plus the fade timer that is
+/// cancelled and rearmed on every gesture (item 09's new pattern). Held in an
+/// [`Rc`] so the timer callback can reach the timer slot to clear it and never
+/// double-remove a source that already fired.
+struct Readout {
+    label: gtk::Label,
+    timer: RefCell<Option<glib::SourceId>>,
+}
+
 /// One session's view and where it currently sits.
 struct SlotEntry {
     id: SessionId,
@@ -40,6 +62,9 @@ struct SlotEntry {
     /// The parked-account panel, an overlay kept for the slot's whole life and
     /// shown only while the account is parked or starting in this slot.
     placeholder: SlotPlaceholder,
+    /// The transient zoom figure, a third overlay layer over the same stack
+    /// that carries the cover and the panel — hidden until a gesture.
+    readout: Rc<Readout>,
     placement: Visibility,
 }
 
@@ -52,6 +77,7 @@ pub struct SessionGrid {
     focused: Cell<usize>,
     pub(super) on_slot_focused: RefCell<Option<SlotFocusHandler>>,
     pub(super) on_start_requested: RefCell<Option<StartHandler>>,
+    pub(super) on_zoom_scrolled: RefCell<Option<ScrollZoomHandler>>,
 }
 
 #[glib::object_subclass]
@@ -80,6 +106,8 @@ impl ObjectImpl for SessionGrid {
     fn constructed(&self) {
         self.parent_constructed();
 
+        install_styles();
+
         let obj = self.obj();
         // An off-grid child is allocated outside these bounds; clipping is what
         // keeps it invisible without unrealising it.
@@ -101,6 +129,9 @@ impl ObjectImpl for SessionGrid {
 
     fn dispose(&self) {
         for entry in self.slots.borrow().iter() {
+            if let Some(timer) = entry.readout.timer.borrow_mut().take() {
+                timer.remove();
+            }
             entry.overlay.unparent();
         }
     }
@@ -147,6 +178,60 @@ impl SessionGrid {
         placeholder.set_button_label("Start");
         overlay.add_overlay(&placeholder);
 
+        let readout = build_readout();
+        overlay.add_overlay(&readout.label);
+
+        // The wheel-zoom controller goes on the overlay, not the view: the
+        // overlay lives for the account's whole life while the view is
+        // destroyed and rebuilt on every park and start, and the controller
+        // must survive that. Capture phase for the same reason the click
+        // gesture uses it — the web view would otherwise consume the event on
+        // the way down. Whether a capture-phase scroll controller here actually
+        // sees a wheel event bound for the WebKitGTK view underneath (WebKit
+        // scrolls in its own process) is verified in this item's
+        // test-script.md; if the view wins, this moves onto the view and
+        // `SessionView::start` re-attaches it on every rebuild (code standards
+        // rule 18).
+        // `DISCRETE` alongside `VERTICAL` because a step is a notch, not a
+        // distance: without it the controller reports the smooth deltas the
+        // device sends, and a high-resolution wheel or a touchpad sends several
+        // fractional-delta events per physical notch — each one a full step, so
+        // one notch compounded into two or three and the size moved by an
+        // amount that varied with the device. `DISCRETE` makes GTK accumulate
+        // those deltas and emit one ±1 delta per notch (code standards rule 18).
+        let scroll = gtk::EventControllerScroll::new(
+            gtk::EventControllerScrollFlags::VERTICAL | gtk::EventControllerScrollFlags::DISCRETE,
+        );
+        scroll.set_propagation_phase(gtk::PropagationPhase::Capture);
+        let scroll_grid = self.obj().downgrade();
+        let scroll_session = id.clone();
+        scroll.connect_scroll(move |controller, _dx, dy| {
+            let ctrl_held = controller.current_event().is_some_and(|event| {
+                event
+                    .modifier_state()
+                    .contains(gdk::ModifierType::CONTROL_MASK)
+            });
+            if !ctrl_held {
+                return glib::Propagation::Proceed;
+            }
+            let Some(grid) = scroll_grid.upgrade() else {
+                return glib::Propagation::Proceed;
+            };
+            // `FR.11.8`: the gesture is gated on the click — it acts on the
+            // place under the pointer, but only once that place is the focused
+            // one, narrowing `FR.11.3`. Passing the
+            // pointer over a game is not a choice to resize it, and a wheel that
+            // resized whatever it crossed changed sizes nobody was looking at.
+            if !grid.imp().is_focused_session(&scroll_session) {
+                return glib::Propagation::Proceed;
+            }
+            if let Some(handler) = grid.imp().on_zoom_scrolled.borrow().as_ref() {
+                handler(scroll_session.clone(), dy);
+            }
+            glib::Propagation::Stop
+        });
+        overlay.add_controller(scroll);
+
         let grid = self.obj().downgrade();
         let session = id.clone();
         placeholder.connect_start_requested(move || {
@@ -180,10 +265,22 @@ impl SessionGrid {
             overlay,
             cover,
             placeholder,
+            readout,
             placement: Visibility::OffGrid,
         });
 
         self.obj().queue_allocate();
+    }
+
+    /// Whether `id` is the account sitting in the focused slot. False for an
+    /// account the grid has no entry for, and for one whose entry is off-grid —
+    /// neither can be the place the last click landed on.
+    pub(super) fn is_focused_session(&self, id: &SessionId) -> bool {
+        let focused = Visibility::InSlot(SlotId::new(self.focused.get()));
+        self.slots
+            .borrow()
+            .iter()
+            .any(|entry| &entry.id == id && entry.placement == focused)
     }
 
     /// Reloads the web view sitting in the focused slot. A no-op when that slot
@@ -247,6 +344,36 @@ impl SessionGrid {
         });
         tracing::debug!(session = %id, "starting: view attached behind the placeholder");
         self.obj().queue_allocate();
+    }
+
+    /// Shows `figure` over `id`'s place, updating whatever is already there,
+    /// and cancels and rearms that place's fade timer so a run of gestures
+    /// shows one figure rather than a queue (`FR.11.6`). A no-op for an account
+    /// with no place in the grid.
+    pub(super) fn flash_zoom_readout(&self, id: &SessionId, figure: &str) {
+        let slots = self.slots.borrow();
+        let Some(entry) = slots.iter().find(|entry| &entry.id == id) else {
+            return;
+        };
+        let readout = Rc::clone(&entry.readout);
+
+        if let Some(timer) = readout.timer.borrow_mut().take() {
+            timer.remove();
+        }
+        readout.label.set_text(figure);
+        readout.label.set_visible(true);
+
+        let armed = Rc::downgrade(&readout);
+        let timer = glib::timeout_add_local_once(
+            Duration::from_millis(ZOOM_READOUT_FADE_MILLIS),
+            move || {
+                if let Some(readout) = armed.upgrade() {
+                    readout.timer.borrow_mut().take();
+                    readout.label.set_visible(false);
+                }
+            },
+        );
+        *readout.timer.borrow_mut() = Some(timer);
     }
 
     pub(super) fn sync(&self, book: &SessionBook) {
@@ -441,6 +568,42 @@ fn hide_cover_once_painted(view: &WebView, cover: &gtk::Box) {
         if matches!(event, LoadEvent::Committed | LoadEvent::Finished) {
             cover.set_visible(false);
         }
+    });
+}
+
+/// The transient zoom figure for one place: a short label on its own opaque
+/// ground, centred horizontally and low in the place so it never covers what
+/// the reader is adjusting (item 09 wireframe). Hidden until a gesture.
+fn build_readout() -> Rc<Readout> {
+    let label = gtk::Label::new(None);
+    label.add_css_class("zoom-readout");
+    label.set_halign(gtk::Align::Center);
+    label.set_valign(gtk::Align::End);
+    label.set_margin_bottom(24);
+    label.set_visible(false);
+
+    Rc::new(Readout {
+        label,
+        timer: RefCell::new(None),
+    })
+}
+
+/// Installs `session-grid.css` on the default display once. The provider is
+/// display-global, so the [`Once`] keeps a second grid from stacking it — the
+/// same shape as the sidebar's own install.
+fn install_styles() {
+    static ONCE: Once = Once::new();
+    ONCE.call_once(|| {
+        let Some(display) = gdk::Display::default() else {
+            return;
+        };
+        let provider = gtk::CssProvider::new();
+        provider.load_from_resource("/org/idlemanager/IdleManager/css/session-grid.css");
+        gtk::style_context_add_provider_for_display(
+            &display,
+            &provider,
+            gtk::STYLE_PROVIDER_PRIORITY_APPLICATION,
+        );
     });
 }
 

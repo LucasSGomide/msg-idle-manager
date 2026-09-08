@@ -1,6 +1,6 @@
 # 09 — Interactive zoom, remembered per arrangement
 
-**Depends on:** 03, 06 · **Status:** not-started · **Estimate:** 5
+**Depends on:** 03, 06 · **Status:** done · **Estimate:** 5
 
 ## Context
 

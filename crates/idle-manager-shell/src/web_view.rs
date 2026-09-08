@@ -198,6 +198,22 @@ impl SessionView {
 
         Some(view)
     }
+
+    /// Sets this account's page zoom to `zoom`.
+    ///
+    /// Remembers it on the holder whether or not a view exists, so a parked
+    /// account started later opens at the chosen size (`FR.11.5`, `FR.12.7`).
+    /// When a view is live it is resized where it stands with **no reload** —
+    /// `set_zoom_level` takes effect on the running page (`webkit6` 0.6.1,
+    /// `web_view.rs:267` already calls it before the first load), so the
+    /// account never leaves `Live`. Returns the live view, or `None` while the
+    /// account is parked.
+    pub fn set_zoom(&mut self, zoom: ZoomLevel) -> Option<&WebView> {
+        self.zoom = zoom;
+        let view = self.view.as_ref()?;
+        view.set_zoom_level(zoom.multiplier());
+        Some(view)
+    }
 }
 
 /// Builds the persistent, isolated network session for one account.
