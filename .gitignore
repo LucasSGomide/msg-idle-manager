@@ -1,3 +1,8 @@
 .claude
 /target
 *.profraw
+
+# Temporary: the reboot/Google-auth investigation handover. Not part of the
+# planning docs and never committed — it names live profile paths and is a
+# scratch record, deleted once the diagnosis lands.
+/docs/handover.md
