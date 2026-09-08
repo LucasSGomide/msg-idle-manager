@@ -192,7 +192,16 @@ impl SessionGrid {
         // test-script.md; if the view wins, this moves onto the view and
         // `SessionView::start` re-attaches it on every rebuild (code standards
         // rule 18).
-        let scroll = gtk::EventControllerScroll::new(gtk::EventControllerScrollFlags::VERTICAL);
+        // `DISCRETE` alongside `VERTICAL` because a step is a notch, not a
+        // distance: without it the controller reports the smooth deltas the
+        // device sends, and a high-resolution wheel or a touchpad sends several
+        // fractional-delta events per physical notch — each one a full step, so
+        // one notch compounded into two or three and the size moved by an
+        // amount that varied with the device. `DISCRETE` makes GTK accumulate
+        // those deltas and emit one ±1 delta per notch (code standards rule 18).
+        let scroll = gtk::EventControllerScroll::new(
+            gtk::EventControllerScrollFlags::VERTICAL | gtk::EventControllerScrollFlags::DISCRETE,
+        );
         scroll.set_propagation_phase(gtk::PropagationPhase::Capture);
         let scroll_grid = self.obj().downgrade();
         let scroll_session = id.clone();
@@ -205,9 +214,18 @@ impl SessionGrid {
             if !ctrl_held {
                 return glib::Propagation::Proceed;
             }
-            if let Some(grid) = scroll_grid.upgrade()
-                && let Some(handler) = grid.imp().on_zoom_scrolled.borrow().as_ref()
-            {
+            let Some(grid) = scroll_grid.upgrade() else {
+                return glib::Propagation::Proceed;
+            };
+            // `FR.11.8`: the gesture is gated on the click — it acts on the
+            // place under the pointer, but only once that place is the focused
+            // one, narrowing `FR.11.3`. Passing the
+            // pointer over a game is not a choice to resize it, and a wheel that
+            // resized whatever it crossed changed sizes nobody was looking at.
+            if !grid.imp().is_focused_session(&scroll_session) {
+                return glib::Propagation::Proceed;
+            }
+            if let Some(handler) = grid.imp().on_zoom_scrolled.borrow().as_ref() {
                 handler(scroll_session.clone(), dy);
             }
             glib::Propagation::Stop
@@ -252,6 +270,17 @@ impl SessionGrid {
         });
 
         self.obj().queue_allocate();
+    }
+
+    /// Whether `id` is the account sitting in the focused slot. False for an
+    /// account the grid has no entry for, and for one whose entry is off-grid —
+    /// neither can be the place the last click landed on.
+    pub(super) fn is_focused_session(&self, id: &SessionId) -> bool {
+        let focused = Visibility::InSlot(SlotId::new(self.focused.get()));
+        self.slots
+            .borrow()
+            .iter()
+            .any(|entry| &entry.id == id && entry.placement == focused)
     }
 
     /// Reloads the web view sitting in the focused slot. A no-op when that slot

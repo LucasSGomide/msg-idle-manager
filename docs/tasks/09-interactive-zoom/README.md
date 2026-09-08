@@ -47,6 +47,6 @@ needs the port from 03.
 | [02](02-the-books-zoom-transitions.md) | The book's zoom transitions and the focused account | back-end | 01 | 9/9 | done |
 | [03](03-the-account-state-file.md) | The zoom memory port and the account state file | back-end | 01 | 8/8 | done |
 | [04](04-the-keyboard-gesture-and-the-readout.md) | Zooming the focused account from the keyboard | front-end | 02 | 1/10 | in-progress |
-| [05](05-the-wheel-gesture-over-a-place.md) | Zooming the account under the pointer | front-end | 04 | 0/9 | not-started |
+| [05](05-the-wheel-gesture-over-a-place.md) | Zooming the account under the pointer | front-end | 04 | 0/10 | not-started |
 | [06](06-snapping-on-an-arrangement-switch.md) | Snapping every account on an arrangement switch | front-end | 05 | 0/6 | not-started |
 | [07](07-remembering-the-sizes-on-disk.md) | Remembering the sizes across a restart | full-stack | 03, 06 | 0/8 | not-started |
