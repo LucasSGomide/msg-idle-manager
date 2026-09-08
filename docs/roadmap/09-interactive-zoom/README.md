@@ -1,6 +1,6 @@
 # 09 — Interactive zoom, remembered per arrangement
 
-**Depends on:** 03, 06 · **Status:** done · **Estimate:** 5
+**Depends on:** 03, 06 · **Status:** done · **Estimate:** 5 · **Merged:** 2026-09-08
 
 ## Context
 
@@ -418,6 +418,37 @@ relaunch reopening an account at its chosen size.
   This is that item, and it answers the question the other way round: the size is
   not computed from the slot, it is chosen by the user and remembered per
   arrangement.
+
+## As built
+
+- The wheel gesture as first built resized whichever view the pointer crossed
+  and took one step per smooth-delta event, so a touchpad or a high-resolution
+  wheel turned a single physical notch into two or three steps. A follow-up
+  narrowed it to fire **only over the focused slot** — recorded as a new
+  requirement, `FR.11.8`, because a window here holds up to four live games
+  where a browser holds one tab and a pointer resting over a neighbour must not
+  resize a game nobody is watching — and added
+  `EventControllerScrollFlags::DISCRETE` so GTK accumulates the deltas and emits
+  one ±1 per notch.
+- The second blocker resolved the easy way: a capture-phase
+  `EventControllerScroll` on the slot **overlay** does see the wheel event
+  before the WebKit view consumes it in its own process. The controller stays on
+  the overlay — which outlives the view across every park and start — and never
+  had to move onto the view with re-attachment on each rebuild.
+- `Ctrl`+`+` reaches the key controller as `plus`, `equal` **or** `KP_Add`
+  depending on keyboard layout; all three are matched for a step in,
+  `minus`/`KP_Subtract` for out, `_0`/`KP_0` for reset. Changing
+  `set_zoom_level` on an already-loaded page reflows the three shipped games
+  cleanly with no reload — the mid-life-resize blocker was unfounded.
+- `docs/design.md` gained **rule 10** for the transient readout: a figure drawn
+  low and centred over the affected place on its own opaque ground, one that
+  keeps updating rather than queueing (timer cancelled and rearmed per gesture),
+  fades after `ZOOM_READOUT_FADE_MILLIS`, and is shown only for a change the
+  user directly asked for — never on an arrangement switch.
+- `paths.rs` grew `profiles_root` / `account_profile_dir` / `xdg_profiles_root`
+  helpers so `XdgProfileLocator` and `TomlZoomMemory` derive `state.toml`'s
+  location from one place rather than spelling the profile-root layout twice in
+  the crate.
 
 ## Blockers
 
