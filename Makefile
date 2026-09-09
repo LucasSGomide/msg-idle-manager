@@ -25,7 +25,7 @@ RUST_LOG ?= idle_manager=debug,idle_manager_core=debug,idle_manager_shell=debug
 .DEFAULT_GOAL := help
 
 .PHONY: help bootstrap system-check dev run watch build release check fmt fmt-check lint \
-        test doc audit arch-check verify clean forensics forensics-diff
+        test doc audit arch-check verify clean forensics forensics-diff memory-report
 
 help:  ## list every target
 	@grep -hE '^[a-zA-Z0-9_-]+:.*##' $(MAKEFILE_LIST) | sort | awk 'BEGIN { FS = ":.*## " } { printf "  \033[36m%-14s\033[0m %s\n", $$1, $$2 }'
@@ -116,6 +116,12 @@ forensics:  ## snapshot the on-disk session state (LABEL=before-reboot)
 forensics-diff:  ## diff two snapshots (BEFORE=before-reboot AFTER=after-reboot)
 	@test -n "$(BEFORE)" -a -n "$(AFTER)" || { echo "usage: make forensics-diff BEFORE=<name> AFTER=<name>"; exit 1; }
 	./scripts/session-forensics-compare.sh $(BEFORE) $(AFTER)
+
+# What the running application costs in memory, per process and summed, taken
+# the same way the sidebar footer takes it (roadmap item 05). Pass arguments
+# through ARGS, e.g. `make memory-report ARGS='--soak 30 --out mem.tsv'`.
+memory-report:  ## report the running app's memory per process (ARGS='--soak 30 --out mem.tsv')
+	./scripts/memory-report.sh $(ARGS)
 
 # --- msg-roadmap:start
 .PHONY: roadmap-sync roadmap-check

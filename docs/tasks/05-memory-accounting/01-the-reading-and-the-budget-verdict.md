@@ -70,19 +70,19 @@ against, and task 08 supplies a constant rather than reopening this file.
 
 ## Acceptance criteria
 
-- [ ] `(unit)` a reading exposes the application's own figure, its descendants'
+- [x] `(unit)` a reading exposes the application's own figure, its descendants'
       figure and the count of processes that contributed, all in kibibytes
-- [ ] `(unit)` a total is the sum of the own and descendant figures and is
+- [x] `(unit)` a total is the sum of the own and descendant figures and is
       derived from them rather than stored beside them
-- [ ] `(unit)` a total equal to the budget is not over it, and one kibibyte
+- [x] `(unit)` a total equal to the budget is not over it, and one kibibyte
       above it is
-- [ ] `(unit)` the verdict takes its budget as an argument, so two thresholds
+- [x] `(unit)` the verdict takes its budget as an argument, so two thresholds
       give two answers for the same reading
-- [ ] `(unit)` a fake probe in the core's tests satisfies `MemoryProbe` without
+- [x] `(unit)` a fake probe in the core's tests satisfies `MemoryProbe` without
       touching the filesystem
-- [ ] `(unit)` a probe returning a refusal and a probe returning unreadable
+- [x] `(unit)` a probe returning a refusal and a probe returning unreadable
       output are distinguishable by matching on the error
-- [ ] `(unit)` the count of live accounts comes from the session book, and a
+- [x] `(unit)` the count of live accounts comes from the session book, and a
       parked account is not counted in it
 
 ## References

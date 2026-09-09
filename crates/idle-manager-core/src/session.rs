@@ -366,6 +366,23 @@ impl SessionBook {
             .collect()
     }
 
+    /// How many accounts are running right now — the count the sidebar footer
+    /// shows beside the aggregate memory figure (`FR.7.1`).
+    ///
+    /// Only [`Liveness::Live`] accounts: a parked account is running nothing, a
+    /// queued or starting one has no painted page yet. This comes from the book
+    /// and never from the kernel — asking the operating system how many
+    /// rendering processes exist would answer a different question and answer it
+    /// worse, because a process that has died and not been reaped is not an
+    /// account anybody is running.
+    #[must_use]
+    pub fn live_session_count(&self) -> usize {
+        self.sessions
+            .iter()
+            .filter(|session| session.liveness == Liveness::Live)
+            .count()
+    }
+
     /// The layout the book is currently arranged for.
     #[must_use]
     pub fn layout(&self) -> Layout {
@@ -1031,6 +1048,28 @@ mod tests {
             (state, liveness_of(&book, &id), visibility_of(&book, &id)),
             (Liveness::Live, Liveness::Live, visibility)
         );
+    }
+
+    #[test]
+    fn the_live_session_count_is_the_number_of_running_accounts() {
+        let mut book = SessionBook::new();
+        book.set_layout(Layout::Grid);
+        book.add("One", "https://example.test/one");
+        book.add("Two", "https://example.test/two");
+
+        assert_eq!(book.live_session_count(), 2);
+    }
+
+    #[test]
+    fn a_parked_account_is_not_counted_among_the_live_sessions() {
+        let mut book = SessionBook::new();
+        book.set_layout(Layout::Grid);
+        let one = book.add("One", "https://example.test/one");
+        book.add("Two", "https://example.test/two");
+
+        book.park(&one);
+
+        assert_eq!(book.live_session_count(), 1);
     }
 
     fn is_kept_awake(book: &SessionBook, id: &SessionId) -> bool {

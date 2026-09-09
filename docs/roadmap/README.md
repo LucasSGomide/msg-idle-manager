@@ -77,7 +77,7 @@ failure are shown inside a chooser without a modal of their own.
 
 | # | Item | Est | Depends on | Status |
 |---|---|---|---|---|
-| [05](05-memory-accounting/README.md) | Memory accounting and performance | 8 | 02, 03 | not-started |
+| [05](05-memory-accounting/README.md) | Memory accounting and performance | 8 | 02, 03 | in-progress |
 | [08](08-crash-recovery/README.md) | Surviving a crashed game | 5 | 03 | not-started |
 
 ## Blocked

@@ -80,23 +80,23 @@ moment it is needed.
 
 ## Acceptance criteria
 
-- [ ] `(integration)` a captured process table containing the two nested sandbox
+- [x] `(integration)` a captured process table containing the two nested sandbox
       processes yields the rendering process among the descendants
-- [ ] `(integration)` a process table where the application has no descendants
+- [x] `(integration)` a process table where the application has no descendants
       yields a reading with the application's own figure and a descendant figure
       of zero, not an error
-- [ ] `(integration)` an unrelated process tree belonging to another identifier
+- [x] `(integration)` an unrelated process tree belonging to another identifier
       is not counted
-- [ ] `(integration)` a captured `smaps_rollup` parses to the same figure as
+- [x] `(integration)` a captured `smaps_rollup` parses to the same figure as
       summing `Pss` across the matching captured `smaps`
-- [ ] `(integration)` a process whose `smaps_rollup` is absent falls back to
+- [x] `(integration)` a process whose `smaps_rollup` is absent falls back to
       `smaps` and produces a figure
-- [ ] `(integration)` a `smaps_rollup` with no `Pss` line at all is a malformed
+- [x] `(integration)` a `smaps_rollup` with no `Pss` line at all is a malformed
       read carrying the path, and is distinguishable by matching from a file
       that was not there
-- [ ] `(integration)` a descendant whose command name matches no known kind is
+- [x] `(integration)` a descendant whose command name matches no known kind is
       still counted in the total and labelled unrecognised
-- [ ] `(integration)` the reading's process count equals the number of processes
+- [x] `(integration)` the reading's process count equals the number of processes
       actually read, not the number found in the walk
 
 ## References

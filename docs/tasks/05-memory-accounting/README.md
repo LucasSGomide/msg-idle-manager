@@ -55,8 +55,8 @@ before the budget is measured, and the soak's figures to write beside it.
 
 | # | Task | Scope | Depends on | Criteria | Status |
 |---|---|---|---|---|---|
-| [01](01-the-reading-and-the-budget-verdict.md) | The reading, the port and the budget verdict | back-end | — | 0/7 | not-started |
-| [02](02-walking-the-process-tree.md) | Walking the process tree and reading its proportional memory | back-end | 01, 03 | 0/8 | not-started |
+| [01](01-the-reading-and-the-budget-verdict.md) | The reading, the port and the budget verdict | back-end | — | 7/7 | done |
+| [02](02-walking-the-process-tree.md) | Walking the process tree and reading its proportional memory | back-end | 01, 03 | 8/8 | done |
 | [03](03-the-memory-report-script.md) | The memory report script and its soak mode | tooling | — | 0/7 | not-started |
 | [04](04-the-sidebar-footer.md) | The sidebar footer | front-end | 01, 02 | 0/10 | not-started |
 | [05](05-the-soak-and-what-it-found.md) | The soak, and whether it is a leak | measurement | 03 | 0/7 | not-started |
