@@ -1,0 +1,115 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<interface>
+  <requires lib="gtk" version="4.0"/>
+  <template class="IdleManagerMemoryFooter" parent="GtkBox">
+    <property name="orientation">vertical</property>
+    <property name="spacing">2</property>
+    <property name="margin-start">12</property>
+    <property name="margin-end">12</property>
+    <property name="margin-top">6</property>
+    <property name="margin-bottom">6</property>
+    <style>
+      <class name="memory-footer"/>
+      <class name="dim-label"/>
+    </style>
+    <child>
+      <object class="GtkSeparator"/>
+    </child>
+    <child>
+      <object class="GtkGrid" id="figures">
+        <property name="column-spacing">12</property>
+        <property name="row-spacing">2</property>
+        <property name="margin-top">4</property>
+        <child>
+          <object class="GtkLabel" id="app_label">
+            <property name="label">App</property>
+            <property name="xalign">0</property>
+            <property name="hexpand">true</property>
+            <layout>
+              <property name="column">0</property>
+              <property name="row">0</property>
+            </layout>
+          </object>
+        </child>
+        <child>
+          <object class="GtkLabel" id="app_value">
+            <property name="label">–</property>
+            <property name="xalign">1</property>
+            <style>
+              <class name="numeric"/>
+            </style>
+            <layout>
+              <property name="column">1</property>
+              <property name="row">0</property>
+            </layout>
+          </object>
+        </child>
+        <child>
+          <object class="GtkLabel" id="running_label">
+            <property name="label">accounts</property>
+            <property name="xalign">0</property>
+            <layout>
+              <property name="column">0</property>
+              <property name="row">1</property>
+            </layout>
+          </object>
+        </child>
+        <child>
+          <object class="GtkLabel" id="running_value">
+            <property name="label">–</property>
+            <property name="xalign">1</property>
+            <style>
+              <class name="numeric"/>
+            </style>
+            <layout>
+              <property name="column">1</property>
+              <property name="row">1</property>
+            </layout>
+          </object>
+        </child>
+        <child>
+          <object class="GtkLabel" id="total_label">
+            <property name="label">Total</property>
+            <property name="xalign">0</property>
+            <layout>
+              <property name="column">0</property>
+              <property name="row">2</property>
+            </layout>
+          </object>
+        </child>
+        <child>
+          <object class="GtkLabel" id="total_value">
+            <property name="label">–</property>
+            <property name="xalign">1</property>
+            <style>
+              <class name="numeric"/>
+            </style>
+            <layout>
+              <property name="column">1</property>
+              <property name="row">2</property>
+            </layout>
+          </object>
+        </child>
+      </object>
+    </child>
+    <child>
+      <object class="GtkLabel" id="budget_label">
+        <property name="visible">false</property>
+        <property name="xalign">0</property>
+        <property name="margin-top">2</property>
+        <style>
+          <class name="budget-line"/>
+        </style>
+      </object>
+    </child>
+    <child>
+      <object class="GtkLabel" id="unavailable_label">
+        <property name="visible">false</property>
+        <property name="label">Memory reading unavailable</property>
+        <property name="xalign">0</property>
+        <property name="wrap">true</property>
+        <property name="margin-top">4</property>
+      </object>
+    </child>
+  </template>
+</interface>

@@ -41,7 +41,11 @@ pub enum MemoryProbeError {
 /// `scripts/arch-check.sh` forbids the core from reading `/proc` — and rule 6
 /// is met twice over, because the footer's formatting and its verdict both need
 /// a test that does not depend on a machine having games running.
-pub trait MemoryProbe: std::fmt::Debug {
+///
+/// `Send + Sync` so the shell can hand a sample to a worker thread and keep the
+/// GTK main context free while `/proc` is read for every process on the machine
+/// (architecture rule 10).
+pub trait MemoryProbe: std::fmt::Debug + Send + Sync {
     /// Takes a reading now: the application's own figure, its descendants', and
     /// the count of processes that contributed.
     ///

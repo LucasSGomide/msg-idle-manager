@@ -273,6 +273,7 @@ impl Window {
         self.locator.replace(Some(ports.locator));
         self.catalogue.replace(Some(ports.catalogue));
         self.zoom_memory.replace(Some(ports.zoom_memory));
+        self.sidebar.start_memory_sampling(ports.probe);
         self.saver
             .replace(Some(Saver::new(ports.store, self.message_strip.clone())));
         self.apply_read_outcome(read_outcome);

@@ -12,7 +12,8 @@ use gtk::subclass::prelude::*;
 use gtk4 as gtk;
 
 use idle_manager_core::{
-    PresetCatalogue, ProfileLocator, Workspace, WorkspaceReadError, WorkspaceStore, ZoomMemory,
+    MemoryProbe, PresetCatalogue, ProfileLocator, Workspace, WorkspaceReadError, WorkspaceStore,
+    ZoomMemory,
 };
 
 /// The ports the window runs against, built once by the composition root and
@@ -27,6 +28,9 @@ pub struct WindowPorts {
     pub store: Arc<dyn WorkspaceStore>,
     /// Each account's remembered zoom sizes (item 09).
     pub zoom_memory: Rc<dyn ZoomMemory>,
+    /// What the application currently costs in memory, for the sidebar footer
+    /// (item 05).
+    pub probe: Arc<dyn MemoryProbe>,
 }
 
 glib::wrapper! {

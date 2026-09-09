@@ -77,9 +77,9 @@ slice builds.
 
 ## Acceptance criteria
 
-- [ ] `(unit)` the formatter renders an absent reading as a dash and a present
+- [x] `(unit)` the formatter renders an absent reading as a dash and a present
       one as a figure with its unit
-- [ ] `(unit)` `memory-footer.ui` is readable from the compiled resource bundle,
+- [x] `(unit)` `memory-footer.ui` is readable from the compiled resource bundle,
       as the window and placeholder templates are
 - [ ] `(manual)` at launch, before the first sample, all four values read as
       dashes and never as zeroes

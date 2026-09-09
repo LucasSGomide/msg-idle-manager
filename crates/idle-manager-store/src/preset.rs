@@ -104,7 +104,7 @@ struct PresetFile {
 /// Reads `file`'s `webgl` value into a domain boolean, defaulting a missing or
 /// non-boolean value to [`WEBGL_DEFAULT_ENABLED`] and warning in the latter
 /// case with `entry` — the file's own name — for the user to find.
-fn webgl_enabled(value: &Option<toml::Value>, entry: &str) -> bool {
+fn webgl_enabled(value: Option<&toml::Value>, entry: &str) -> bool {
     match value {
         None => WEBGL_DEFAULT_ENABLED,
         Some(toml::Value::Boolean(enabled)) => *enabled,
@@ -258,7 +258,7 @@ fn read_preset_file(path: &Path) -> Result<Preset, PresetFileError> {
         None => None,
     };
     let zoom = ZoomLevel::new(file.zoom)?;
-    let webgl_enabled = webgl_enabled(&file.webgl, &file_name_of(path));
+    let webgl_enabled = webgl_enabled(file.webgl.as_ref(), &file_name_of(path));
 
     Ok(Preset {
         id: PresetId::new(stem_of(path)),
@@ -291,22 +291,20 @@ mod tests {
 
     #[test]
     fn a_preset_file_with_no_webgl_key_defaults_the_field_to_enabled() {
-        let absent = None;
-
-        assert!(webgl_enabled(&absent, "huntera.toml"));
+        assert!(webgl_enabled(None, "huntera.toml"));
     }
 
     #[test]
     fn a_webgl_key_set_false_reads_back_as_disabled() {
-        let disabled = Some(toml::Value::Boolean(false));
+        let disabled = toml::Value::Boolean(false);
 
-        assert!(!webgl_enabled(&disabled, "huntera.toml"));
+        assert!(!webgl_enabled(Some(&disabled), "huntera.toml"));
     }
 
     #[test]
     fn a_non_boolean_webgl_key_falls_back_to_enabled() {
-        let nonsense = Some(toml::Value::String("yes".to_owned()));
+        let nonsense = toml::Value::String("yes".to_owned());
 
-        assert!(webgl_enabled(&nonsense, "huntera.toml"));
+        assert!(webgl_enabled(Some(&nonsense), "huntera.toml"));
     }
 }

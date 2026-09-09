@@ -69,3 +69,29 @@
   opacity: 0.45;
   margin-right: 2px;
 }
+
+/* The sidebar's memory footer (item 05, design rule 11). Separated from the
+ * list by the template's hairline; the smaller type marks it as a readout
+ * rather than a control, and the fixed-width numeric style keeps a digit
+ * changing on a sample from shifting its neighbour. */
+.memory-footer {
+  font-size: 0.85em;
+}
+
+.memory-footer .numeric {
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: "tnum";
+}
+
+/* Over budget (item 05 task 08, FR.20.1, design rule 12): the theme's warning
+ * tint across the block — attention, not the error red — and one line naming
+ * the budget. Toggled from the core's verdict and removed the moment a sample
+ * comes back under, with nothing to dismiss (FR.20.3). No figure moves. */
+.memory-footer.over-budget {
+  background-color: alpha(@warning_color, 0.15);
+  border-radius: 4px;
+}
+
+.memory-footer.over-budget .budget-line {
+  color: @warning_color;
+}

@@ -84,7 +84,7 @@ toggled from the answer.
       script, and the doc says so
 - [ ] `(manual)` the budget threshold is stated with the sentence explaining
       which measurement produced it
-- [ ] `(unit)` the budget is a named constant carrying its unit and the footer
+- [x] `(unit)` the budget is a named constant carrying its unit and the footer
       reads its verdict from the core rather than comparing figures itself
 - [ ] `(manual)` with the budget set below the current total, the footer takes
       the warning tint and shows one line naming the budget
@@ -94,7 +94,7 @@ toggled from the answer.
       the line on the next sample, with nothing dismissed
 - [ ] `(manual)` the warning never parks, reloads or otherwise changes an
       account by itself across a run that crosses the budget repeatedly
-- [ ] `(unit)` `docs/design.md` carries both new rules, and the second states
+- [x] `(unit)` `docs/design.md` carries both new rules, and the second states
       how it differs from rule 9's message strip
 
 ## References

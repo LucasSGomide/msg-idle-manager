@@ -191,10 +191,19 @@ impl SessionView {
     /// 0.6.1, `web_view.rs:163`) and cannot gain a document-start script
     /// afterwards (`FR.6.3`).
     pub fn start(&mut self) -> &WebView {
-        let view = WebView::builder()
+        let mut builder = WebView::builder()
             .network_session(&self.network_session)
-            .user_content_manager(&build_content_manager(self.keep_awake))
-            .build();
+            .user_content_manager(&build_content_manager(self.keep_awake));
+        // Built against the shared context carrying the memory-pressure settings
+        // (`FR.19.4`); a missing context means `configure_web_engine` has not
+        // run, and the engine's default is the same fallback the cache-model
+        // path takes (code standards rule 14).
+        if let Some(context) = crate::shared_web_context() {
+            builder = builder.web_context(&context);
+        } else {
+            tracing::warn!("no shared web context; view built on the engine default");
+        }
+        let view = builder.build();
 
         configure(&view);
         apply_account_settings(&view, &self.settings);
