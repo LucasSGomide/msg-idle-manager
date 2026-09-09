@@ -35,13 +35,21 @@ place on screen is never marked hidden, so nothing throttles it. Keep-awake earn
 its place only while the window is minimised, and both mechanisms were measured
 doing so.
 
-**Next up: 05 — Memory accounting.** It turns the claim the project rests on into
-a number on screen: what each account actually costs, and what parking actually
-returns. Everything before it asserted that; nothing has shown it. It also gives
-item 04's open question a way to be answered — the shim's frame interval is a
-guess with no measurement behind it, and a per-account readout is what would show
-what it costs to run. Item 08 then adds recovery from a crash nobody was awake to
-see, building on the durable workspace 07 just landed.
+**Next up: 05 — Memory accounting and performance.** It turns the claim the
+project rests on into a number on screen: what the application costs, and what
+parking actually returns. Everything before it asserted that; nothing had shown
+it — and the first measurement, taken on 2026-09-08 while the item was being
+sliced, showed the claim failing. One live account with every other account
+parked cost 884 MiB, most of it in a single rendering process, and the browser
+this application replaces cost less for the same game. So the item grew a second
+half and an estimate: it builds the instrument, then uses it, and its budget is
+written as a comparison against that browser rather than as a figure chosen for
+itself. The measurement also confirmed item 03's promise — there was exactly one
+rendering process for the one live account, so parking really does hand the
+memory back. It also gives item 04's open question a way to be answered: the
+shim's frame interval is a guess with no measurement behind it, and this is the
+first item that can price it. Item 08 then adds recovery from a crash nobody was
+awake to see, building on the durable workspace 07 just landed.
 
 Item 09 shipped the first file the application writes on an account's behalf — a
 per-account `state.toml` holding the zoom chosen per arrangement — and with it
@@ -69,7 +77,7 @@ failure are shown inside a chooser without a modal of their own.
 
 | # | Item | Est | Depends on | Status |
 |---|---|---|---|---|
-| [05](05-memory-accounting/README.md) | Memory accounting | 5 | 02, 03 | not-started |
+| [05](05-memory-accounting/README.md) | Memory accounting and performance | 8 | 02, 03 | not-started |
 | [08](08-crash-recovery/README.md) | Surviving a crashed game | 5 | 03 | not-started |
 
 ## Blocked
