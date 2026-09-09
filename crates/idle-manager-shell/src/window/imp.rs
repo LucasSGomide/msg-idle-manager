@@ -26,7 +26,7 @@ use crate::save_on_change::Saver;
 use crate::session_grid::SessionGrid;
 use crate::session_sidebar::SessionSidebar;
 use crate::start_queue::StartQueue;
-use crate::web_view::SessionView;
+use crate::web_view::{AccountSettings, SessionView};
 
 /// The composite-template backing object for [`super::Window`].
 #[derive(Default, CompositeTemplate)]
@@ -339,7 +339,7 @@ impl Window {
         // being restored, not the game-file baseline (`FR.12.2`): a switch
         // later re-resolves, but the first draw is already right.
         let layout = self.book.borrow().layout();
-        let accounts: Vec<(SessionId, String, String, ZoomLevel, Option<String>)> = self
+        let accounts: Vec<(SessionId, String, String, ZoomLevel, Option<String>, bool)> = self
             .book
             .borrow()
             .sessions()
@@ -351,11 +351,12 @@ impl Window {
                     session.start_address().to_owned(),
                     session.zoom_for(layout),
                     session.browser_identity().map(str::to_owned),
+                    session.is_webgl_enabled(),
                 )
             })
             .collect();
 
-        for (id, name, address, zoom, identity) in accounts {
+        for (id, name, address, zoom, identity, webgl_enabled) in accounts {
             let directories = match locator.locate(&id) {
                 Ok(directories) => directories,
                 Err(error) => {
@@ -364,8 +365,16 @@ impl Window {
                 }
             };
 
-            let holder =
-                SessionView::dormant(&id, &directories, &address, zoom, identity.as_deref());
+            let holder = SessionView::dormant(
+                &id,
+                &directories,
+                &address,
+                AccountSettings {
+                    zoom,
+                    identity,
+                    webgl_enabled,
+                },
+            );
             self.grid.add_dormant_session(&id, &name);
             self.holders.borrow_mut().insert(id, holder);
         }
@@ -508,7 +517,7 @@ impl Window {
         }
 
         let layout = self.book.borrow().layout();
-        let Some((name, address, zoom, identity)) =
+        let Some((name, address, zoom, identity, webgl_enabled)) =
             self.book.borrow().sessions().iter().find_map(|session| {
                 (session.id() == id).then(|| {
                     (
@@ -516,6 +525,7 @@ impl Window {
                         session.start_address().to_owned(),
                         session.zoom_for(layout),
                         session.browser_identity().map(str::to_owned),
+                        session.is_webgl_enabled(),
                     )
                 })
             })
@@ -532,7 +542,16 @@ impl Window {
             }
         };
 
-        let holder = SessionView::new(id, &directories, &address, zoom, identity.as_deref());
+        let holder = SessionView::new(
+            id,
+            &directories,
+            &address,
+            AccountSettings {
+                zoom,
+                identity,
+                webgl_enabled,
+            },
+        );
         let Some(view) = holder.view() else {
             tracing::error!(session = %id, "the new account's view was not built");
             return;

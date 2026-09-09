@@ -149,6 +149,14 @@ pub struct Preset {
     /// The value a new account's keep-awake flag starts at. Only a starting
     /// value — the account owns the flag afterwards.
     pub keep_awake_default: bool,
+    /// Whether this game's pages should be given a WebGL context.
+    ///
+    /// A graphics context is not free, and which games draw with WebGL is a
+    /// fact about games, not about this application (`FR.19.7`). Defaults to
+    /// enabled when the preset file omits the key, so no game — measured or not
+    /// — changes behaviour when this field lands; a game measured not to need
+    /// it turns it off in its own file.
+    pub webgl_enabled: bool,
 }
 
 #[cfg(test)]

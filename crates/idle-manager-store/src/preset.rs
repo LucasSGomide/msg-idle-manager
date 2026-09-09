@@ -21,6 +21,11 @@ use crate::paths::{self, LocatorSetup};
 /// The file extension a preset file must carry to be read at all.
 const PRESET_EXTENSION: &str = "toml";
 
+/// What a preset's WebGL setting is when its file leaves the key out, or sets
+/// it to something that is not a boolean (`FR.19.7`): enabled, so no existing
+/// game file changes behaviour when the key lands.
+const WEBGL_DEFAULT_ENABLED: bool = true;
+
 /// The game files carried in the binary and written into the presets directory
 /// the first time it is found missing.
 ///
@@ -87,6 +92,31 @@ struct PresetFile {
     /// (`FR.10.5`).
     #[serde(default)]
     user_agent: Option<String>,
+    /// Whether this game's pages get a WebGL context (`FR.19.7`). Held as a raw
+    /// value rather than a `bool` so a non-boolean is tolerated — it falls back
+    /// to the default with a warning naming the file, and the rest of the
+    /// preset still loads, rather than taking the whole file down the way a bad
+    /// `zoom` does.
+    #[serde(default)]
+    webgl: Option<toml::Value>,
+}
+
+/// Reads `file`'s `webgl` value into a domain boolean, defaulting a missing or
+/// non-boolean value to [`WEBGL_DEFAULT_ENABLED`] and warning in the latter
+/// case with `entry` — the file's own name — for the user to find.
+fn webgl_enabled(value: &Option<toml::Value>, entry: &str) -> bool {
+    match value {
+        None => WEBGL_DEFAULT_ENABLED,
+        Some(toml::Value::Boolean(enabled)) => *enabled,
+        Some(other) => {
+            tracing::warn!(
+                entry,
+                value = %other,
+                "the webgl key is not true or false; defaulting it to enabled"
+            );
+            WEBGL_DEFAULT_ENABLED
+        }
+    }
 }
 
 /// Reads presets from a folder of `*.toml` files, one per game.
@@ -228,6 +258,7 @@ fn read_preset_file(path: &Path) -> Result<Preset, PresetFileError> {
         None => None,
     };
     let zoom = ZoomLevel::new(file.zoom)?;
+    let webgl_enabled = webgl_enabled(&file.webgl, &file_name_of(path));
 
     Ok(Preset {
         id: PresetId::new(stem_of(path)),
@@ -236,6 +267,7 @@ fn read_preset_file(path: &Path) -> Result<Preset, PresetFileError> {
         browser_identity,
         zoom,
         keep_awake_default: file.keep_awake,
+        webgl_enabled,
     })
 }
 
@@ -251,4 +283,30 @@ fn stem_of(path: &Path) -> String {
         .and_then(|stem| stem.to_str())
         .unwrap_or_default()
         .to_owned()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_preset_file_with_no_webgl_key_defaults_the_field_to_enabled() {
+        let absent = None;
+
+        assert!(webgl_enabled(&absent, "huntera.toml"));
+    }
+
+    #[test]
+    fn a_webgl_key_set_false_reads_back_as_disabled() {
+        let disabled = Some(toml::Value::Boolean(false));
+
+        assert!(!webgl_enabled(&disabled, "huntera.toml"));
+    }
+
+    #[test]
+    fn a_non_boolean_webgl_key_falls_back_to_enabled() {
+        let nonsense = Some(toml::Value::String("yes".to_owned()));
+
+        assert!(webgl_enabled(&nonsense, "huntera.toml"));
+    }
 }

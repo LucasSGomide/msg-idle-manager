@@ -79,11 +79,11 @@ rendering for memory in the one direction the comparison says is wrong.
 
 ## Acceptance criteria
 
-- [ ] `(unit)` a preset carries a WebGL field and a preset that does not set it
+- [x] `(unit)` a preset carries a WebGL field and a preset that does not set it
       defaults to enabled
-- [ ] `(integration)` a preset file with the WebGL key set false reads back as
+- [x] `(integration)` a preset file with the WebGL key set false reads back as
       disabled, and one without the key reads back as enabled
-- [ ] `(integration)` a preset file whose WebGL key holds a non-boolean falls
+- [x] `(integration)` a preset file whose WebGL key holds a non-boolean falls
       back to enabled with a warning naming the file, and the file's other
       fields still load
 - [ ] `(manual)` in a release build with the switch unset, right-click offers no

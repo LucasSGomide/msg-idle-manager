@@ -138,6 +138,10 @@ pub struct Session {
     liveness: Liveness,
     is_kept_awake: bool,
     browser_identity: Option<String>,
+    /// Whether this account's pages get a WebGL context, copied from its preset
+    /// at creation (`FR.19.7`). A typed-address account gets `true` — the
+    /// engine's own default — since there is no preset to say otherwise.
+    is_webgl_enabled: bool,
     /// The size the game's file asked for, copied at creation and never changed
     /// by a gesture — the baseline `Ctrl`+`0` returns to (`FR.11.2`).
     preset_zoom: ZoomLevel,
@@ -190,6 +194,13 @@ impl Session {
     #[must_use]
     pub fn browser_identity(&self) -> Option<&str> {
         self.browser_identity.as_deref()
+    }
+
+    /// Whether this account's pages should be given a WebGL context, copied
+    /// from its preset at creation (`FR.19.7`).
+    #[must_use]
+    pub fn is_webgl_enabled(&self) -> bool {
+        self.is_webgl_enabled
     }
 
     /// The size the game's file asked for, copied at creation and never changed
@@ -297,6 +308,10 @@ impl SessionBook {
                 start_address: account.start_address,
                 is_kept_awake: account.is_kept_awake,
                 browser_identity: account.browser_identity,
+                // The workspace does not persist WebGL yet; a restored account
+                // returns on the engine's default and a preset that disables it
+                // re-applies on the next add. TODO(05): persist it on Account.
+                is_webgl_enabled: true,
                 preset_zoom: account.zoom,
                 remembered_zoom: RememberedZoom::new(),
             })
@@ -423,6 +438,7 @@ impl SessionBook {
             liveness: Liveness::Live,
             is_kept_awake: false,
             browser_identity: None,
+            is_webgl_enabled: true,
             preset_zoom: ZoomLevel::DEFAULT,
             remembered_zoom: RememberedZoom::new(),
         });
@@ -454,6 +470,7 @@ impl SessionBook {
             liveness: Liveness::Live,
             is_kept_awake: false,
             browser_identity: preset.browser_identity.clone(),
+            is_webgl_enabled: preset.webgl_enabled,
             preset_zoom: preset.zoom,
             remembered_zoom: RememberedZoom::new(),
         });
@@ -1242,6 +1259,7 @@ mod tests {
             browser_identity: Some("PresetUA/1.0".to_owned()),
             zoom: ZoomLevel::new(0.8).expect("0.8 is an accepted multiplier"),
             keep_awake_default: false,
+            webgl_enabled: true,
         }
     }
 
@@ -1287,6 +1305,28 @@ mod tests {
         let id = book.add_from_preset("Alt", &preset);
 
         assert_eq!(session(&book, &id).browser_identity(), None);
+    }
+
+    #[test]
+    fn an_account_from_a_preset_with_webgl_disabled_carries_that_forward() {
+        let mut book = SessionBook::new();
+        let preset = Preset {
+            webgl_enabled: false,
+            ..a_preset()
+        };
+
+        let id = book.add_from_preset("Alt", &preset);
+
+        assert!(!session(&book, &id).is_webgl_enabled());
+    }
+
+    #[test]
+    fn a_typed_address_account_gets_a_webgl_context() {
+        let mut book = SessionBook::new();
+
+        let id = book.add("Typed", "https://example.test/typed");
+
+        assert!(session(&book, &id).is_webgl_enabled());
     }
 
     #[test]

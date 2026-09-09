@@ -61,5 +61,5 @@ before the budget is measured, and the soak's figures to write beside it.
 | [04](04-the-sidebar-footer.md) | The sidebar footer | front-end | 01, 02 | 0/10 | not-started |
 | [05](05-the-soak-and-what-it-found.md) | The soak, and whether it is a leak | measurement | 03 | 0/7 | not-started |
 | [06](06-telling-the-engine-it-has-a-limit.md) | Telling the engine it has a limit | front-end | 05 | 0/7 | not-started |
-| [07](07-diagnostics-off-and-webgl-per-game.md) | Diagnostics off by default, WebGL per game | full-stack | 03 | 0/8 | not-started |
+| [07](07-diagnostics-off-and-webgl-per-game.md) | Diagnostics off by default, WebGL per game | full-stack | 03 | 3/8 | in-progress |
 | [08](08-the-budget-and-the-warning.md) | The budget, measured against the browser, and the warning | full-stack | 04, 05, 06, 07 | 0/9 | not-started |
