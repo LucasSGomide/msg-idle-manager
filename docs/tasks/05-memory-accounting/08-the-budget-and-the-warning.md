@@ -77,13 +77,22 @@ toggled from the answer.
 
 ## Acceptance criteria
 
-- [ ] `(manual)` `docs/memory-budget.md` records three games measured in both
+_Descoped by user decision (2026-09-12): the three-games-in-both app-and-browser
+measurement below was not run in this environment. `MEMORY_BUDGET_MIB`
+(`crates/idle-manager-shell/src/memory_footer.rs:40`) is left at `None` until
+it is — the warning stays permanently off (`is_over_budget` returns `false`
+whenever the budget is `None`, per its own test) rather than shipping a
+guessed number. The four criteria below it depend on a real budget being set
+to force the tint on, so they are also open pending that measurement, not
+independently verified here._
+
+- [ ] ~~`(manual)` `docs/memory-budget.md` records three games measured in both
       this application and the browser, on one machine, naming machine, memory,
-      engine version, browser version and build profile
-- [ ] `(manual)` both columns are the same statistic, taken with the same
-      script, and the doc says so
-- [ ] `(manual)` the budget threshold is stated with the sentence explaining
-      which measurement produced it
+      engine version, browser version and build profile~~ — descoped
+- [ ] ~~`(manual)` both columns are the same statistic, taken with the same
+      script, and the doc says so~~ — descoped
+- [ ] ~~`(manual)` the budget threshold is stated with the sentence explaining
+      which measurement produced it~~ — descoped
 - [x] `(unit)` the budget is a named constant carrying its unit and the footer
       reads its verdict from the core rather than comparing figures itself
 - [ ] `(manual)` with the budget set below the current total, the footer takes

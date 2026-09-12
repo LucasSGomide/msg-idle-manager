@@ -86,10 +86,22 @@ rendering for memory in the one direction the comparison says is wrong.
 - [x] `(integration)` a preset file whose WebGL key holds a non-boolean falls
       back to enabled with a warning naming the file, and the file's other
       fields still load
+_2026-09-12: right-click and F12 both did nothing in either build profile.
+Root cause found and fixed on this branch — `WebKitGTK` binds no key of its
+own to open the inspector (F12/Ctrl+Shift+I are conventions each browser
+wires up itself), and a game's own right-click handler can suppress the
+native "Inspect Element" item the same way it would in a real browser.
+`web_view.rs` now wires F12 directly to `get_inspector().show()`, gated by
+the same `diagnostics_enabled()` switch. Confirmed headlessly that
+`show()`/the `open-window` path actually opens an inspector web view on this
+`WebKitGTK` build (python-gi harness, bare `WebKit.WebView`); not yet
+confirmed against the real app with a live account, which is what the three
+criteria below still need._
+
 - [ ] `(manual)` in a release build with the switch unset, right-click offers no
       Inspect Element and no per-resource lines appear in the log
-- [ ] `(manual)` with the switch set, the inspector opens and the per-resource
-      lines return
+- [ ] `(manual)` with the switch set, F12 opens the inspector and the
+      per-resource lines return
 - [ ] `(manual)` a debug build keeps both without the switch being set
 - [ ] `(manual)` an account whose preset disables WebGL loads and plays its
       game, and one whose preset enables it is unchanged from before this slice
