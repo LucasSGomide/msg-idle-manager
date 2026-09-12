@@ -4,6 +4,7 @@
 use std::cell::OnceCell;
 use std::path::Path;
 
+use gtk::glib;
 use gtk4 as gtk;
 use webkit6::prelude::*;
 use webkit6::{
@@ -340,6 +341,31 @@ fn configure(view: &WebView) {
 
     view.connect_create(|opener, action| Some(open_popup(opener, action)));
     wire_diagnostics(view);
+    wire_inspector_key(view);
+}
+
+/// Binds F12 to open the inspector, when diagnostics are on.
+///
+/// `WebKitGTK` gives no key binding of its own for this — F12 and
+/// Ctrl+Shift+I are conventions each browser wires up itself, not something
+/// the engine or GTK provide — and a page's own right-click handler can call
+/// `preventDefault()` on `contextmenu`, which suppresses `WebKit`'s native
+/// "Inspect Element" item the same way it would in a real browser. Without
+/// this, `set_enable_developer_extras` turns on an inspector backend with no
+/// way to reach it (`FR.19.6`).
+fn wire_inspector_key(view: &WebView) {
+    let view_for_key = view.clone();
+    let controller = gtk::EventControllerKey::new();
+    controller.connect_key_pressed(move |_, key, _, _| {
+        if key != gtk::gdk::Key::F12 || !diagnostics_enabled() {
+            return glib::Propagation::Proceed;
+        }
+        if let Some(inspector) = view_for_key.inspector() {
+            inspector.show();
+        }
+        glib::Propagation::Stop
+    });
+    view.add_controller(controller);
 }
 
 /// Applies the two view settings an account carries from its preset: the page
