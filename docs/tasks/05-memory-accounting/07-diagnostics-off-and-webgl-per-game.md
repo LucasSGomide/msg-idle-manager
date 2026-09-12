@@ -109,11 +109,12 @@ with the fix in place._
 - [x] `(manual)` an account whose preset disables WebGL loads and plays its
       game, and one whose preset enables it is unchanged from before this
       slice — confirmed by the user, live (2026-09-12)
-- [ ] ~~`(manual)` the same game measured with `make memory-report` before and
-      after this slice records both figures in the runbook~~ — descoped by
-      user decision (2026-09-12): no paired before/after (WebGL on vs. off,
-      same game) figure exists, only general snapshots taken across the
-      session's testing
+- [x] `(manual)` the same game measured with `make memory-report` before and
+      after this slice records both figures in the runbook — two 4-account
+      runs (WebGL off: 2,534,499 KiB total; WebGL on: 2,416,637 KiB total)
+      recorded in `docs/memory-budget.md`, "WebGL per game"; the finding is
+      inconclusive rather than a clean win, since in-game activity swings a
+      rendering process by tens of megabytes independent of the setting
 
 ## References
 

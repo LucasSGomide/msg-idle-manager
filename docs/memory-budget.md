@@ -300,3 +300,38 @@ describes needs its own fix, which is the static leak audit above and
 whatever the descendant-process leak in WebKit or the game pages themselves
 turns out to be (out of scope for this session; not a claim this repository's
 code causes it).
+
+## WebGL per game (task 07)
+
+Two `make memory-report` runs, same machine and engine as above, 4 accounts
+live in each, taken minutes apart on 2026-09-12:
+
+**WebGL off** (all four presets' `webgl` key set `false`):
+
+```
+own                 75448 KiB
+descendants       2459051 KiB
+total             2534499 KiB
+processes              26
+```
+
+**WebGL on** (the same four presets, `webgl` key removed/`true`):
+
+```
+own                 80505 KiB
+descendants       2336132 KiB
+total             2416637 KiB
+processes              26
+```
+
+The totals do not show WebGL off as cheaper — if anything the on-run reads
+slightly lower here. Read as inconclusive rather than as evidence WebGL
+costs nothing: each `WebKitWebProces` figure swings by tens of megabytes
+between runs (up to ~135 MiB on one process across the two samples), and the
+observation during measurement was that in-game activity — e.g. spell
+effects — spikes a rendering process well above its baseline independent of
+WebGL. A four-account, mixed-activity snapshot is not a controlled
+same-game-same-moment comparison, so this does not settle whether disabling
+WebGL saves anything measurable for a game that does not need it; it is
+recorded here because it is the only paired measurement taken, not because it
+proves the feature's premise.

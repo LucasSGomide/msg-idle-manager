@@ -12,4 +12,4 @@ item's header carries `Landed:` or `Merged:`. Items 01–04, 06, 07 and 09 are `
 
 | # | Roadmap item | Tasks | Progress | Status |
 |---|---|---|---|---|
-| [05](05-memory-accounting/) | Memory accounting and performance | 8 | 2/8 | in-progress |
+| [05](05-memory-accounting/) | Memory accounting and performance | 8 | 3/8 | in-progress |
