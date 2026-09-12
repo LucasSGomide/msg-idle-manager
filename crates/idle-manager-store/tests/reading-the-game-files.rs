@@ -192,3 +192,44 @@ fn the_real_presets_directory_sits_under_xdg_config_not_data() {
         dirs.data_dir().display(),
     );
 }
+
+#[test]
+fn a_webgl_key_set_false_reads_back_disabled_and_a_file_without_the_key_reads_back_enabled() {
+    let dir = TempDir::new("presets-webgl");
+    dir.write(
+        "off.toml",
+        "name = \"Off\"\nurl = \"https://off.test/\"\nzoom = 1.0\nkeep_awake = false\nwebgl = false\n",
+    );
+    dir.write("huntera.toml", HUNTERA);
+
+    let reading = TomlPresetCatalogue::under(dir.path()).read();
+
+    let webgl: Vec<(&str, bool)> = reading
+        .presets
+        .iter()
+        .map(|preset| (preset.display_name.as_str(), preset.webgl_enabled))
+        .collect();
+    assert_eq!(webgl, [("Huntera", true), ("Off", false)]);
+}
+
+#[test]
+fn a_non_boolean_webgl_key_falls_back_to_enabled_and_the_other_fields_still_load() {
+    let dir = TempDir::new("presets-webgl-bad");
+    dir.write(
+        "weird.toml",
+        "name = \"Weird\"\nurl = \"https://weird.test/\"\nzoom = 0.8\nkeep_awake = true\nwebgl = \"yes\"\n",
+    );
+
+    let reading = TomlPresetCatalogue::under(dir.path()).read();
+
+    let preset = &reading.presets[0];
+    assert_eq!(
+        (
+            reading.failures.len(),
+            preset.webgl_enabled,
+            preset.keep_awake_default,
+            preset.zoom,
+        ),
+        (0, true, true, ZoomLevel::new(0.8).expect("0.8 is accepted")),
+    );
+}

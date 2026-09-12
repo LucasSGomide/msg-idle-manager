@@ -77,24 +77,16 @@ toggled from the answer.
 
 ## Acceptance criteria
 
-- [ ] `(manual)` `docs/memory-budget.md` records three games measured in both
-      this application and the browser, on one machine, naming machine, memory,
-      engine version, browser version and build profile
-- [ ] `(manual)` both columns are the same statistic, taken with the same
-      script, and the doc says so
-- [ ] `(manual)` the budget threshold is stated with the sentence explaining
-      which measurement produced it
-- [ ] `(unit)` the budget is a named constant carrying its unit and the footer
+Removed by user decision (2026-09-12): the three-games-in-both app-and-browser
+measurement, and the four warning-tint checks that depend on a real budget
+being set. `MEMORY_BUDGET_MIB` (`crates/idle-manager-shell/src/memory_footer.rs:40`)
+stays `None` — the warning stays permanently off (`is_over_budget` returns
+`false` whenever the budget is `None`, per its own test) rather than shipping
+a guessed number.
+
+- [x] `(unit)` the budget is a named constant carrying its unit and the footer
       reads its verdict from the core rather than comparing figures itself
-- [ ] `(manual)` with the budget set below the current total, the footer takes
-      the warning tint and shows one line naming the budget
-- [ ] `(manual)` no figure moves, resizes or reorders when the warning appears,
-      and no action button appears anywhere in the block
-- [ ] `(manual)` parking an account back under the budget clears the tint and
-      the line on the next sample, with nothing dismissed
-- [ ] `(manual)` the warning never parks, reloads or otherwise changes an
-      account by itself across a run that crosses the budget repeatedly
-- [ ] `(unit)` `docs/design.md` carries both new rules, and the second states
+- [x] `(unit)` `docs/design.md` carries both new rules, and the second states
       how it differs from rule 9's message strip
 
 ## References

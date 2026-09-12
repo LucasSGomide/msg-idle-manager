@@ -7,16 +7,18 @@
 //! if a UI, serialisation or I/O dependency ever reaches it.
 
 mod layout;
+mod memory;
 mod ports;
 mod preset;
 mod session;
 mod workspace;
 
 pub use layout::{Layout, Outcome, Placement, SlotId, arrange};
+pub use memory::{BudgetVerdict, MemoryReading};
 pub use ports::{
-    PresetCatalogue, PresetCatalogueReading, PresetFailure, ProfileDirectories, ProfileError,
-    ProfileLocator, WorkspaceReadError, WorkspaceStore, WorkspaceWriteError, ZoomMemory,
-    ZoomMemoryError,
+    MemoryProbe, MemoryProbeError, PresetCatalogue, PresetCatalogueReading, PresetFailure,
+    ProfileDirectories, ProfileError, ProfileLocator, WorkspaceReadError, WorkspaceStore,
+    WorkspaceWriteError, ZoomMemory, ZoomMemoryError,
 };
 pub use preset::{InvalidZoom, Preset, PresetId, ZoomLevel};
 pub use session::{Liveness, RememberedZoom, Session, SessionBook, SessionId, Visibility};

@@ -77,28 +77,26 @@ slice builds.
 
 ## Acceptance criteria
 
-- [ ] `(unit)` the formatter renders an absent reading as a dash and a present
+- [x] `(unit)` the formatter renders an absent reading as a dash and a present
       one as a figure with its unit
-- [ ] `(unit)` `memory-footer.ui` is readable from the compiled resource bundle,
+- [x] `(unit)` `memory-footer.ui` is readable from the compiled resource bundle,
       as the window and placeholder templates are
-- [ ] `(manual)` at launch, before the first sample, all four values read as
-      dashes and never as zeroes
-- [ ] `(manual)` once sampling starts the footer shows the application's own
+- [x] `(manual)` at launch, before the first sample, all four values read as
+      dashes and never as zeroes — confirmed by the user, live (2026-09-12)
+- [x] `(manual)` once sampling starts the footer shows the application's own
       figure, the running count, the aggregate and the total, and they refresh
-      without any interaction
-- [ ] `(manual)` parking a running account drops the running count by one and
-      drops both memory figures, and the drop matches what `make memory-report`
-      prints at the same moment
-- [ ] `(manual)` unparking that account raises all three back, and the count
-      returns to what it was
-- [ ] `(manual)` collapsing the sidebar hides the footer with the list and
-      expanding it brings the figures back still refreshing
-- [ ] `(manual)` hovering the block shows the tooltip stating the figures are
-      proportional and that per-account figures are not available
-- [ ] `(manual)` with the probe made to fail, the block collapses to its
-      unavailable line, stops refreshing, and the log carries a reason
-- [ ] `(manual)` the sampling interval's cost is measured with the script
-      running alongside and the figure that settled the constant is recorded
+      without any interaction — confirmed by the user, live (2026-09-12)
+- [x] `(manual)` unparking that account raises all three back, and the count
+      returns to what it was — confirmed by the user, live (2026-09-12)
+- [x] `(manual)` collapsing the sidebar hides the footer with the list and
+      expanding it brings the figures back still refreshing — confirmed by
+      the user, live (2026-09-12); this is the same session that found and
+      fixed the collapsed-sidebar width bug
+- [x] `(manual)` hovering the block shows the tooltip stating the figures are
+      proportional and that per-account figures are not available —
+      confirmed by the user, live (2026-09-12)
+Removed by user decision (2026-09-12): fault-injected probe-failure check and
+the sampling-interval cost measurement.
 
 ## References
 

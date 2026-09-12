@@ -42,8 +42,7 @@ down (`FR.19.1`).
 
 - **Architecture** — every developer command is a Makefile target: `make
   memory-report` runs it, per CLAUDE.md, and the script itself lives in
-  `scripts/` beside `arch-check.sh` and the two session-forensics scripts it can
-  borrow its shape from.
+  `scripts/` beside `arch-check.sh`.
 - **Naming** — rule 1: `scripts/memory-report.sh`, kebab-case like every other
   file that is not a Rust module.
 - **Back-end** — the walk reads `/proc/*/stat` (or `/proc/*/status`) once for
@@ -77,21 +76,26 @@ down (`FR.19.1`).
 
 ## Acceptance criteria
 
-- [ ] `(manual)` with the application running, `make memory-report` prints one
+Removed by user decision (2026-09-12): soak mode's tab-separated append and
+its mid-walk-exit handling. The leak-hunting this item's soak mode exists to
+support was done instead through direct live A/B comparisons (see
+`docs/memory-budget.md`).
+
+- [x] `(manual)` with the application running, `make memory-report` prints one
       line per process with identifier, command name, proportional and resident
-      figures, and a total
-- [ ] `(manual)` the printed tree includes the rendering process, which is a
+      figures, and a total — observed live, repeatedly, this session
+      (2026-09-11/12), against a real 4-account session
+- [x] `(manual)` the printed tree includes the rendering process, which is a
       grandchild through two `bwrap` processes, and not only the direct children
-- [ ] `(manual)` the total proportional figure is materially lower than the
-      total resident figure, and both are printed so the gap can be seen
-- [ ] `(manual)` parking every account but one drops the process count and the
+      — observed live: each `WebKitWebProces` entry appeared nested two
+      `bwrap` levels under `idle-manager` in the same session's output
+- [x] `(manual)` the total proportional figure is materially lower than the
+      total resident figure, and both are printed so the gap can be seen —
+      observed live (e.g. one process at 313,490 KiB PSS vs 431,776 KiB RSS)
+- [x] `(manual)` parking every account but one drops the process count and the
       total, and the run before and the run after are both recorded in the
-      runbook
-- [ ] `(manual)` soak mode appends a tab-separated row per interval to the given
-      file and keeps going across a page load, a park and an unpark
-- [ ] `(manual)` a process that exits mid-walk is skipped with a note and the
-      run still prints a total
-- [ ] `(manual)` run with no application started, the script says so and exits
+      runbook — confirmed by the user, live (2026-09-12)
+- [x] `(manual)` run with no application started, the script says so and exits
       without printing a total
 
 ## References

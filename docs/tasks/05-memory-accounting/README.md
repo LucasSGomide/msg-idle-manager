@@ -55,11 +55,11 @@ before the budget is measured, and the soak's figures to write beside it.
 
 | # | Task | Scope | Depends on | Criteria | Status |
 |---|---|---|---|---|---|
-| [01](01-the-reading-and-the-budget-verdict.md) | The reading, the port and the budget verdict | back-end | — | 0/7 | not-started |
-| [02](02-walking-the-process-tree.md) | Walking the process tree and reading its proportional memory | back-end | 01, 03 | 0/8 | not-started |
-| [03](03-the-memory-report-script.md) | The memory report script and its soak mode | tooling | — | 0/7 | not-started |
-| [04](04-the-sidebar-footer.md) | The sidebar footer | front-end | 01, 02 | 0/10 | not-started |
-| [05](05-the-soak-and-what-it-found.md) | The soak, and whether it is a leak | measurement | 03 | 0/7 | not-started |
-| [06](06-telling-the-engine-it-has-a-limit.md) | Telling the engine it has a limit | front-end | 05 | 0/7 | not-started |
-| [07](07-diagnostics-off-and-webgl-per-game.md) | Diagnostics off by default, WebGL per game | full-stack | 03 | 0/8 | not-started |
-| [08](08-the-budget-and-the-warning.md) | The budget, measured against the browser, and the warning | full-stack | 04, 05, 06, 07 | 0/9 | not-started |
+| [01](01-the-reading-and-the-budget-verdict.md) | The reading, the port and the budget verdict | back-end | — | 7/7 | done |
+| [02](02-walking-the-process-tree.md) | Walking the process tree and reading its proportional memory | back-end | 01, 03 | 8/8 | done |
+| [03](03-the-memory-report-script.md) | The memory report script and its soak mode | tooling | — | 5/5 | done |
+| [04](04-the-sidebar-footer.md) | The sidebar footer | front-end | 01, 02 | 7/7 | done |
+| [05](05-the-soak-and-what-it-found.md) | The soak, and whether it is a leak | measurement | 03 | 3/3 | done |
+| [06](06-telling-the-engine-it-has-a-limit.md) | Telling the engine it has a limit | front-end | 05 | 4/4 | done |
+| [07](07-diagnostics-off-and-webgl-per-game.md) | Diagnostics off by default, WebGL per game | full-stack | 03 | 8/8 | done |
+| [08](08-the-budget-and-the-warning.md) | The budget, measured against the browser, and the warning | full-stack | 04, 05, 06, 07 | 2/2 | done |

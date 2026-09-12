@@ -6,6 +6,7 @@
     <file compressed="true" preprocess="xml-stripblanks">ui/session-sidebar.ui</file>
     <file compressed="true" preprocess="xml-stripblanks">ui/slot-placeholder.ui</file>
     <file compressed="true" preprocess="xml-stripblanks">ui/message-strip.ui</file>
+    <file compressed="true" preprocess="xml-stripblanks">ui/memory-footer.ui</file>
     <file compressed="true">css/sidebar.css</file>
     <file compressed="true">css/session-grid.css</file>
     <file compressed="true" preprocess="xml-stripblanks">ui/add-game-dialog.ui</file>

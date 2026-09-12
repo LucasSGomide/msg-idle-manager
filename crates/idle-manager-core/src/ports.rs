@@ -3,9 +3,59 @@
 
 use std::path::PathBuf;
 
+use crate::memory::MemoryReading;
 use crate::preset::Preset;
 use crate::session::{RememberedZoom, SessionId};
 use crate::workspace::Workspace;
+
+/// A memory sample could not be taken.
+///
+/// Two cases a caller must tell apart, because the shell shows the same
+/// unavailable footer for both but logs a different reason (code standards
+/// rule 15): the system refused to let us look, or it showed us something we
+/// could not read. A crate that flattened them into one error would make the
+/// log useless at the one moment it is needed.
+#[derive(Debug, Clone, thiserror::Error)]
+pub enum MemoryProbeError {
+    /// The measurement was refused — a file that is not there, or a permission
+    /// denied. `reason` is one line ready to log.
+    #[error("the memory measurement was refused: {reason}")]
+    Refused {
+        /// One line describing what was refused.
+        reason: String,
+    },
+    /// The kernel produced output the probe could not parse. `reason` is one
+    /// line ready to log.
+    #[error("the memory measurement could not be read: {reason}")]
+    Unreadable {
+        /// One line describing what would not parse.
+        reason: String,
+    },
+}
+
+/// Someone who can be asked what the application currently costs in memory.
+///
+/// Named for the capability, not the technology (naming rule 10): the core asks
+/// for a `MemoryProbe` and `idle-manager-metrics` supplies a `ProcPssProbe`
+/// that reads `/proc`. Rule 1 is why the port exists at all —
+/// `scripts/arch-check.sh` forbids the core from reading `/proc` — and rule 6
+/// is met twice over, because the footer's formatting and its verdict both need
+/// a test that does not depend on a machine having games running.
+///
+/// `Send + Sync` so the shell can hand a sample to a worker thread and keep the
+/// GTK main context free while `/proc` is read for every process on the machine
+/// (architecture rule 10).
+pub trait MemoryProbe: std::fmt::Debug + Send + Sync {
+    /// Takes a reading now: the application's own figure, its descendants', and
+    /// the count of processes that contributed.
+    ///
+    /// # Errors
+    ///
+    /// [`MemoryProbeError::Refused`] if the system would not let the probe
+    /// look, [`MemoryProbeError::Unreadable`] if it looked and could not parse
+    /// what it saw.
+    fn sample(&self) -> Result<MemoryReading, MemoryProbeError>;
+}
 
 /// The data and cache directories that belong to one session.
 #[derive(Debug, Clone, PartialEq, Eq)]

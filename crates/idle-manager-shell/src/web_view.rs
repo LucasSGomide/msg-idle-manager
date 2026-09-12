@@ -4,6 +4,7 @@
 use std::cell::OnceCell;
 use std::path::Path;
 
+use gtk::glib;
 use gtk4 as gtk;
 use webkit6::prelude::*;
 use webkit6::{
@@ -39,6 +40,43 @@ const POPUP_WIDTH: i32 = 480;
 /// The size an authentication popup opens at before its own page resizes it.
 const POPUP_HEIGHT: i32 = 680;
 
+/// Setting this in the environment turns the memory-costing diagnostics —
+/// the web inspector backend and per-resource load logging — back on in a
+/// release run (`FR.19.6`). A debug build has them regardless.
+const DIAGNOSTICS_ENV: &str = "IDLE_MANAGER_DIAGNOSTICS";
+
+/// Whether the diagnostics that cost memory in every account should be on.
+///
+/// The inspector backend makes the engine instrument every page differently,
+/// and the two per-resource signal handlers are attached for every resource a
+/// page loads — a cost that scales with uptime, not with account count, which
+/// is the worst shape a cost can have in an application meant to be left
+/// running for days (`FR.19.6`, code standards rule 18). On in a debug build,
+/// where anyone debugging already is; otherwise only when the environment asks,
+/// through the same channel the tracing filter reads.
+fn diagnostics_enabled() -> bool {
+    cfg!(debug_assertions) || std::env::var_os(DIAGNOSTICS_ENV).is_some()
+}
+
+/// Whether the page-console bridge ([`register_page_console_handler`]) should
+/// forward a page's `console.*` output into `tracing`.
+///
+/// Deliberately **not** [`diagnostics_enabled`], even though it gates the same
+/// environment variable and the two switches otherwise read the same:
+/// [`diagnostics_enabled`] is `true` in every debug build unconditionally, and
+/// a debug build (`make dev`) is exactly how this application is actually run
+/// for real, day-long accounts (`docs/memory-budget.md`, "round 3") — so
+/// reusing it here would leave the leak this switch exists to stop turned on
+/// in precisely the scenario that found it. This one reads the same
+/// environment variable but never turns on `cfg!(debug_assertions)`-only,
+/// because doing so on every `console.log` the whole time an account runs is
+/// not a bounded diagnostics cost the way the inspector backend or
+/// resource-load logging are — it does not settle (see
+/// [`register_page_console_handler`]'s doc comment for the measurement).
+fn page_console_forwarding_enabled() -> bool {
+    std::env::var_os(DIAGNOSTICS_ENV).is_some()
+}
+
 /// The engine's own switch that stretches out a hidden page's timers. Read off
 /// this machine's [`log_engine_features`] start-up log — `WebKitGTK` 2.52.6,
 /// `webkit6` 0.6.1, on 2026-09-06 — not published anywhere the crate can read
@@ -50,6 +88,23 @@ const FEATURE_ID_HIDDEN_PAGE_TIMER_THROTTLING: &str = "HiddenPageDOMTimerThrottl
 /// off the same start-up log, same engine build, same date as
 /// [`FEATURE_ID_HIDDEN_PAGE_TIMER_THROTTLING`].
 const FEATURE_ID_HIDDEN_PAGE_CSS_ANIMATION_SUSPENSION: &str = "HiddenPageCSSAnimationSuspension";
+
+/// The view settings an account carries from its preset: the page zoom, the
+/// browser identity (or `None` for the engine's own), and whether its pages get
+/// a WebGL context.
+///
+/// One value rather than three positional arguments, so a fourth preset-derived
+/// setting is a field rather than another parameter on every constructor
+/// (`FR.19.7`).
+#[derive(Debug, Clone)]
+pub struct AccountSettings {
+    /// How large to draw the account's pages.
+    pub zoom: ZoomLevel,
+    /// The identity to present, or `None` for the engine's own (`FR.10.5`).
+    pub identity: Option<String>,
+    /// Whether the account's pages get a WebGL context (`FR.19.7`).
+    pub webgl_enabled: bool,
+}
 
 /// One account's engine objects, held so the view can be destroyed and rebuilt
 /// without losing the account's storage.
@@ -69,16 +124,12 @@ pub struct SessionView {
     /// (`FR.6.1`). Remembered here, not just on the live view, so a view
     /// rebuilt by [`SessionView::start`] after a park carries it forward.
     keep_awake: bool,
-    /// How large to draw the page, copied from the account's preset. Remembered
-    /// here for the same reason as `keep_awake`: a view rebuilt after a park
-    /// must come back at the same size, not the engine's default (code
-    /// standards rule 18).
-    zoom: ZoomLevel,
-    /// The identity to present, or `None` for the engine's own. `None` is not a
-    /// string this crate substitutes — item 01 measured a Chrome claim breaking
-    /// a real sign-in, so the override is applied only when the account carries
-    /// one (`FR.10.5`). Remembered here for the same reason as `zoom`.
-    identity: Option<String>,
+    /// The zoom, identity and WebGL setting copied from the account's preset.
+    /// Remembered here, not just on the live view, so a view rebuilt by
+    /// [`SessionView::start`] after a park comes back with the same size,
+    /// identity and context rather than the engine's defaults (code standards
+    /// rule 18).
+    settings: AccountSettings,
     view: Option<WebView>,
 }
 
@@ -95,16 +146,14 @@ impl SessionView {
         id: &SessionId,
         directories: &ProfileDirectories,
         start_address: &str,
-        zoom: ZoomLevel,
-        identity: Option<&str>,
+        settings: AccountSettings,
     ) -> Self {
         Self {
             id: id.clone(),
             network_session: build_network_session(&directories.data, &directories.cache),
             start_address: start_address.to_owned(),
             keep_awake: false,
-            zoom,
-            identity: identity.map(str::to_owned),
+            settings,
             view: None,
         }
     }
@@ -118,10 +167,9 @@ impl SessionView {
         id: &SessionId,
         directories: &ProfileDirectories,
         start_address: &str,
-        zoom: ZoomLevel,
-        identity: Option<&str>,
+        settings: AccountSettings,
     ) -> Self {
-        let mut holder = Self::dormant(id, directories, start_address, zoom, identity);
+        let mut holder = Self::dormant(id, directories, start_address, settings);
         holder.start();
         holder
     }
@@ -163,13 +211,22 @@ impl SessionView {
     /// 0.6.1, `web_view.rs:163`) and cannot gain a document-start script
     /// afterwards (`FR.6.3`).
     pub fn start(&mut self) -> &WebView {
-        let view = WebView::builder()
+        let mut builder = WebView::builder()
             .network_session(&self.network_session)
-            .user_content_manager(&build_content_manager(self.keep_awake))
-            .build();
+            .user_content_manager(&build_content_manager(self.keep_awake));
+        // Built against the shared context carrying the memory-pressure settings
+        // (`FR.19.4`); a missing context means `configure_web_engine` has not
+        // run, and the engine's default is the same fallback the cache-model
+        // path takes (code standards rule 14).
+        if let Some(context) = crate::shared_web_context() {
+            builder = builder.web_context(&context);
+        } else {
+            tracing::warn!("no shared web context; view built on the engine default");
+        }
+        let view = builder.build();
 
         configure(&view);
-        apply_account_settings(&view, self.zoom, self.identity.as_deref());
+        apply_account_settings(&view, &self.settings);
         if self.keep_awake {
             apply_keep_awake(&view, true, &self.id);
         }
@@ -209,7 +266,7 @@ impl SessionView {
     /// account never leaves `Live`. Returns the live view, or `None` while the
     /// account is parked.
     pub fn set_zoom(&mut self, zoom: ZoomLevel) -> Option<&WebView> {
-        self.zoom = zoom;
+        self.settings.zoom = zoom;
         let view = self.view.as_ref()?;
         view.set_zoom_level(zoom.multiplier());
         Some(view)
@@ -268,19 +325,47 @@ fn configure(view: &WebView) {
     // ships with them on, and a game that renders wrong without them is a worse
     // failure than the quirk itself.
     settings.set_enable_site_specific_quirks(true);
-    settings.set_enable_webgl(true);
+    // WebGL per account is applied in `apply_account_settings` from the preset
+    // (`FR.19.7`); a popup, which never runs a game, keeps the engine default.
     // Right-click -> Inspect Element, for diagnosing a page that will not load
-    // or log in. Item 08 owns turning failures into UI; until then the inspector
-    // and the traces below are how a login problem gets looked at.
-    settings.set_enable_developer_extras(true);
+    // or log in — off in a release run unless asked for, because the engine
+    // instruments a page differently when something might attach (`FR.19.6`).
+    settings.set_enable_developer_extras(diagnostics_enabled());
     // Duplicates the page's own messages, which the bridge already reports, but
     // it is the only source of the engine's: "Blocked a frame with origin ...",
     // a load cancelled by a cross-origin policy, a mixed-content refusal. Those
     // never reach a page's `console` object, so overriding it cannot see them.
-    settings.set_enable_write_console_messages_to_stdout(cfg!(debug_assertions));
+    // Folded into the one diagnostics switch rather than a second, differently
+    // spelled notion of "we are debugging".
+    settings.set_enable_write_console_messages_to_stdout(diagnostics_enabled());
 
     view.connect_create(|opener, action| Some(open_popup(opener, action)));
     wire_diagnostics(view);
+    wire_inspector_key(view);
+}
+
+/// Binds F12 to open the inspector, when diagnostics are on.
+///
+/// `WebKitGTK` gives no key binding of its own for this — F12 and
+/// Ctrl+Shift+I are conventions each browser wires up itself, not something
+/// the engine or GTK provide — and a page's own right-click handler can call
+/// `preventDefault()` on `contextmenu`, which suppresses `WebKit`'s native
+/// "Inspect Element" item the same way it would in a real browser. Without
+/// this, `set_enable_developer_extras` turns on an inspector backend with no
+/// way to reach it (`FR.19.6`).
+fn wire_inspector_key(view: &WebView) {
+    let view_for_key = view.clone();
+    let controller = gtk::EventControllerKey::new();
+    controller.connect_key_pressed(move |_, key, _, _| {
+        if key != gtk::gdk::Key::F12 || !diagnostics_enabled() {
+            return glib::Propagation::Proceed;
+        }
+        if let Some(inspector) = view_for_key.inspector() {
+            inspector.show();
+        }
+        glib::Propagation::Stop
+    });
+    view.add_controller(controller);
 }
 
 /// Applies the two view settings an account carries from its preset: the page
@@ -294,14 +379,20 @@ fn configure(view: &WebView) {
 /// override is for — a game that turns the engine away turns away an engine with
 /// a suffix too. When `identity` is `None` neither setter is touched and the
 /// engine keeps its own (`FR.10.5`, code standards rule 18).
-fn apply_account_settings(view: &WebView, zoom: ZoomLevel, identity: Option<&str>) {
-    view.set_zoom_level(zoom.multiplier());
+fn apply_account_settings(view: &WebView, account: &AccountSettings) {
+    view.set_zoom_level(account.zoom.multiplier());
 
-    let Some(identity) = identity else {
-        return;
-    };
     let settings = webkit6::prelude::WebViewExt::settings(view)
         .expect("a web view always has a settings object");
+
+    // A graphics context is not free, and which games draw with WebGL is a fact
+    // about the game, kept in its preset file (`FR.19.7`). Applied before the
+    // first `load_uri` so a page is never drawn with a context it then loses.
+    settings.set_enable_webgl(account.webgl_enabled);
+
+    let Some(identity) = account.identity.as_deref() else {
+        return;
+    };
     settings.set_user_agent(Some(identity));
     tracing::debug!(user_agent = identity, "account identity override applied");
 }
@@ -334,13 +425,26 @@ fn copy_user_agent(opener: &WebView, popup: &WebView) {
 /// document-start script to a view afterwards (`FR.6.3`).
 fn build_content_manager(keep_awake: bool) -> UserContentManager {
     let content = UserContentManager::new();
-    register_page_console_handler(&content);
+    if page_console_forwarding_enabled() {
+        register_page_console_handler(&content);
+    }
     install_script_set(&content, keep_awake);
     content
 }
 
 /// Registers the handler [`PAGE_CONSOLE_JS`] posts to, forwarding the page's
 /// console output and uncaught errors into `tracing`.
+///
+/// Gated behind [`page_console_forwarding_enabled`] — off unless
+/// `IDLE_MANAGER_DIAGNOSTICS` is set, in *every* build profile. Measured
+/// (task 05, round 3 of the memory investigation, `docs/memory-budget.md`) to
+/// be the shell process's actual leak: no-opping this callback body entirely
+/// on a live account (Huntera, 4 accounts, 9-minute soak) took the shell's
+/// own PSS growth from roughly 690-1030 MB/hour down to about 0.45 MiB over
+/// 7+ minutes — noise-level flat. `PAGE_CONSOLE_JS`'s own guard
+/// (`if (!handler) return`) means the page never even installs the
+/// `console.*` overrides when this handler is not registered, so turning
+/// this off removes the cost at both ends, not just the host side.
 ///
 /// A page's `console.error` is the page's problem, not the application's, so
 /// it arrives as a `warn`; everything quieter than that arrives below the
@@ -443,7 +547,12 @@ fn wire_diagnostics(view: &WebView) {
         false
     });
 
-    view.connect_resource_load_started(log_resource);
+    if diagnostics_enabled() {
+        // Two signal handlers per resource, for a failure that almost never
+        // comes, on a page that loads resources for as long as it runs
+        // (`FR.19.6`, code standards rule 18).
+        view.connect_resource_load_started(log_resource);
+    }
     view.connect_script_dialog(log_script_dialog);
     view.connect_permission_request(log_permission_request);
 

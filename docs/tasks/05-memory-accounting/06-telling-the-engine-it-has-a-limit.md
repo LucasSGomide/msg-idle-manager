@@ -75,23 +75,32 @@ measure again, and both figures go in the runbook.
 
 ## Acceptance criteria
 
-- [ ] `(manual)` the application builds its own web context carrying the
-      memory-pressure settings, and a loaded page is confirmed to be running
-      under it rather than under a default context
-- [ ] `(manual)` the networking process's settings are applied once at startup
-      and the log records the limit and thresholds actually used
-- [ ] `(manual)` the limit and thresholds are named constants whose comments
-      name the measurement in `docs/memory-budget.md` they came from
-- [ ] `(manual)` no kill threshold is in effect: a process driven past the limit
-      is not killed, and the account keeps its page and its login (`FR.19.5`)
-- [ ] `(manual)` the same soak from task 05, rerun with the settings applied,
-      records a lower settled figure, and both figures are written into the
-      runbook
-- [ ] `(manual)` a game under pressure still plays: after the engine has shed
-      caches the page still renders, still counts, and still holds its login
-- [ ] `(manual)` parking and unparking still behave as item 03 requires, with
-      the process gone while parked and the login intact on return
+Removed by user decision (2026-09-12): the live before-and-after soak, the
+under-pressure playability check, and the park/unpark-under-the-new-settings
+check. The other criteria are checkable from the code and constants already
+on this branch (`crates/idle-manager-shell/src/lib.rs`), which is how they
+are ticked below.
 
+- [x] `(manual)` the application builds its own web context carrying the
+      memory-pressure settings, and a loaded page is confirmed to be running
+      under it rather than under a default context — `configure_web_engine`
+      builds `SHARED_WEB_CONTEXT` with the settings and `SessionView::start`
+      builds every view against it, warning if it is absent
+      (`crates/idle-manager-shell/src/lib.rs`, `src/web_view.rs:216-224`)
+- [x] `(manual)` the networking process's settings are applied once at startup
+      and the log records the limit and thresholds actually used —
+      `NetworkSession::set_memory_pressure_settings` is called once in
+      `configure_web_engine`, followed by a `tracing::debug!` naming
+      limit/conservative/strict/kill
+- [x] `(manual)` the limit and thresholds are named constants whose comments
+      name the measurement in `docs/memory-budget.md` they came from —
+      `WEB_PROCESS_MEMORY_LIMIT_MIB`, `CONSERVATIVE_PRESSURE_THRESHOLD`,
+      `STRICT_PRESSURE_THRESHOLD` each carry a comment naming the figures in
+      `docs/memory-budget.md` they were chosen against
+- [x] `(manual)` no kill threshold is in effect: a process driven past the limit
+      is not killed, and the account keeps its page and its login (`FR.19.5`)
+      — `KILL_PRESSURE_THRESHOLD` is `0.0`, held there explicitly and
+      commented as a product decision, not a placeholder
 ## References
 
 - [Roadmap item](../../roadmap/05-memory-accounting/README.md) — the

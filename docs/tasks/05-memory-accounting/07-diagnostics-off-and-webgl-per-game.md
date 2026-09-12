@@ -79,22 +79,42 @@ rendering for memory in the one direction the comparison says is wrong.
 
 ## Acceptance criteria
 
-- [ ] `(unit)` a preset carries a WebGL field and a preset that does not set it
+- [x] `(unit)` a preset carries a WebGL field and a preset that does not set it
       defaults to enabled
-- [ ] `(integration)` a preset file with the WebGL key set false reads back as
+- [x] `(integration)` a preset file with the WebGL key set false reads back as
       disabled, and one without the key reads back as enabled
-- [ ] `(integration)` a preset file whose WebGL key holds a non-boolean falls
+- [x] `(integration)` a preset file whose WebGL key holds a non-boolean falls
       back to enabled with a warning naming the file, and the file's other
       fields still load
-- [ ] `(manual)` in a release build with the switch unset, right-click offers no
-      Inspect Element and no per-resource lines appear in the log
-- [ ] `(manual)` with the switch set, the inspector opens and the per-resource
-      lines return
-- [ ] `(manual)` a debug build keeps both without the switch being set
-- [ ] `(manual)` an account whose preset disables WebGL loads and plays its
-      game, and one whose preset enables it is unchanged from before this slice
-- [ ] `(manual)` the same game measured with `make memory-report` before and
-      after this slice records both figures in the runbook
+_2026-09-12: right-click and F12 both did nothing in either build profile.
+Root cause found and fixed on this branch — `WebKitGTK` binds no key of its
+own to open the inspector (F12/Ctrl+Shift+I are conventions each browser
+wires up itself), and a game's own right-click handler can suppress the
+native "Inspect Element" item the same way it would in a real browser.
+`web_view.rs` now wires F12 directly to `get_inspector().show()`, gated by
+the same `diagnostics_enabled()` switch. Confirmed headlessly that
+`show()`/the `open-window` path actually opens an inspector web view on this
+`WebKitGTK` build (python-gi harness, bare `WebKit.WebView`); the five
+criteria below were then confirmed by the user, live, against the real app
+with the fix in place._
+
+- [x] `(manual)` in a release build with the switch unset, right-click offers no
+      Inspect Element and no per-resource lines appear in the log — confirmed
+      by the user, live (2026-09-12)
+- [x] `(manual)` with the switch set, F12 opens the inspector and the
+      per-resource lines return — confirmed by the user, live (2026-09-12),
+      after this session's F12 fix
+- [x] `(manual)` a debug build keeps both without the switch being set —
+      confirmed by the user, live (2026-09-12)
+- [x] `(manual)` an account whose preset disables WebGL loads and plays its
+      game, and one whose preset enables it is unchanged from before this
+      slice — confirmed by the user, live (2026-09-12)
+- [x] `(manual)` the same game measured with `make memory-report` before and
+      after this slice records both figures in the runbook — two 4-account
+      runs (WebGL off: 2,534,499 KiB total; WebGL on: 2,416,637 KiB total)
+      recorded in `docs/memory-budget.md`, "WebGL per game"; the finding is
+      inconclusive rather than a clean win, since in-game activity swings a
+      rendering process by tens of megabytes independent of the setting
 
 ## References
 

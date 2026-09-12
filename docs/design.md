@@ -156,3 +156,38 @@ citations, so append rather than reorder.
     figure over any of them, because the arrangement asked for that change, not
     the person. A future acknowledgement of a different direct gesture uses this
     same shape rather than inventing a second.
+
+11. **Show a measured figure right-aligned to a shared edge, in the smaller type
+    at a fixed-width numeric style, rounded to one unit, and draw an unmeasured
+    one as an en dash — never a zero.** The sidebar's memory footer
+    (`memory_footer.rs`, wireframe `05-memory-accounting/wireframes/memory-footer.md`)
+    is the first place the application shows a number at all. Right-aligned to a
+    common edge so a column of figures can be compared and summed by eye; the
+    fixed-width numeric style (`.numeric`, the CSS `font-variant-numeric`) so a
+    digit changing on a sample never shifts its neighbour; rounded to the whole
+    unit — `MiB` for memory — because a footer is a glance and the conversion
+    from the stored kibibytes happens once, at the label, never on the way in. A
+    value with no measurement behind it is `–`, because a `0` is a claim that a
+    measurement was taken and came back empty. The distinction lives in the type
+    — the reading is absent, not zeroed — and the formatter is where absence
+    becomes the dash (`format_figure`).
+
+12. **A readout that changes appearance because a measurement crossed a line
+    must clear itself the moment a later measurement crosses back, and must
+    offer no action — the deliberate opposite of rule 9's message strip.** The
+    sidebar memory footer's over-budget appearance (`memory_footer.rs`, wireframe
+    `## Over budget`) is the first case: when a sample's total crosses the budget
+    in `docs/memory-budget.md` the block takes the theme's warning tint — not the
+    error red, this is attention not alarm — and adds one line naming the budget
+    (`FR.20.1`). It does three things rule 9's strip does not. It **does not
+    persist**: the moment a sample comes back under, tint and line go, with
+    nothing to dismiss, because it reports a condition that is true right now or
+    is not, where the strip reports an event that happened once and a faded strip
+    would lose the only record of it (`FR.20.3`). It **offers no action**: no
+    Park button, because the application cannot tell which account is
+    responsible and choosing what to give up is the user's (`FR.7.4`,
+    `FR.20.2`). And it **moves nothing** — no figure shifts, resizes or reorders
+    when the appearance changes, so an eye returning to the total every few
+    minutes never has to re-find it. The verdict itself is the core's
+    (`MemoryReading::budget_verdict`); the footer toggles one CSS class from the
+    answer and compares nothing.

@@ -4,7 +4,7 @@
 //! rules 8, 12).
 
 use std::cell::{OnceCell, RefCell};
-use std::sync::Once;
+use std::sync::{Arc, Once};
 
 use gio::prelude::ActionMapExt;
 use gtk::CompositeTemplate;
@@ -16,9 +16,10 @@ use gtk::prelude::*;
 use gtk::subclass::prelude::*;
 use gtk4 as gtk;
 
-use idle_manager_core::{SessionBook, SessionId, Visibility};
+use idle_manager_core::{MemoryProbe, SessionBook, SessionId, Visibility};
 
 use super::row::{Row, status_label};
+use crate::memory_footer::MemoryFooter;
 
 /// The status-dot keys `sidebar.css` styles, one class each. Cleared and
 /// re-applied on every bind because the list recycles row widgets.
@@ -70,6 +71,10 @@ pub struct SessionSidebar {
     empty_label: TemplateChild<gtk::Label>,
     #[template_child]
     footer: TemplateChild<gtk::Box>,
+
+    /// The memory readout pinned to the foot of the column (item 05 task 04).
+    /// Sampling starts when the window attaches its ports.
+    memory_footer: MemoryFooter,
 
     store: OnceCell<gio::ListStore>,
     pub(super) on_activated: RefCell<Option<ActivateHandler>>,
@@ -131,6 +136,8 @@ impl ObjectImpl for SessionSidebar {
             }
         });
 
+        self.footer.append(&self.memory_footer);
+
         self.store
             .set(store)
             .expect("the store is set once, here in constructed");
@@ -154,10 +161,16 @@ impl SessionSidebar {
         let empty = book.sessions().is_empty();
         self.scroller.set_visible(!empty);
         self.empty_label.set_visible(empty);
-        // The footer stays hidden and empty in this slice; item 05 fills it with
-        // the memory readout, and reserving the slot now avoids reopening this
-        // template then.
-        self.footer.set_visible(false);
+        // The footer's figures count every live account across every workspace,
+        // not just the ones on screen (`FR.18.2`), so the count comes straight
+        // off the book on each sync.
+        self.footer.set_visible(!empty);
+        self.memory_footer
+            .set_running_count(book.live_session_count());
+    }
+
+    pub(super) fn start_memory_sampling(&self, probe: Arc<dyn MemoryProbe>) {
+        self.memory_footer.start_sampling(probe);
     }
 }
 

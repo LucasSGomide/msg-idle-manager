@@ -26,7 +26,7 @@ use crate::save_on_change::Saver;
 use crate::session_grid::SessionGrid;
 use crate::session_sidebar::SessionSidebar;
 use crate::start_queue::StartQueue;
-use crate::web_view::SessionView;
+use crate::web_view::{AccountSettings, SessionView};
 
 /// The composite-template backing object for [`super::Window`].
 #[derive(Default, CompositeTemplate)]
@@ -85,6 +85,15 @@ pub struct Window {
     /// timer, and only when the gestures stop does the settled map get written
     /// once (`FR.12.5`).
     zoom_save_timers: RefCell<HashMap<SessionId, glib::SourceId>>,
+    /// The `load-changed` handler `start_session` and `toggle_keep_awake` each
+    /// attach to end a starting interval at first paint, one per account's
+    /// live view. `toggle_keep_awake` reloads a live view in place rather than
+    /// rebuilding it (`web_view.rs`'s `SessionView::set_keep_awake`), so
+    /// without this the same view accumulated one more permanently-connected
+    /// closure per toggle instead of replacing the one from `start_session` or
+    /// the previous toggle — an unbounded-with-toggle-count leak, fixed by
+    /// disconnecting the tracked handler before connecting the next one.
+    load_changed_handlers: RefCell<HashMap<SessionId, glib::SignalHandlerId>>,
 }
 
 impl std::fmt::Debug for Window {
@@ -273,6 +282,7 @@ impl Window {
         self.locator.replace(Some(ports.locator));
         self.catalogue.replace(Some(ports.catalogue));
         self.zoom_memory.replace(Some(ports.zoom_memory));
+        self.sidebar.start_memory_sampling(ports.probe);
         self.saver
             .replace(Some(Saver::new(ports.store, self.message_strip.clone())));
         self.apply_read_outcome(read_outcome);
@@ -339,7 +349,7 @@ impl Window {
         // being restored, not the game-file baseline (`FR.12.2`): a switch
         // later re-resolves, but the first draw is already right.
         let layout = self.book.borrow().layout();
-        let accounts: Vec<(SessionId, String, String, ZoomLevel, Option<String>)> = self
+        let accounts: Vec<(SessionId, String, String, ZoomLevel, Option<String>, bool)> = self
             .book
             .borrow()
             .sessions()
@@ -351,11 +361,12 @@ impl Window {
                     session.start_address().to_owned(),
                     session.zoom_for(layout),
                     session.browser_identity().map(str::to_owned),
+                    session.is_webgl_enabled(),
                 )
             })
             .collect();
 
-        for (id, name, address, zoom, identity) in accounts {
+        for (id, name, address, zoom, identity, webgl_enabled) in accounts {
             let directories = match locator.locate(&id) {
                 Ok(directories) => directories,
                 Err(error) => {
@@ -364,8 +375,16 @@ impl Window {
                 }
             };
 
-            let holder =
-                SessionView::dormant(&id, &directories, &address, zoom, identity.as_deref());
+            let holder = SessionView::dormant(
+                &id,
+                &directories,
+                &address,
+                AccountSettings {
+                    zoom,
+                    identity,
+                    webgl_enabled,
+                },
+            );
             self.grid.add_dormant_session(&id, &name);
             self.holders.borrow_mut().insert(id, holder);
         }
@@ -508,7 +527,7 @@ impl Window {
         }
 
         let layout = self.book.borrow().layout();
-        let Some((name, address, zoom, identity)) =
+        let Some((name, address, zoom, identity, webgl_enabled)) =
             self.book.borrow().sessions().iter().find_map(|session| {
                 (session.id() == id).then(|| {
                     (
@@ -516,6 +535,7 @@ impl Window {
                         session.start_address().to_owned(),
                         session.zoom_for(layout),
                         session.browser_identity().map(str::to_owned),
+                        session.is_webgl_enabled(),
                     )
                 })
             })
@@ -532,7 +552,16 @@ impl Window {
             }
         };
 
-        let holder = SessionView::new(id, &directories, &address, zoom, identity.as_deref());
+        let holder = SessionView::new(
+            id,
+            &directories,
+            &address,
+            AccountSettings {
+                zoom,
+                identity,
+                webgl_enabled,
+            },
+        );
         let Some(view) = holder.view() else {
             tracing::error!(session = %id, "the new account's view was not built");
             return;
@@ -619,7 +648,7 @@ impl Window {
         // checked against a real game.
         let window = self.obj().downgrade();
         let owned_id = id.clone();
-        view.connect_load_changed(move |_, event| {
+        let handler_id = view.connect_load_changed(move |_, event| {
             if !matches!(event, LoadEvent::Committed | LoadEvent::Finished) {
                 return;
             }
@@ -627,6 +656,12 @@ impl Window {
                 window.imp().finish_starting(&owned_id);
             }
         });
+        // This is always a freshly built view (`holder.start()` above), so any
+        // stale entry for `id` belongs to a previous view already dropped —
+        // and dropped along with it, its handlers. Overwrite, don't disconnect.
+        self.load_changed_handlers
+            .borrow_mut()
+            .insert(id.clone(), handler_id);
 
         Some(view)
     }
@@ -693,17 +728,29 @@ impl Window {
         };
 
         // Same signal, same reason as `start_session`: the starting interval
-        // this toggle opened ends at the reload's first paint.
+        // this toggle opened ends at the reload's first paint. This reloads
+        // the same live view in place rather than rebuilding it, so the
+        // handler `start_session` (or an earlier toggle) attached to it is
+        // still connected — disconnect it before attaching the next one, or
+        // every toggle on a live account leaves one more closure permanently
+        // connected to it.
+        if let Some(old_handler) = self.load_changed_handlers.borrow_mut().remove(id) {
+            view.disconnect(old_handler);
+        }
+
         let window = self.obj().downgrade();
-        let id = id.clone();
-        view.connect_load_changed(move |_, event| {
+        let owned_id = id.clone();
+        let handler_id = view.connect_load_changed(move |_, event| {
             if !matches!(event, LoadEvent::Committed | LoadEvent::Finished) {
                 return;
             }
             if let Some(window) = window.upgrade() {
-                window.imp().finish_starting(&id);
+                window.imp().finish_starting(&owned_id);
             }
         });
+        self.load_changed_handlers
+            .borrow_mut()
+            .insert(id.clone(), handler_id);
     }
 
     /// A window-level zoom gesture from the keyboard: step the account in the

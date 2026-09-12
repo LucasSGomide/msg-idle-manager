@@ -8,11 +8,13 @@
 mod imp;
 mod row;
 
+use std::sync::Arc;
+
 use gtk::glib;
 use gtk::subclass::prelude::*;
 use gtk4 as gtk;
 
-use idle_manager_core::{SessionBook, SessionId};
+use idle_manager_core::{MemoryProbe, SessionBook, SessionId};
 
 glib::wrapper! {
     /// The account list widget, built from `ui/session-sidebar.ui`. Build one
@@ -29,6 +31,13 @@ impl SessionSidebar {
     #[must_use]
     pub fn new() -> Self {
         glib::Object::new()
+    }
+
+    /// Starts the memory footer sampling `probe`. Call once, when the ports are
+    /// attached; the footer runs each sample off the main context (architecture
+    /// rule 10).
+    pub fn start_memory_sampling(&self, probe: Arc<dyn MemoryProbe>) {
+        self.imp().start_memory_sampling(probe);
     }
 
     /// Redraws every row from `book`: one row per account in add order, each
