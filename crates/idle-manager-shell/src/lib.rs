@@ -76,29 +76,54 @@ pub fn register_resources() -> Result<(), ResourceError> {
 }
 
 /// The memory limit the engine watches its rendering processes against, in
-/// mebibytes (`FR.19.4`, code standards rule 5). `0` means "no limit" to the
-/// engine, which is the state this item exists to change.
-// TODO(05): task 06 sets this from task 05's soak curve in
-// docs/memory-budget.md — a limit below what a healthy game uses makes the
-// engine thrash its caches forever, one above what it reaches never engages.
-const WEB_PROCESS_MEMORY_LIMIT_MIB: u32 = 0;
+/// mebibytes (`FR.19.4`, code standards rule 5).
+// `0` is not "no limit": WebKitGTK's `set_memory_limit` guards its argument
+// with `g_return_if_fail(memoryLimit)` — passing `0` logs a GLib critical and
+// leaves the engine's own default in place, documented as "the system's RAM
+// size with a maximum of 3GB" (confirmed against WebKit's
+// `WebKitMemoryPressureSettings.cpp`). That default was silently governing
+// every rendering process instead of a number chosen for this application.
+// docs/memory-budget.md found the working set does not settle (three samples
+// on 2026-09-11 with 4 accounts live climbed from 57.8 MiB to 145.6 MiB
+// shell-side and 2.17 GiB to 2.92 GiB descendant-side, with no sign of
+// flattening), so there is no settled per-game figure to size this against.
+// 1024 MiB is chosen with headroom above the one figure that IS on record —
+// a single account's rendering process measured stable-ish at 751 MiB
+// (docs/roadmap/05-memory-accounting/README.md, "Where the memory goes") —
+// so a healthy game does not sit in cache-shedding territory continuously,
+// while the limit still engages well short of exhausting the machine. This
+// caps how bad the unbounded growth gets before the engine starts shedding
+// caches; it does not fix the growth itself (docs/memory-budget.md).
+const WEB_PROCESS_MEMORY_LIMIT_MIB: u32 = 1024;
 /// The fraction of the limit at which the engine starts shedding caches it
-/// would otherwise keep (`FR.19.4`). The type's own default until measured.
-// TODO(05): task 06, from docs/memory-budget.md.
+/// would otherwise keep (`FR.19.4`). The type's own default, kept: nothing in
+/// docs/memory-budget.md's non-settling curve argues for moving it, and a
+/// third of the 1024 MiB limit above (~338 MiB) sits comfortably above the
+/// allocator heap's own floor (138,616 KiB, unmoving across the twenty-minute
+/// sample in the roadmap item's README) so ordinary operation does not idle
+/// in cache-shedding territory.
 const CONSERVATIVE_PRESSURE_THRESHOLD: f64 = 0.33;
 /// The fraction of the limit at which the engine collects harder and drops
-/// more (`FR.19.4`). The type's own default until measured.
-// TODO(05): task 06, from docs/memory-budget.md.
+/// more (`FR.19.4`). The type's own default, kept for the same reason as
+/// `CONSERVATIVE_PRESSURE_THRESHOLD` above.
 const STRICT_PRESSURE_THRESHOLD: f64 = 0.5;
 /// The kill threshold, held explicitly at `0.0` — disabled. Past a kill
 /// threshold the engine ends the rendering process, discarding whatever the
 /// game has not sent to its own server, which is exactly the loss `UN.9`
 /// exists to prevent; a runaway account is reported by the footer and left to
-/// the user (`FR.19.5`, `FR.20.2`, code standards rule 18).
+/// the user (`FR.19.5`, `FR.20.2`, code standards rule 18). This is a
+/// deliberate product decision, not a placeholder — never raise it above
+/// `0.0` without item 08's crash recovery landing first (see task 06's
+/// context in
+/// docs/tasks/05-memory-accounting/06-telling-the-engine-it-has-a-limit.md).
 const KILL_PRESSURE_THRESHOLD: f64 = 0.0;
 /// How often the engine samples a rendering process's footprint, in seconds
-/// (`FR.19.4`, code standards rule 5). The type's own default until measured.
-// TODO(05): task 06, from docs/memory-budget.md.
+/// (`FR.19.4`, code standards rule 5). Kept at the type's own default and set
+/// equal to `scripts/memory-report.sh`'s own `DEFAULT_SOAK_INTERVAL_SECS`, so
+/// the engine's internal sampling cadence and this project's external
+/// measurement cadence agree — a before-and-after soak comparison (task 06's
+/// own acceptance criterion) is then comparing samples taken on the same
+/// clock.
 const WEB_PROCESS_MEMORY_POLL_INTERVAL_SECS: f64 = 30.0;
 
 /// Applies the engine-wide settings the whole application shares. Call once,
