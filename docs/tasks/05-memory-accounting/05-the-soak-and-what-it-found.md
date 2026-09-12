@@ -79,7 +79,7 @@ readout. Its answers are what tasks 06 and 08 are blocked on.
       beside the first
 - [ ] `(manual)` a run that parks the account partway records whether the figure
       returns to its pre-start level or leaves a residue, and how large
-- [ ] `(manual)` `docs/memory-budget.md` exists and states, in one sentence,
+- [x] `(manual)` `docs/memory-budget.md` exists and states, in one sentence,
       whether a live account's memory grows without bound or settles
 - [ ] `(manual)` where it settles, the settled figure per game is recorded — the
       number task 06's limit and task 08's budget are both chosen from

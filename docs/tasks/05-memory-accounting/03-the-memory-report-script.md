@@ -90,7 +90,7 @@ down (`FR.19.1`).
       file and keeps going across a page load, a park and an unpark
 - [ ] `(manual)` a process that exits mid-walk is skipped with a note and the
       run still prints a total
-- [ ] `(manual)` run with no application started, the script says so and exits
+- [x] `(manual)` run with no application started, the script says so and exits
       without printing a total
 
 ## References
