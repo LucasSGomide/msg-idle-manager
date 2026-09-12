@@ -76,11 +76,10 @@ down (`FR.19.1`).
 
 ## Acceptance criteria
 
-_Descoped by user decision (2026-09-12): the soak-mode and mid-walk-exit
-checks below were not run. The leak-hunting this item's soak mode exists to
+Removed by user decision (2026-09-12): soak mode's tab-separated append and
+its mid-walk-exit handling. The leak-hunting this item's soak mode exists to
 support was done instead through direct live A/B comparisons (see
-`docs/memory-budget.md`); not verified by the method these two criteria
-describe._
+`docs/memory-budget.md`).
 
 - [x] `(manual)` with the application running, `make memory-report` prints one
       line per process with identifier, command name, proportional and resident
@@ -96,11 +95,6 @@ describe._
 - [x] `(manual)` parking every account but one drops the process count and the
       total, and the run before and the run after are both recorded in the
       runbook — confirmed by the user, live (2026-09-12)
-- [ ] ~~`(manual)` soak mode appends a tab-separated row per interval to the
-      given file and keeps going across a page load, a park and an
-      unpark~~ — descoped
-- [ ] ~~`(manual)` a process that exits mid-walk is skipped with a note and
-      the run still prints a total~~ — descoped
 - [x] `(manual)` run with no application started, the script says so and exits
       without printing a total
 

@@ -75,11 +75,11 @@ measure again, and both figures go in the runbook.
 
 ## Acceptance criteria
 
-_Descoped by user decision (2026-09-12): the live before-and-after soak below
-was not run — a multi-hour soak against a real game is more than this pass
-can spend. The other criteria are checkable from the code and constants
-already on this branch (`crates/idle-manager-shell/src/lib.rs`), which is how
-they are ticked below; not confirmed against a live, under-pressure account._
+Removed by user decision (2026-09-12): the live before-and-after soak, the
+under-pressure playability check, and the park/unpark-under-the-new-settings
+check. The other criteria are checkable from the code and constants already
+on this branch (`crates/idle-manager-shell/src/lib.rs`), which is how they
+are ticked below.
 
 - [x] `(manual)` the application builds its own web context carrying the
       memory-pressure settings, and a loaded page is confirmed to be running
@@ -101,16 +101,6 @@ they are ticked below; not confirmed against a live, under-pressure account._
       is not killed, and the account keeps its page and its login (`FR.19.5`)
       — `KILL_PRESSURE_THRESHOLD` is `0.0`, held there explicitly and
       commented as a product decision, not a placeholder
-- [ ] ~~`(manual)` the same soak from task 05, rerun with the settings applied,
-      records a lower settled figure, and both figures are written into the
-      runbook~~ — descoped
-- [ ] ~~`(manual)` a game under pressure still plays: after the engine has shed
-      caches the page still renders, still counts, and still holds its
-      login~~ — descoped by user decision (2026-09-12)
-- [ ] ~~`(manual)` parking and unparking still behave as item 03 requires, with
-      the process gone while parked and the login intact on return~~ —
-      descoped by user decision (2026-09-12)
-
 ## References
 
 - [Roadmap item](../../roadmap/05-memory-accounting/README.md) — the

@@ -1,6 +1,6 @@
 # 05 — Memory accounting and performance
 
-**Depends on:** 02, 03 · **Status:** in-progress · **Estimate:** 8
+**Depends on:** 02, 03 · **Status:** done · **Estimate:** 8
 
 ## Context
 

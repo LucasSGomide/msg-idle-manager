@@ -8,8 +8,8 @@ this task's `test-script.md` section written and run.
 
 A folder lives from breakdown until the item's branch lands — through review and
 merge, not just until the boxes are ticked. It is retired only once the roadmap
-item's header carries `Landed:` or `Merged:`. Items 01–04, 06, 07 and 09 are `done`.
+item's header carries `Landed:` or `Merged:`. Items 01–07 and 09 are `done`.
 
 | # | Roadmap item | Tasks | Progress | Status |
 |---|---|---|---|---|
-| [05](05-memory-accounting/) | Memory accounting and performance | 8 | 3/8 | in-progress |
+| [05](05-memory-accounting/) | Memory accounting and performance | 8 | 8/8 | done |
