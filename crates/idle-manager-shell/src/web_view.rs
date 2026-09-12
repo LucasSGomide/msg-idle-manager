@@ -57,6 +57,25 @@ fn diagnostics_enabled() -> bool {
     cfg!(debug_assertions) || std::env::var_os(DIAGNOSTICS_ENV).is_some()
 }
 
+/// Whether the page-console bridge ([`register_page_console_handler`]) should
+/// forward a page's `console.*` output into `tracing`.
+///
+/// Deliberately **not** [`diagnostics_enabled`], even though it gates the same
+/// environment variable and the two switches otherwise read the same:
+/// [`diagnostics_enabled`] is `true` in every debug build unconditionally, and
+/// a debug build (`make dev`) is exactly how this application is actually run
+/// for real, day-long accounts (`docs/memory-budget.md`, "round 3") — so
+/// reusing it here would leave the leak this switch exists to stop turned on
+/// in precisely the scenario that found it. This one reads the same
+/// environment variable but never turns on `cfg!(debug_assertions)`-only,
+/// because doing so on every `console.log` the whole time an account runs is
+/// not a bounded diagnostics cost the way the inspector backend or
+/// resource-load logging are — it does not settle (see
+/// [`register_page_console_handler`]'s doc comment for the measurement).
+fn page_console_forwarding_enabled() -> bool {
+    std::env::var_os(DIAGNOSTICS_ENV).is_some()
+}
+
 /// The engine's own switch that stretches out a hidden page's timers. Read off
 /// this machine's [`log_engine_features`] start-up log — `WebKitGTK` 2.52.6,
 /// `webkit6` 0.6.1, on 2026-09-06 — not published anywhere the crate can read
@@ -380,13 +399,26 @@ fn copy_user_agent(opener: &WebView, popup: &WebView) {
 /// document-start script to a view afterwards (`FR.6.3`).
 fn build_content_manager(keep_awake: bool) -> UserContentManager {
     let content = UserContentManager::new();
-    register_page_console_handler(&content);
+    if page_console_forwarding_enabled() {
+        register_page_console_handler(&content);
+    }
     install_script_set(&content, keep_awake);
     content
 }
 
 /// Registers the handler [`PAGE_CONSOLE_JS`] posts to, forwarding the page's
 /// console output and uncaught errors into `tracing`.
+///
+/// Gated behind [`page_console_forwarding_enabled`] — off unless
+/// `IDLE_MANAGER_DIAGNOSTICS` is set, in *every* build profile. Measured
+/// (task 05, round 3 of the memory investigation, `docs/memory-budget.md`) to
+/// be the shell process's actual leak: no-opping this callback body entirely
+/// on a live account (Huntera, 4 accounts, 9-minute soak) took the shell's
+/// own PSS growth from roughly 690-1030 MB/hour down to about 0.45 MiB over
+/// 7+ minutes — noise-level flat. `PAGE_CONSOLE_JS`'s own guard
+/// (`if (!handler) return`) means the page never even installs the
+/// `console.*` overrides when this handler is not registered, so turning
+/// this off removes the cost at both ends, not just the host side.
 ///
 /// A page's `console.error` is the page's problem, not the application's, so
 /// it arrives as a `warn`; everything quieter than that arrives below the
