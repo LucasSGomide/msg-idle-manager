@@ -104,10 +104,12 @@ they are ticked below; not confirmed against a live, under-pressure account._
 - [ ] ~~`(manual)` the same soak from task 05, rerun with the settings applied,
       records a lower settled figure, and both figures are written into the
       runbook~~ — descoped
-- [ ] `(manual)` a game under pressure still plays: after the engine has shed
-      caches the page still renders, still counts, and still holds its login
-- [ ] `(manual)` parking and unparking still behave as item 03 requires, with
-      the process gone while parked and the login intact on return
+- [ ] ~~`(manual)` a game under pressure still plays: after the engine has shed
+      caches the page still renders, still counts, and still holds its
+      login~~ — descoped by user decision (2026-09-12)
+- [ ] ~~`(manual)` parking and unparking still behave as item 03 requires, with
+      the process gone while parked and the login intact on return~~ —
+      descoped by user decision (2026-09-12)
 
 ## References
 

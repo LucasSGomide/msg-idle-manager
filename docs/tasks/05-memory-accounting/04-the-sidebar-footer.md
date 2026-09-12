@@ -86,10 +86,10 @@ slice builds.
 - [x] `(manual)` once sampling starts the footer shows the application's own
       figure, the running count, the aggregate and the total, and they refresh
       without any interaction — confirmed by the user, live (2026-09-12)
-- [ ] `(manual)` parking a running account drops the running count by one and
+- [ ] ~~`(manual)` parking a running account drops the running count by one and
       drops both memory figures, and the drop matches what `make memory-report`
-      prints at the same moment — not just visual: needs a deliberate
-      correlation against the script's own output, not confirmed
+      prints at the same moment~~ — descoped by user decision (2026-09-12): the
+      deliberate script-correlation was not run
 - [x] `(manual)` unparking that account raises all three back, and the count
       returns to what it was — confirmed by the user, live (2026-09-12)
 - [x] `(manual)` collapsing the sidebar hides the footer with the list and
@@ -99,12 +99,12 @@ slice builds.
 - [x] `(manual)` hovering the block shows the tooltip stating the figures are
       proportional and that per-account figures are not available —
       confirmed by the user, live (2026-09-12)
-- [ ] `(manual)` with the probe made to fail, the block collapses to its
-      unavailable line, stops refreshing, and the log carries a reason —
-      needs deliberate fault injection, not something ordinary use exercises;
-      not confirmed
-- [ ] `(manual)` the sampling interval's cost is measured with the script
-      running alongside and the figure that settled the constant is recorded
+- [ ] ~~`(manual)` with the probe made to fail, the block collapses to its
+      unavailable line, stops refreshing, and the log carries a reason~~ —
+      descoped by user decision (2026-09-12): fault injection was not run
+- [ ] ~~`(manual)` the sampling interval's cost is measured with the script
+      running alongside and the figure that settled the constant is
+      recorded~~ — descoped by user decision (2026-09-12)
 
 ## References
 

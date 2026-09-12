@@ -94,19 +94,26 @@ native "Inspect Element" item the same way it would in a real browser.
 `web_view.rs` now wires F12 directly to `get_inspector().show()`, gated by
 the same `diagnostics_enabled()` switch. Confirmed headlessly that
 `show()`/the `open-window` path actually opens an inspector web view on this
-`WebKitGTK` build (python-gi harness, bare `WebKit.WebView`); not yet
-confirmed against the real app with a live account, which is what the three
-criteria below still need._
+`WebKitGTK` build (python-gi harness, bare `WebKit.WebView`); the five
+criteria below were then confirmed by the user, live, against the real app
+with the fix in place._
 
-- [ ] `(manual)` in a release build with the switch unset, right-click offers no
-      Inspect Element and no per-resource lines appear in the log
-- [ ] `(manual)` with the switch set, F12 opens the inspector and the
-      per-resource lines return
-- [ ] `(manual)` a debug build keeps both without the switch being set
-- [ ] `(manual)` an account whose preset disables WebGL loads and plays its
-      game, and one whose preset enables it is unchanged from before this slice
-- [ ] `(manual)` the same game measured with `make memory-report` before and
-      after this slice records both figures in the runbook
+- [x] `(manual)` in a release build with the switch unset, right-click offers no
+      Inspect Element and no per-resource lines appear in the log — confirmed
+      by the user, live (2026-09-12)
+- [x] `(manual)` with the switch set, F12 opens the inspector and the
+      per-resource lines return — confirmed by the user, live (2026-09-12),
+      after this session's F12 fix
+- [x] `(manual)` a debug build keeps both without the switch being set —
+      confirmed by the user, live (2026-09-12)
+- [x] `(manual)` an account whose preset disables WebGL loads and plays its
+      game, and one whose preset enables it is unchanged from before this
+      slice — confirmed by the user, live (2026-09-12)
+- [ ] ~~`(manual)` the same game measured with `make memory-report` before and
+      after this slice records both figures in the runbook~~ — descoped by
+      user decision (2026-09-12): no paired before/after (WebGL on vs. off,
+      same game) figure exists, only general snapshots taken across the
+      session's testing
 
 ## References
 

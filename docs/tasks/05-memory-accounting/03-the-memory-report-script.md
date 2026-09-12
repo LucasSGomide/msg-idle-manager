@@ -93,9 +93,9 @@ describe._
 - [x] `(manual)` the total proportional figure is materially lower than the
       total resident figure, and both are printed so the gap can be seen —
       observed live (e.g. one process at 313,490 KiB PSS vs 431,776 KiB RSS)
-- [ ] `(manual)` parking every account but one drops the process count and the
+- [x] `(manual)` parking every account but one drops the process count and the
       total, and the run before and the run after are both recorded in the
-      runbook
+      runbook — confirmed by the user, live (2026-09-12)
 - [ ] ~~`(manual)` soak mode appends a tab-separated row per interval to the
       given file and keeps going across a page load, a park and an
       unpark~~ — descoped
