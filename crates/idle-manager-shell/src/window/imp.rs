@@ -85,6 +85,15 @@ pub struct Window {
     /// timer, and only when the gestures stop does the settled map get written
     /// once (`FR.12.5`).
     zoom_save_timers: RefCell<HashMap<SessionId, glib::SourceId>>,
+    /// The `load-changed` handler `start_session` and `toggle_keep_awake` each
+    /// attach to end a starting interval at first paint, one per account's
+    /// live view. `toggle_keep_awake` reloads a live view in place rather than
+    /// rebuilding it (`web_view.rs`'s `SessionView::set_keep_awake`), so
+    /// without this the same view accumulated one more permanently-connected
+    /// closure per toggle instead of replacing the one from `start_session` or
+    /// the previous toggle — an unbounded-with-toggle-count leak, fixed by
+    /// disconnecting the tracked handler before connecting the next one.
+    load_changed_handlers: RefCell<HashMap<SessionId, glib::SignalHandlerId>>,
 }
 
 impl std::fmt::Debug for Window {
@@ -639,7 +648,7 @@ impl Window {
         // checked against a real game.
         let window = self.obj().downgrade();
         let owned_id = id.clone();
-        view.connect_load_changed(move |_, event| {
+        let handler_id = view.connect_load_changed(move |_, event| {
             if !matches!(event, LoadEvent::Committed | LoadEvent::Finished) {
                 return;
             }
@@ -647,6 +656,12 @@ impl Window {
                 window.imp().finish_starting(&owned_id);
             }
         });
+        // This is always a freshly built view (`holder.start()` above), so any
+        // stale entry for `id` belongs to a previous view already dropped —
+        // and dropped along with it, its handlers. Overwrite, don't disconnect.
+        self.load_changed_handlers
+            .borrow_mut()
+            .insert(id.clone(), handler_id);
 
         Some(view)
     }
@@ -713,17 +728,29 @@ impl Window {
         };
 
         // Same signal, same reason as `start_session`: the starting interval
-        // this toggle opened ends at the reload's first paint.
+        // this toggle opened ends at the reload's first paint. This reloads
+        // the same live view in place rather than rebuilding it, so the
+        // handler `start_session` (or an earlier toggle) attached to it is
+        // still connected — disconnect it before attaching the next one, or
+        // every toggle on a live account leaves one more closure permanently
+        // connected to it.
+        if let Some(old_handler) = self.load_changed_handlers.borrow_mut().remove(id) {
+            view.disconnect(old_handler);
+        }
+
         let window = self.obj().downgrade();
-        let id = id.clone();
-        view.connect_load_changed(move |_, event| {
+        let owned_id = id.clone();
+        let handler_id = view.connect_load_changed(move |_, event| {
             if !matches!(event, LoadEvent::Committed | LoadEvent::Finished) {
                 return;
             }
             if let Some(window) = window.upgrade() {
-                window.imp().finish_starting(&id);
+                window.imp().finish_starting(&owned_id);
             }
         });
+        self.load_changed_handlers
+            .borrow_mut()
+            .insert(id.clone(), handler_id);
     }
 
     /// A window-level zoom gesture from the keyboard: step the account in the
