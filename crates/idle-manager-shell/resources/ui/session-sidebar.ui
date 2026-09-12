@@ -4,6 +4,7 @@
   <template class="IdleManagerSessionSidebar" parent="GtkBox">
     <property name="orientation">vertical</property>
     <property name="width-request">150</property>
+    <property name="hexpand">false</property>
     <property name="vexpand">true</property>
     <style>
       <class name="navigation-sidebar"/>
