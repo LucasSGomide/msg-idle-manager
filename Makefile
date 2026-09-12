@@ -25,7 +25,7 @@ RUST_LOG ?= idle_manager=debug,idle_manager_core=debug,idle_manager_shell=debug
 .DEFAULT_GOAL := help
 
 .PHONY: help bootstrap system-check dev run watch build release check fmt fmt-check lint \
-        test doc audit arch-check verify clean forensics forensics-diff memory-report
+        test doc audit arch-check verify clean memory-report
 
 help:  ## list every target
 	@grep -hE '^[a-zA-Z0-9_-]+:.*##' $(MAKEFILE_LIST) | sort | awk 'BEGIN { FS = ":.*## " } { printf "  \033[36m%-14s\033[0m %s\n", $$1, $$2 }'
@@ -96,26 +96,6 @@ doc: system-check  ## build the API docs and open them
 verify: fmt-check lint test audit arch-check roadmap-check  ## everything CI runs
 
 # --- diagnosis --------------------------------------------------------------
-
-# Investigating why a machine restart loses each account's Google authorization
-# (2026-09-08). The snapshot records the on-disk session state — cookie-jar
-# inodes, page counts, row counts and byte copies — so a second snapshot taken
-# after a reboot says whether the jars were replaced, rolled back, or came back
-# intact. Snapshots are written to ~/.local/state/idle-manager-forensics/ and
-# never into the repository: they contain live authentication cookies.
-#
-# Take one BEFORE rebooting and one after, before launching the app:
-#   make forensics LABEL=before-reboot
-#   make forensics LABEL=after-reboot
-#   make forensics-diff BEFORE=before-reboot AFTER=after-reboot
-
-forensics:  ## snapshot the on-disk session state (LABEL=before-reboot)
-	@test -n "$(LABEL)" || { echo "usage: make forensics LABEL=<name>"; exit 1; }
-	./scripts/session-forensics-snapshot.sh $(LABEL)
-
-forensics-diff:  ## diff two snapshots (BEFORE=before-reboot AFTER=after-reboot)
-	@test -n "$(BEFORE)" -a -n "$(AFTER)" || { echo "usage: make forensics-diff BEFORE=<name> AFTER=<name>"; exit 1; }
-	./scripts/session-forensics-compare.sh $(BEFORE) $(AFTER)
 
 # What the running application costs in memory, per process and summed, taken
 # the same way the sidebar footer takes it (roadmap item 05). Pass arguments

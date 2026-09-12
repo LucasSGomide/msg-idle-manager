@@ -42,8 +42,7 @@ down (`FR.19.1`).
 
 - **Architecture** — every developer command is a Makefile target: `make
   memory-report` runs it, per CLAUDE.md, and the script itself lives in
-  `scripts/` beside `arch-check.sh` and the two session-forensics scripts it can
-  borrow its shape from.
+  `scripts/` beside `arch-check.sh`.
 - **Naming** — rule 1: `scripts/memory-report.sh`, kebab-case like every other
   file that is not a Rust module.
 - **Back-end** — the walk reads `/proc/*/stat` (or `/proc/*/status`) once for
