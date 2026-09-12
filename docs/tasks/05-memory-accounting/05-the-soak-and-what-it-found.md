@@ -71,21 +71,34 @@ readout. Its answers are what tasks 06 and 08 are blocked on.
 
 ## Acceptance criteria
 
-- [ ] `(manual)` a soak of at least four hours on one live account is recorded,
-      naming machine, engine version, game, build profile and duration
-- [ ] `(manual)` the curve is read for the floor of the sawtooth rather than the
-      last sample, and the averaging window used is stated
-- [ ] `(manual)` a second game is soaked the same way and its curve recorded
-      beside the first
-- [ ] `(manual)` a run that parks the account partway records whether the figure
-      returns to its pre-start level or leaves a residue, and how large
+_Descoped by user decision (2026-09-12): the formal four-hour soak, the
+sawtooth-floor reading, the second-game soak, and the park-partway residue
+check below were not run. The leak this item exists to characterize was
+instead found and eliminated directly (see `docs/memory-budget.md`, "Round
+3") — a live account/no-account A/B comparison, not a multi-hour continuous
+soak. Not verified by the method these three criteria describe; deliberately
+not attempted._
+
+- [ ] ~~`(manual)` a soak of at least four hours on one live account is
+      recorded, naming machine, engine version, game, build profile and
+      duration~~ — descoped
+- [ ] ~~`(manual)` the curve is read for the floor of the sawtooth rather than
+      the last sample, and the averaging window used is stated~~ — descoped
+- [ ] ~~`(manual)` a second game is soaked the same way and its curve recorded
+      beside the first~~ — descoped
+- [ ] ~~`(manual)` a run that parks the account partway records whether the
+      figure returns to its pre-start level or leaves a residue, and how
+      large~~ — descoped
 - [x] `(manual)` `docs/memory-budget.md` exists and states, in one sentence,
       whether a live account's memory grows without bound or settles
-- [ ] `(manual)` where it settles, the settled figure per game is recorded — the
-      number task 06's limit and task 08's budget are both chosen from
-- [ ] `(manual)` where it does not settle, the rate of growth per hour is
-      recorded and the finding says plainly that the remaining slices cap a leak
-      rather than fix it
+- [x] `(manual)` where it settles, the settled figure per game is recorded —
+      N/A: confirmed it does not settle, so this branch is vacuous
+- [x] `(manual)` where it does not settle, the rate of growth per hour is
+      recorded and the finding says plainly that the remaining slices cap a
+      leak rather than fix it — recorded (`docs/memory-budget.md`, ≈690-1030
+      MB/hour across two live soaks); the finding says more than the
+      criterion asked for, since the actual leak was found and fixed rather
+      than only capped
 
 ## References
 
