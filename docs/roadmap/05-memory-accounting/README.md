@@ -1,6 +1,6 @@
 # 05 — Memory accounting and performance
 
-**Depends on:** 02, 03 · **Status:** done · **Estimate:** 8
+**Depends on:** 02, 03 · **Status:** done · **Estimate:** 8 · **Merged:** 2026-09-12
 
 ## Context
 
@@ -358,6 +358,42 @@ figure, both from the script, both written into the runbook.
 - `gio::spawn_blocking` paired with `glib::spawn_future_local` is the pattern
   `docs/architecture.md` rule 10 names for moving work off the main context, so
   no second runtime is introduced for a job that runs a few times a minute.
+
+## As built
+
+- The plan expected the soak to *characterize* a leak; instead it found and
+  fixed one. The shell process's own unbounded growth (≈690-1030 MB/hour) was
+  the page-console JSC bridge — forwarding every `console.*` call from every
+  page — never the rendering processes the plan was written to watch. It is
+  now gated behind its own `IDLE_MANAGER_DIAGNOSTICS` switch, deliberately
+  **not** the debug-build-always-on `diagnostics_enabled()` the inspector and
+  resource logging share, because `make dev` is how this application is
+  actually run for real accounts and reusing that switch would have shipped
+  the leak on by default. The formal four-hour soak, a second-game soak, and
+  the park-partway residue check this plan called for were dropped once a
+  direct live A/B comparison answered the question faster.
+- `WEB_PROCESS_MEMORY_LIMIT_MIB` at `0` was not "no limit": WebKit's
+  `webkit_memory_pressure_settings_set_memory_limit` guards its argument with
+  `g_return_if_fail(memoryLimit)`, so `0` logs a GLib critical and silently
+  leaves the engine's own undocumented ~3 GiB default in force — every
+  rendering process had been governed by that default the whole time, not by
+  anything this application chose.
+- `WebKitGTK` binds no key of its own to open the inspector — F12 and
+  Ctrl+Shift+I are conventions each browser wires up itself — and a game's
+  own right-click handler can suppress the native "Inspect Element" item the
+  same way it would in a real browser. `set_enable_developer_extras` alone
+  left the inspector backend on with no way to reach it; F12 now calls
+  `get_inspector().show()` directly.
+- The app-vs-browser measurement this item was meant to end with, and the
+  warning-tint behavior that depends on it, were not run. `MEMORY_BUDGET_MIB`
+  stays `None` — the warning stays permanently off rather than shipping a
+  guessed number — and those criteria were removed from the breakdown rather
+  than carried forever as open.
+- The WebGL-per-game measurement came back inconclusive: two paired
+  `make memory-report` runs (WebGL off vs. on, same four accounts) showed no
+  clean win, because in-game activity swings a rendering process by tens of
+  megabytes on its own. WebGL stays a per-preset setting on the strength of
+  the mechanism, not of a proven saving.
 
 ## Blockers
 
