@@ -83,29 +83,39 @@ pub fn register_resources() -> Result<(), ResourceError> {
 // size with a maximum of 3GB" (confirmed against WebKit's
 // `WebKitMemoryPressureSettings.cpp`). That default was silently governing
 // every rendering process instead of a number chosen for this application.
-// docs/memory-budget.md found the working set does not settle (three samples
-// on 2026-09-11 with 4 accounts live climbed from 57.8 MiB to 145.6 MiB
-// shell-side and 2.17 GiB to 2.92 GiB descendant-side, with no sign of
-// flattening), so there is no settled per-game figure to size this against.
-// 1024 MiB is chosen with headroom above the one figure that IS on record —
-// a single account's rendering process measured stable-ish at 751 MiB
-// (docs/roadmap/05-memory-accounting/README.md, "Where the memory goes") —
-// so a healthy game does not sit in cache-shedding territory continuously,
-// while the limit still engages well short of exhausting the machine. This
-// caps how bad the unbounded growth gets before the engine starts shedding
-// caches; it does not fix the growth itself (docs/memory-budget.md).
-const WEB_PROCESS_MEMORY_LIMIT_MIB: u32 = 1024;
+//
+// The limit is only the base the two fractions below multiply, and what sits
+// past the *strict* fraction is not a one-off trim: on every poll a process
+// above it runs WebKit's critical release — it deletes all compiled
+// JavaScript, destroys decoded image data and collects (WTF
+// `MemoryPressureHandler::measurementTimerFired`, WebCore
+// `releaseCriticalMemory`). A game held there recompiles its code and
+// re-decodes its sprites every poll, forever. The earlier 1024 MiB put strict
+// at 512 MiB, and four Huntera accounts in play measured 557-589 MiB private
+// each (2026-09-12) — every one sat past it permanently, the JIT workers
+// burst every 30 s in step with the poll, and the four rendering processes
+// held the machine at roughly 6.6 of its 8 cores. 3072 MiB puts strict at
+// 1536 MiB, twice the largest rendering process on record (751 MiB), so only
+// a runaway process pays the critical release, and conservative at ~1 GiB,
+// whose release is only style and font caches. It equals the engine's own
+// default ("the system's RAM size with a maximum of 3GB"), now chosen rather
+// than inherited (code standards rule 18).
+const WEB_PROCESS_MEMORY_LIMIT_MIB: u32 = 3072;
+/// A rendering process's measured working set while its game is actually
+/// played — the largest figure on record, one account at 751 MiB
+/// (docs/roadmap/05-memory-accounting/README.md). The strict threshold must
+/// sit above it or the engine discards the game's compiled code on every poll
+/// (see [`WEB_PROCESS_MEMORY_LIMIT_MIB`]'s comment).
+#[cfg(test)]
+const PLAYED_GAME_WORKING_SET_MIB: u32 = 751;
 /// The fraction of the limit at which the engine starts shedding caches it
-/// would otherwise keep (`FR.19.4`). The type's own default, kept: nothing in
-/// docs/memory-budget.md's non-settling curve argues for moving it, and a
-/// third of the 1024 MiB limit above (~338 MiB) sits comfortably above the
-/// allocator heap's own floor (138,616 KiB, unmoving across the twenty-minute
-/// sample in the roadmap item's README) so ordinary operation does not idle
-/// in cache-shedding territory.
+/// would otherwise keep (`FR.19.4`). The type's own default, kept: past it the
+/// engine drops only style, font and selector caches — no compiled code, no
+/// decoded images — so crossing it is cheap.
 const CONSERVATIVE_PRESSURE_THRESHOLD: f64 = 0.33;
 /// The fraction of the limit at which the engine collects harder and drops
-/// more (`FR.19.4`). The type's own default, kept for the same reason as
-/// `CONSERVATIVE_PRESSURE_THRESHOLD` above.
+/// more (`FR.19.4`) — the expensive release, repeated every poll while the
+/// process stays above it. The type's own default, against the 3072 MiB limit.
 const STRICT_PRESSURE_THRESHOLD: f64 = 0.5;
 /// The kill threshold, held explicitly at `0.0` — disabled. Past a kill
 /// threshold the engine ends the rendering process, discarding whatever the
@@ -178,6 +188,19 @@ pub fn configure_web_engine() {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Past the strict threshold the engine deletes a page's compiled code and
+    /// decoded images on every poll; a game in play must never sit there.
+    #[test]
+    fn the_strict_pressure_threshold_sits_above_a_played_games_working_set() {
+        let strict_mib = f64::from(WEB_PROCESS_MEMORY_LIMIT_MIB) * STRICT_PRESSURE_THRESHOLD;
+
+        assert!(
+            strict_mib >= 2.0 * f64::from(PLAYED_GAME_WORKING_SET_MIB),
+            "strict threshold {strict_mib} MiB must be at least twice the \
+             {PLAYED_GAME_WORKING_SET_MIB} MiB a played game's rendering process uses"
+        );
+    }
 
     #[test]
     fn the_window_template_is_readable_from_the_registered_bundle() {
