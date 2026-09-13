@@ -220,6 +220,110 @@ pub(crate) fn bring_into_focus<S: std::hash::BuildHasher>(
     }
 }
 
+/// What a [`move_into_slot`] call did to the arrangement.
+///
+/// A separate type from [`Outcome`] on purpose: that type's `Swapped` means
+/// the displaced session leaves the grid entirely, which a place-to-place
+/// move never does — reusing it would make one variant mean two different
+/// things (code standards rule 1).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum MoveOutcome {
+    /// `target` held another session, which now sits in the mover's old slot.
+    Swapped {
+        /// The session that held `target` and now sits where the mover was.
+        with: SessionId,
+    },
+    /// `target` was empty; the mover now sits there and nothing else moved.
+    Filled,
+    /// Nothing changed: `target` is the mover's own slot, is not a slot the
+    /// layout has, or the mover is off-grid or unknown.
+    Unchanged,
+}
+
+/// Where every session sits after one is moved to a slot, and which of the
+/// three [`MoveOutcome`] cases that was.
+///
+/// Total by design, like [`Placement`]: [`Self::visibility`] carries every
+/// session the call was given, not just the one or two that moved.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct Move {
+    visibility: HashMap<SessionId, Visibility>,
+    outcome: MoveOutcome,
+}
+
+impl Move {
+    /// The visibility of every session after the call, keyed by id.
+    #[must_use]
+    pub(crate) fn visibility(&self) -> &HashMap<SessionId, Visibility> {
+        &self.visibility
+    }
+
+    /// Which of the three [`MoveOutcome`] cases the call produced.
+    #[must_use]
+    pub(crate) fn outcome(&self) -> &MoveOutcome {
+        &self.outcome
+    }
+}
+
+/// Move `account` to `target`, given `layout` and where every session
+/// currently sits.
+///
+/// [`MoveOutcome::Unchanged`] when `target` is `account`'s own slot, is not a
+/// slot `layout` exposes, or `account` is off-grid or absent from `current`.
+/// Otherwise `account` takes `target`: an empty target is
+/// [`MoveOutcome::Filled`]; an occupied one trades places with `account`'s old
+/// slot and is [`MoveOutcome::Swapped`], naming the session that now sits
+/// where `account` was. The returned [`Move`] always names every session in
+/// `current`. Reads no clock and no randomness.
+#[must_use]
+pub(crate) fn move_into_slot<S: std::hash::BuildHasher>(
+    current: &HashMap<SessionId, Visibility, S>,
+    layout: Layout,
+    account: &SessionId,
+    target: SlotId,
+) -> Move {
+    let visibility: HashMap<SessionId, Visibility> = current
+        .iter()
+        .map(|(id, seat)| (id.clone(), *seat))
+        .collect();
+
+    let moves = matches!(
+        current.get(account).copied(),
+        Some(Visibility::InSlot(slot)) if slot != target
+    ) && layout.contains(target);
+
+    if !moves {
+        return Move {
+            visibility,
+            outcome: MoveOutcome::Unchanged,
+        };
+    }
+
+    let mut visibility = visibility;
+    let occupant = current
+        .iter()
+        .find_map(|(id, seat)| (*seat == Visibility::InSlot(target)).then(|| id.clone()));
+
+    visibility.insert(account.clone(), Visibility::InSlot(target));
+    let outcome = match occupant {
+        Some(id) => {
+            // The mover's old slot is still recorded under `current`, since
+            // `visibility` has only been touched for `account` so far.
+            let Some(Visibility::InSlot(source)) = current.get(account).copied() else {
+                unreachable!("`moves` only holds when `account` is in a slot");
+            };
+            visibility.insert(id.clone(), Visibility::InSlot(source));
+            MoveOutcome::Swapped { with: id }
+        }
+        None => MoveOutcome::Filled,
+    };
+
+    Move {
+        visibility,
+        outcome,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -415,6 +519,113 @@ mod tests {
                 Outcome::Filled,
                 Outcome::Focused,
             ),
+        );
+    }
+
+    #[test]
+    fn moving_onto_an_occupied_slot_swaps_exactly_those_two_and_names_the_other_account() {
+        let order = ids(&["a", "b", "c"]);
+        let current = HashMap::from([
+            (order[0].clone(), Visibility::InSlot(SlotId::new(0))),
+            (order[1].clone(), Visibility::InSlot(SlotId::new(1))),
+            (order[2].clone(), Visibility::InSlot(SlotId::new(2))),
+        ]);
+
+        let moved = move_into_slot(&current, Layout::Grid, &order[0], SlotId::new(1));
+
+        assert_eq!(
+            (
+                moved.outcome().clone(),
+                moved.visibility()[&order[0]],
+                moved.visibility()[&order[1]],
+                moved.visibility()[&order[2]],
+            ),
+            (
+                MoveOutcome::Swapped {
+                    with: order[1].clone(),
+                },
+                Visibility::InSlot(SlotId::new(1)),
+                Visibility::InSlot(SlotId::new(0)),
+                Visibility::InSlot(SlotId::new(2)),
+            ),
+        );
+    }
+
+    #[test]
+    fn moving_onto_an_empty_slot_fills_it_and_leaves_the_source_empty() {
+        let order = ids(&["a", "b"]);
+        let current = HashMap::from([
+            (order[0].clone(), Visibility::InSlot(SlotId::new(0))),
+            (order[1].clone(), Visibility::InSlot(SlotId::new(1))),
+        ]);
+
+        let moved = move_into_slot(&current, Layout::Grid, &order[0], SlotId::new(2));
+
+        assert_eq!(
+            (moved.outcome().clone(), moved.visibility()[&order[0]]),
+            (MoveOutcome::Filled, Visibility::InSlot(SlotId::new(2))),
+        );
+        assert!(
+            moved
+                .visibility()
+                .values()
+                .all(|seat| *seat != Visibility::InSlot(SlotId::new(0)))
+        );
+    }
+
+    #[test]
+    fn moving_onto_the_movers_own_slot_is_unchanged() {
+        let order = ids(&["a"]);
+        let current = HashMap::from([(order[0].clone(), Visibility::InSlot(SlotId::new(0)))]);
+
+        let moved = move_into_slot(&current, Layout::Single, &order[0], SlotId::new(0));
+
+        assert_eq!(
+            (moved.outcome().clone(), moved.visibility().clone()),
+            (MoveOutcome::Unchanged, current),
+        );
+    }
+
+    #[test]
+    fn moving_onto_a_slot_the_layout_does_not_have_is_unchanged() {
+        let order = ids(&["a"]);
+        let current = HashMap::from([(order[0].clone(), Visibility::InSlot(SlotId::new(0)))]);
+
+        let moved = move_into_slot(&current, Layout::Single, &order[0], SlotId::new(3));
+
+        assert_eq!(
+            (moved.outcome().clone(), moved.visibility().clone()),
+            (MoveOutcome::Unchanged, current),
+        );
+    }
+
+    #[test]
+    fn moving_an_off_grid_account_is_unchanged() {
+        let order = ids(&["a", "b"]);
+        let current = HashMap::from([
+            (order[0].clone(), Visibility::OffGrid),
+            (order[1].clone(), Visibility::InSlot(SlotId::new(0))),
+        ]);
+
+        let moved = move_into_slot(&current, Layout::SideBySide, &order[0], SlotId::new(1));
+
+        assert_eq!(
+            (moved.outcome().clone(), moved.visibility().clone()),
+            (MoveOutcome::Unchanged, current),
+        );
+    }
+
+    #[test]
+    fn moving_an_unknown_id_is_unchanged() {
+        let order = ids(&["a"]);
+        let current = HashMap::from([(order[0].clone(), Visibility::InSlot(SlotId::new(0)))]);
+        let unknown = SessionId::new("unknown");
+
+        let moved = move_into_slot(&current, Layout::SideBySide, &unknown, SlotId::new(1));
+
+        assert_eq!(
+            (moved.outcome().clone(), moved.visibility().clone()),
+            (MoveOutcome::Unchanged, current),
         );
     }
 }

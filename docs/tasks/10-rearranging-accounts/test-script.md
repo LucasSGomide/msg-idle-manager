@@ -110,3 +110,36 @@ run.
       passes: a `DraggedAccount` built from a `SessionId`, stored in a
       `glib::Value` via `to_value()`, reads back through `Value::get` with
       the same `SessionId`, and the value's `type_()` is not `glib::Type::STRING`.
+
+## 03 — Moving an account between places in the book
+
+- [x] Run `cargo test -p idle-manager-core` — 134 tests pass, including the 23
+      new ones for `move_into_slot` (`layout.rs`) and `SessionBook::move_to_slot`
+      (`session.rs`): `moving_onto_an_occupied_slot_swaps_exactly_those_two_and_names_the_other_account`,
+      `moving_onto_an_empty_slot_fills_it_and_leaves_the_source_empty`,
+      `moving_onto_the_movers_own_slot_is_unchanged`,
+      `moving_onto_a_slot_the_layout_does_not_have_is_unchanged`,
+      `moving_an_off_grid_account_is_unchanged`,
+      `moving_an_unknown_id_is_unchanged`,
+      `moving_onto_an_occupied_slot_returns_swapped_and_trades_exactly_those_two_slots`,
+      `moving_onto_an_empty_slot_returns_filled_and_leaves_the_old_slot_empty`,
+      `moving_onto_the_movers_own_slot_returns_unchanged_and_leaves_the_book_equal`,
+      `moving_onto_a_slot_the_layout_does_not_have_returns_unchanged_and_leaves_the_book_equal`,
+      `moving_an_off_grid_account_returns_unchanged_and_leaves_the_book_equal`,
+      `moving_an_unknown_id_returns_unchanged_and_leaves_the_book_equal`,
+      `a_swap_where_focus_was_on_the_movers_slot_moves_focus_to_the_target`,
+      `a_fill_where_focus_was_on_the_movers_slot_moves_focus_to_the_target`,
+      `a_swap_where_focus_was_on_the_target_moves_focus_to_the_movers_old_slot`,
+      `a_swap_where_focus_was_on_neither_slot_leaves_focus_unchanged`,
+      `a_swap_survives_a_layout_switch_and_back`,
+      `a_real_move_reorders_in_slot_accounts_by_slot_index_with_no_off_grid_accounts_present`,
+      `a_real_move_puts_in_slot_accounts_first_then_off_grid_accounts_in_their_old_relative_order`,
+      `moving_a_parked_account_keeps_it_parked`,
+      `a_move_changes_no_accounts_keep_awake_flag`,
+      `a_move_changes_no_accounts_remembered_zoom`,
+      `restoring_from_the_workspace_of_a_moved_book_reproduces_the_same_slots_and_order`.
+- [x] Run `cargo build --workspace` — the whole workspace, including
+      `idle-manager-shell` and the `idle-manager` binary, compiles clean against
+      the new `MoveOutcome` and `SessionBook::move_to_slot` in
+      `idle-manager-core`, confirming this core-only change breaks nothing
+      downstream.

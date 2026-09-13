@@ -13,7 +13,7 @@ mod preset;
 mod session;
 mod workspace;
 
-pub use layout::{Layout, Outcome, Placement, SlotId, arrange};
+pub use layout::{Layout, MoveOutcome, Outcome, Placement, SlotId, arrange};
 pub use memory::{BudgetVerdict, MemoryReading};
 pub use ports::{
     MemoryProbe, MemoryProbeError, PresetCatalogue, PresetCatalogueReading, PresetFailure,
