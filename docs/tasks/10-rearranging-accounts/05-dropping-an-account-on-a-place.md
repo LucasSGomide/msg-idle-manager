@@ -100,28 +100,28 @@ attach a handler to.
 
 ## Acceptance criteria
 
-- [ ] `(manual)` while dragging, the place under the pointer is tinted, including
+- [x] `(manual)` while dragging, the place under the pointer is tinted, including
       the source place and an empty place, the tint moves with the pointer, and it
       clears when the pointer leaves the grid
-- [ ] `(manual)` dropping on another occupied place swaps the two accounts, every
+- [x] `(manual)` dropping on another occupied place swaps the two accounts, every
       other place is unchanged, and neither game's page reloads
-- [ ] `(manual)` dropping on an empty place moves the account there and leaves
+- [x] `(manual)` dropping on an empty place moves the account there and leaves
       its old place empty
-- [ ] `(manual)` dropping a live account on a parked account's place swaps them,
+- [x] `(manual)` dropping a live account on a parked account's place swaps them,
       the parked panel now shows in the live account's old place, and that
       account is still parked
 - [ ] `(manual)` a drop on the source place, a release outside the grid and
       Escape mid-drag each leave every place unchanged and `sessions.toml` not
       rewritten
-- [ ] `(manual)` after swapping the focused account with another, the focus
+- [x] `(manual)` after swapping the focused account with another, the focus
       outline is on the focused account's new place and `Ctrl` + plus zooms that
       account
-- [ ] `(manual)` after a drop the sidebar rows list the on-screen accounts in
+- [x] `(manual)` after a drop the sidebar rows list the on-screen accounts in
       place order, followed by the off-grid accounts in their previous order
-- [ ] `(manual)` a drop released over a text box inside a game's page moves the
+- [x] `(manual)` a drop released over a text box inside a game's page moves the
       account and leaves the text box empty, and no drop cursor shows over the
       page during the drag
-- [ ] `(manual)` after a drop and a relaunch, every account is back in the place
+- [x] `(manual)` after a drop and a relaunch, every account is back in the place
       the drop left it and the sidebar order is the same
 
 ## References

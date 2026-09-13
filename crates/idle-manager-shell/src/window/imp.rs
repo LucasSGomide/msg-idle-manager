@@ -16,8 +16,8 @@ use webkit6::prelude::WebViewExt;
 use webkit6::{LoadEvent, WebView};
 
 use idle_manager_core::{
-    Layout, Liveness, Preset, PresetCatalogue, ProfileLocator, Session, SessionBook, SessionId,
-    Workspace, WorkspaceReadError, ZoomLevel, ZoomMemory,
+    Layout, Liveness, MoveOutcome, Preset, PresetCatalogue, ProfileLocator, Session, SessionBook,
+    SessionId, SlotId, Workspace, WorkspaceReadError, ZoomLevel, ZoomMemory,
 };
 
 use crate::add_game_dialog::{AddGameDialog, Confirmed};
@@ -152,33 +152,7 @@ impl ObjectImpl for Window {
             .sync_create()
             .build();
 
-        let window = self.obj().downgrade();
-        self.sidebar.connect_row_activated(move |id| {
-            if let Some(window) = window.upgrade() {
-                window.imp().focus_session(&id);
-            }
-        });
-
-        let window = self.obj().downgrade();
-        self.sidebar.connect_parking_toggled(move |id| {
-            if let Some(window) = window.upgrade() {
-                window.imp().toggle_parking(&id);
-            }
-        });
-
-        let window = self.obj().downgrade();
-        self.sidebar.connect_keep_awake_toggled(move |id, value| {
-            if let Some(window) = window.upgrade() {
-                window.imp().toggle_keep_awake(&id, value);
-            }
-        });
-
-        let window = self.obj().downgrade();
-        self.sidebar.connect_rename_requested(move |id| {
-            if let Some(window) = window.upgrade() {
-                window.imp().present_rename_dialog(&id);
-            }
-        });
+        self.wire_sidebar_signals();
 
         // The parked slot's own Start button routes through the same intent, so
         // the row and the panel never run two starts (architecture rule 8).
@@ -188,6 +162,8 @@ impl ObjectImpl for Window {
                 window.imp().toggle_parking(&id);
             }
         });
+
+        self.wire_account_dropped();
 
         // The wheel half of the zoom gesture (task 05): it acts on the account
         // the pointer is over, and only while that is also the focused place —
@@ -542,6 +518,71 @@ impl Window {
         if renamed {
             self.redraw();
             self.request_save();
+        }
+    }
+
+    /// The sidebar row's own intents: focusing, parking, keep-awake and
+    /// rename. Extracted from `constructed` only to keep it under the
+    /// house line limit — each closure still just forwards the id to the
+    /// matching `Window` method, which is where the domain call happens
+    /// (architecture rule 8).
+    fn wire_sidebar_signals(&self) {
+        let window = self.obj().downgrade();
+        self.sidebar.connect_row_activated(move |id| {
+            if let Some(window) = window.upgrade() {
+                window.imp().focus_session(&id);
+            }
+        });
+
+        let window = self.obj().downgrade();
+        self.sidebar.connect_parking_toggled(move |id| {
+            if let Some(window) = window.upgrade() {
+                window.imp().toggle_parking(&id);
+            }
+        });
+
+        let window = self.obj().downgrade();
+        self.sidebar.connect_keep_awake_toggled(move |id, value| {
+            if let Some(window) = window.upgrade() {
+                window.imp().toggle_keep_awake(&id, value);
+            }
+        });
+
+        let window = self.obj().downgrade();
+        self.sidebar.connect_rename_requested(move |id| {
+            if let Some(window) = window.upgrade() {
+                window.imp().present_rename_dialog(&id);
+            }
+        });
+    }
+
+    /// The drop half of the drag (item 10 task 05): the grid only reports
+    /// which account landed on which slot, so the book is the only thing
+    /// that decides whether that is a swap, a fill or nothing.
+    fn wire_account_dropped(&self) {
+        let window = self.obj().downgrade();
+        self.grid.connect_account_dropped(move |id, slot| {
+            if let Some(window) = window.upgrade() {
+                window.imp().drop_account(&id, slot);
+            }
+        });
+    }
+
+    /// Applies a dropped account (item 10 task 05). On `Swapped` or `Filled`
+    /// — a real move — it redraws, which moves the places and rebuilds the
+    /// sidebar in the book's new order, then saves. On `Unchanged` — the
+    /// source place, a slot outside the current layout, or an unknown or
+    /// off-grid id — it does nothing at all: no redraw, no save. It never
+    /// touches a `SessionView` holder or a zoom, so no page reloads, starts,
+    /// stops or resizes (`FR.14.8`).
+    fn drop_account(&self, id: &SessionId, slot: SlotId) {
+        let outcome = self.book.borrow_mut().move_to_slot(id, slot);
+        match outcome {
+            MoveOutcome::Swapped { .. } | MoveOutcome::Filled => {
+                self.redraw();
+                self.request_save();
+            }
+            MoveOutcome::Unchanged => {}
         }
     }
 

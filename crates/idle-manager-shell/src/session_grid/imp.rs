@@ -39,10 +39,20 @@ type StartHandler = Box<dyn Fn(SessionId)>;
 /// up; the window decides what a notch means (architecture rule 8).
 type ScrollZoomHandler = Box<dyn Fn(SessionId, f64)>;
 
+/// A handler run with an account's id and the slot it was dropped on. The
+/// grid decides nothing about what a drop means — swap, fill or no-op is the
+/// book's call (architecture rule 8, task 05).
+type AccountDroppedHandler = Box<dyn Fn(SessionId, SlotId)>;
+
 /// How long the zoom readout stays up after the last gesture before it fades,
 /// leaving nothing behind (`FR.11.6`). A run of gestures rearms it, so one
 /// figure keeps updating rather than a queue forming.
 const ZOOM_READOUT_FADE_MILLIS: u64 = 1000;
+
+/// Opacity of the drop-target tint over a place under a drag (task 05's new
+/// pattern; code-standards rule 5). Translucent enough that a game's page or
+/// a parked panel underneath still reads through it.
+const DROP_HIGHLIGHT_ALPHA: f32 = 0.18;
 
 /// The transient percentage figure over one place, plus the fade timer that is
 /// cancelled and rearmed on every gesture (item 09's new pattern). Held in an
@@ -84,9 +94,15 @@ pub struct SessionGrid {
     slots: RefCell<Vec<SlotEntry>>,
     layout: Cell<Layout>,
     focused: Cell<usize>,
+    /// The slot under the pointer during a drag, tinted by [`Self::snapshot`]
+    /// until the pointer leaves the grid or the drag ends (task 05). Not the
+    /// same state as `focused`: grabbing or dropping never moves the current
+    /// marker (`docs/design.md` rule 1).
+    hovered_slot: Cell<Option<usize>>,
     pub(super) on_slot_focused: RefCell<Option<SlotFocusHandler>>,
     pub(super) on_start_requested: RefCell<Option<StartHandler>>,
     pub(super) on_zoom_scrolled: RefCell<Option<ScrollZoomHandler>>,
+    pub(super) on_account_dropped: RefCell<Option<AccountDroppedHandler>>,
 }
 
 #[glib::object_subclass]
@@ -134,6 +150,60 @@ impl ObjectImpl for SessionGrid {
             }
         });
         obj.add_controller(click);
+
+        // Tracks the pointer during a drag so the hovered place can be
+        // tinted. Its own pointer test covers the whole widget including its
+        // children (`FR.14.6`), which is what lets it track a drag across a
+        // place filled by a web page. It accepts no drops itself, so it never
+        // competes with the drop target below.
+        let drop_motion = gtk::DropControllerMotion::new();
+        let motion_grid = obj.downgrade();
+        drop_motion.connect_motion(move |_, x, y| {
+            if let Some(grid) = motion_grid.upgrade() {
+                grid.imp().set_hovered_slot_at(x, y);
+            }
+        });
+        let leave_grid = obj.downgrade();
+        drop_motion.connect_leave(move |_| {
+            if let Some(grid) = leave_grid.upgrade() {
+                grid.imp().clear_hovered_slot();
+            }
+        });
+        obj.add_controller(drop_motion);
+
+        // One drop target for the whole grid, not one per place, so an empty
+        // place — which has no overlay of its own — accepts a drop too.
+        // Capture phase: measured to be required, not a precaution
+        // (roadmap item's Technical References) — in the bubble phase
+        // `WebKitWebViewBase`'s own drop target on the page underneath
+        // consumes the drop first and the grid never receives it.
+        let drop_target =
+            gtk::DropTarget::new(super::DraggedAccount::static_type(), gdk::DragAction::MOVE);
+        drop_target.set_propagation_phase(gtk::PropagationPhase::Capture);
+        let drop_grid = obj.downgrade();
+        drop_target.connect_drop(move |_target, value, x, y| {
+            let Some(grid) = drop_grid.upgrade() else {
+                return false;
+            };
+            let imp = grid.imp();
+            // The drop ends the drag over this pointer whether or not it
+            // resolves to a slot, so the highlight always clears here rather
+            // than waiting on the motion controller's own `leave` — a drop at
+            // the same point the pointer already sat at is not a pointer
+            // motion and would otherwise leave the tint stuck.
+            imp.clear_hovered_slot();
+            let Some(slot) = imp.slot_at(x, y) else {
+                return false;
+            };
+            let Ok(payload) = value.get::<super::DraggedAccount>() else {
+                return false;
+            };
+            if let Some(handler) = imp.on_account_dropped.borrow().as_ref() {
+                handler(payload.session_id().clone(), slot);
+            }
+            true
+        });
+        obj.add_controller(drop_target);
     }
 
     fn dispose(&self) {
@@ -156,6 +226,7 @@ impl WidgetImpl for SessionGrid {
             child = current.next_sibling();
         }
 
+        self.draw_drop_highlight(snapshot);
         self.draw_slot_lines(snapshot);
     }
 }
@@ -348,15 +419,20 @@ impl SessionGrid {
         // Restores the grip once the drag ends — dropped, cancelled, or
         // Escaped — if the pointer is still over this place; a plain
         // press-and-release never reaches this handler at all, since a drag
-        // only starts past the threshold.
+        // only starts past the threshold. Also clears the drop highlight: a
+        // completed drop already clears it in the drop target's own handler,
+        // but Escape and a release outside the grid are cancelled by GTK
+        // before that handler ever runs, so this is the only place left to
+        // catch them.
         let end_hover = hover;
         let end_owner = self.obj().downgrade();
         let end_handle = handle.clone();
         source.connect_drag_end(move |_source, _drag, _delete| {
-            let single = end_owner
-                .upgrade()
-                .is_some_and(|owner| owner.imp().layout.get() == Layout::Single);
-            if end_hover.contains_pointer() && !single {
+            let Some(owner) = end_owner.upgrade() else {
+                return;
+            };
+            owner.imp().clear_hovered_slot();
+            if end_hover.contains_pointer() && owner.imp().layout.get() != Layout::Single {
                 end_handle.set_visible(true);
             }
         });
@@ -555,9 +631,26 @@ impl SessionGrid {
             return;
         }
 
+        let Some(slot) = self.slot_at(x, y) else {
+            return;
+        };
+
+        self.focused.set(slot.index());
+        if let Some(handler) = self.on_slot_focused.borrow().as_ref() {
+            handler(slot);
+        }
+        obj.queue_draw();
+    }
+
+    /// The slot the point `(x, y)` in the grid's own coordinates falls in, or
+    /// `None` outside the grid's own bounds or past however many slots the
+    /// current layout actually has. Shared by click-to-focus and the drop
+    /// target (task 05) — one place decides where a point on the grid lands.
+    fn slot_at(&self, x: f64, y: f64) -> Option<SlotId> {
+        let obj = self.obj();
         let (width, height) = (obj.width(), obj.height());
         if width <= 0 || height <= 0 {
-            return;
+            return None;
         }
 
         let layout = self.layout.get();
@@ -566,14 +659,63 @@ impl SessionGrid {
         let row = ((y * rows as f64 / f64::from(height)) as usize).min(rows - 1);
         let index = row * columns + column;
         if index >= layout.slot_count() {
-            return;
+            return None;
         }
 
-        self.focused.set(index);
-        if let Some(handler) = self.on_slot_focused.borrow().as_ref() {
-            handler(SlotId::new(index));
+        Some(SlotId::new(index))
+    }
+
+    /// Records the slot under `(x, y)` as the drop target's drag highlight and
+    /// queues a redraw when it actually changed slot. Outside every slot —
+    /// there is no slot at that point — clears the highlight the same way
+    /// [`Self::clear_hovered_slot`] does.
+    fn set_hovered_slot_at(&self, x: f64, y: f64) {
+        let slot = self.slot_at(x, y).map(SlotId::index);
+        if self.hovered_slot.replace(slot) != slot {
+            self.obj().queue_draw();
         }
-        obj.queue_draw();
+    }
+
+    /// Clears the drag highlight when the pointer leaves the grid entirely.
+    fn clear_hovered_slot(&self) {
+        if self.hovered_slot.replace(None).is_some() {
+            self.obj().queue_draw();
+        }
+    }
+
+    /// Tints whichever slot [`Self::hovered_slot`] names, including the
+    /// source place and an empty one — a drop is valid on either — drawn
+    /// after the children and before [`Self::draw_slot_lines`] so the hairline
+    /// and focus outline still read on top of it. A no-op with no drag under
+    /// way.
+    fn draw_drop_highlight(&self, snapshot: &gtk::Snapshot) {
+        let Some(index) = self.hovered_slot.get() else {
+            return;
+        };
+
+        let obj = self.obj();
+        let (width, height) = (obj.width() as f32, obj.height() as f32);
+        let layout = self.layout.get();
+        if index >= layout.slot_count() {
+            return;
+        }
+        let (columns, rows) = grid_dimensions(layout);
+        let slot_width = width / columns as f32;
+        let slot_height = height / rows as f32;
+        let column = (index % columns) as f32;
+        let row = (index / columns) as f32;
+
+        let base = obj.color();
+        let tint = gdk::RGBA::new(base.red(), base.green(), base.blue(), DROP_HIGHLIGHT_ALPHA);
+        snapshot.append_color(
+            &tint,
+            &graphene::Rect::new(
+                column * slot_width,
+                row * slot_height,
+                slot_width,
+                slot_height,
+            ),
+        );
     }
 
     fn draw_slot_lines(&self, snapshot: &gtk::Snapshot) {

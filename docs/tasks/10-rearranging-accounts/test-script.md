@@ -212,3 +212,77 @@ run.
       `session-0001` and `session-0002` — the on-disk profile folder names,
       derived from each account's hidden id, are unaffected by either
       rename.
+
+## 05 — Dropping an account on a place
+
+- [x] `cargo build --workspace`, `cargo test --workspace` (134 core + 35 shell
+      tests, all passing), `cargo clippy --workspace --all-targets -- --deny
+      warnings`, `cargo fmt --check` and `./scripts/arch-check.sh` all clean
+      against the drop target, the drop-motion tint tracker and
+      `Window::drop_account`.
+- [x] With the app running per Setup, add four accounts ("Alpha", "Bravo",
+      "Charlie", "Delta"), each a local `file://` page (not a `data:` URL —
+      this Xvfb's keymap has no keycode for `<`/`>`, so typing HTML into the
+      address field drops those characters silently) with a full-page click
+      button and a top-right `<input placeholder="drop-here">`, and switch to
+      the four-place (4) layout — Alpha, Bravo, Charlie, Delta fill slots
+      0–3 in order.
+- [x] Hover Alpha's grip (top-right of slot 0) and drag toward slot 1
+      (Bravo's place) — while dragging, slot 1 is tinted; moving back over
+      slot 0 (the source) tints it instead, confirmed by two screenshots
+      mid-drag. Dropping on slot 1 swaps Alpha and Bravo: the sidebar
+      reorders to Bravo, Alpha, Charlie, Delta, both pages' button text from
+      before the drag (clicked to read "HIT-ALPHA") survives unchanged
+      (no reload), and `sessions.toml`'s mtime and account order/slots match
+      the swap.
+- [x] Drag Alpha's grip and drop back on its own (source) place — screenshot
+      confirms no visual change and no tint left over; `sessions.toml`'s
+      mtime is unchanged (`stat -c %Y`, byte-identical before/after).
+- [x] Drag Alpha's grip and release over the sidebar (outside the grid
+      entirely) — no change to any place or the sidebar order;
+      `sessions.toml`'s mtime unchanged again.
+- [x] Drag Alpha's grip and press Escape mid-drag, holding the pointer over
+      Bravo's place — **the drag did not cancel**: the chip and tint stayed
+      up exactly as before Escape was pressed. A synthetic `XTestFakeKeyEvent`
+      for `Escape` does not reach GTK's own DnD cancel handling in this
+      headless, window-manager-less Xvfb session (no real keyboard grab
+      context for the drag to intercept it), so this specific sub-case is
+      **not verifiable headless** and needs a real desktop to confirm; the
+      source-place and outside-grid sub-cases above are independently
+      confirmed. (The stuck drag was then released over Bravo's place as a
+      real drop, which incidentally re-confirmed the swap behaviour above.)
+- [x] Remove one account from `sessions.toml` by hand and relaunch with three
+      accounts in the four-place layout, leaving slot 1 empty (a genuinely
+      unoccupied place, not a parked one) — drag Alpha from slot 3 into the
+      empty slot 1: the tint covers the empty place during the drag, the
+      drop moves Alpha there leaving slot 3 empty, and `sessions.toml` is
+      rewritten with Alpha's new slot and the sidebar reordered to match.
+- [x] Park Charlie from its ⋯ menu (its place shows the plain "Parked" panel
+      with an enabled "Start"), then drag the live Bravo onto Charlie's
+      place — they swap: Charlie's parked panel (still reading "Parked",
+      "Start" still enabled) now shows in Bravo's old place, and Bravo now
+      runs where Charlie's panel was. Bravo, the account focused throughout,
+      stays bold in the sidebar in its new position.
+- [x] Drag Alpha's grip and drop it exactly on Bravo's live page, releasing
+      over Bravo's `<input placeholder="drop-here">` — a screenshot taken
+      mid-drag over that input shows the placeholder text still visible
+      (proving no text was ever pasted into it, since a non-empty value
+      would hide the placeholder), and after the drop the input still shows
+      only the placeholder while Alpha and Bravo have swapped places.
+- [x] Hover the account that swapped into a new place and press `Ctrl` +
+      `plus` twice — a "121%" zoom readout appears over that account's *new*
+      place, confirming both that the focus outline followed the moved
+      account and that the keyboard zoom shortcut acts on it there.
+- [x] With three accounts arranged two-on-screen-one-off-grid (side-by-side
+      layout, third account off-grid per its yellow sidebar dot), drag the
+      slot-1 account onto the slot-0 account to swap them — the sidebar
+      reorders to the two on-screen accounts in their new place order,
+      followed by the off-grid account unchanged in its trailing position,
+      confirming the ordering rule with an off-grid account actually present
+      (task 03's unit tests cover the same rule in the book; this confirms
+      the shell surfaces it).
+- [x] Quit the app (window close button) and relaunch against the same
+      `XDG_CONFIG_HOME`/`XDG_DATA_HOME` after several drops — every account
+      is back in the exact place the last drop left it and the sidebar order
+      is unchanged, confirmed by screenshot and by re-reading
+      `sessions.toml`.

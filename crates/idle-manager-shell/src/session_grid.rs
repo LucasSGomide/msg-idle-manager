@@ -128,6 +128,16 @@ impl SessionGrid {
     pub fn connect_zoom_scrolled(&self, handler: impl Fn(SessionId, f64) + 'static) {
         self.imp().on_zoom_scrolled.replace(Some(Box::new(handler)));
     }
+
+    /// Registers `handler` to run with an account's id and the slot it was
+    /// dropped on, whenever a drag ends on a slot the grid could resolve. The
+    /// grid decides nothing about what a drop means — swap, fill or nothing
+    /// is the book's call (architecture rule 8, task 05).
+    pub fn connect_account_dropped(&self, handler: impl Fn(SessionId, SlotId) + 'static) {
+        self.imp()
+            .on_account_dropped
+            .replace(Some(Box::new(handler)));
+    }
 }
 
 impl Default for SessionGrid {
