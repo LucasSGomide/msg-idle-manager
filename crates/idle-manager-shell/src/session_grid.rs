@@ -22,6 +22,30 @@ glib::wrapper! {
         @implements gtk::Accessible, gtk::Buildable, gtk::ConstraintTarget;
 }
 
+/// The private payload a place's grip drag carries (`FR.14.5`): a registered
+/// [`glib::Boxed`] type wrapping the dragged account's [`SessionId`], offered
+/// through [`gtk::gdk::ContentProvider::for_value`] and never a plain string —
+/// a text-typed drag is exactly what a web page accepts and would paste into
+/// its own text box. Exposed from this module so the drop-handling slice
+/// accepts exactly this type.
+#[derive(Clone, Debug, PartialEq, Eq, glib::Boxed)]
+#[boxed_type(name = "IdleManagerDraggedAccount")]
+pub struct DraggedAccount(SessionId);
+
+impl DraggedAccount {
+    /// Wraps `session` for a grip's drag source to offer as its content.
+    #[must_use]
+    pub fn new(session: SessionId) -> Self {
+        Self(session)
+    }
+
+    /// The dragged account's id.
+    #[must_use]
+    pub fn session_id(&self) -> &SessionId {
+        &self.0
+    }
+}
+
 glib::wrapper! {
     /// The layout manager [`SessionGrid`] installs on itself: it allocates each
     /// child either its slot rectangle or a rectangle outside the grid.
@@ -121,5 +145,24 @@ impl SlotLayout {
 impl Default for SlotLayout {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use glib::prelude::*;
+
+    #[test]
+    fn a_dragged_account_round_trips_through_a_value_as_a_boxed_type_not_a_string() {
+        let payload = DraggedAccount::new(SessionId::new("session-0007"));
+
+        let value = payload.to_value();
+        let read_back = value
+            .get::<DraggedAccount>()
+            .expect("a DraggedAccount value reads back as one");
+
+        assert_eq!(read_back.session_id(), &SessionId::new("session-0007"));
+        assert_ne!(value.type_(), glib::Type::STRING);
     }
 }

@@ -105,24 +105,24 @@ that no game receives anything.
 
 ## Acceptance criteria
 
-- [ ] `(manual)` in the four-place arrangement, moving the pointer over an
+- [x] `(manual)` in the four-place arrangement, moving the pointer over an
       occupied place's page shows the grip in its top-right corner, and moving it
       out of the place hides the grip
-- [ ] `(manual)` hovering a parked account's place shows the grip over its panel,
+- [x] `(manual)` hovering a parked account's place shows the grip over its panel,
       and the panel keeps its three elements unrestyled
-- [ ] `(manual)` in the one-place arrangement no grip appears wherever the
+- [x] `(manual)` in the one-place arrangement no grip appears wherever the
       pointer goes, and with an empty grid none appears either
-- [ ] `(manual)` a click in the place's top-right corner just beside the grip,
+- [x] `(manual)` a click in the place's top-right corner just beside the grip,
       not on it, reaches the game's page
-- [ ] `(manual)` pressing the grip of an unfocused place leaves the focus outline
+- [x] `(manual)` pressing the grip of an unfocused place leaves the focus outline
       on the place that had it, while a press on that place's page focuses it
-- [ ] `(manual)` a press and release on the grip with no movement starts no
+- [x] `(manual)` a press and release on the grip with no movement starts no
       drag, and focus and the arrangement are unchanged
-- [ ] `(manual)` dragging the grip past the threshold shows a chip with the
+- [x] `(manual)` dragging the grip past the threshold shows a chip with the
       account's name following the pointer, and the grip hides while dragging
-- [ ] `(manual)` releasing the drag over a text box inside another game's page
+- [x] `(manual)` releasing the drag over a text box inside another game's page
       leaves the text box empty and the arrangement unchanged
-- [ ] `(unit)` a `DraggedAccount` stored in a `glib::Value` reads back carrying
+- [x] `(unit)` a `DraggedAccount` stored in a `glib::Value` reads back carrying
       the same `SessionId`, and the value's type is not a string type
 
 ## References
