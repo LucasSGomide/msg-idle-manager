@@ -1,6 +1,6 @@
 # 10 — Renaming and rearranging accounts
 
-**Depends on:** 03, 07 · **Status:** done · **Estimate:** 8
+**Depends on:** 03, 07 · **Status:** done · **Estimate:** 8 · **Merged:** 2026-09-13
 
 ## Context
 
@@ -465,6 +465,21 @@ the existing sidebar menu and add-game dialog, and the research note.
 - `list-drag-handle-symbolic` ships in the Adwaita icon theme
   (`/usr/share/icons/Adwaita/symbolic/ui/`); the machine runs GTK 4.22, above
   the 4.10 floor in `docs/stack.md`, and every API above is older than that.
+
+## As built
+
+- Task 05's headless Xvfb harness could exercise the source-place and
+  outside-grid no-op cases but not Escape mid-drag: a synthetic
+  `XTestFakeKeyEvent` for `Escape` never reaches GTK's own DnD cancel handling
+  in a window-manager-less session with no real keyboard grab context for the
+  drag to intercept. That sub-case shipped verified by hand on a real desktop
+  instead — the drag cancelled immediately, the same outcome the other two
+  no-op cases already confirmed, and by the same code path (GTK's own
+  cancellation never reaching `connect_account_dropped`, the only caller of
+  `request_save`).
+- The grip gained a `grab` cursor on hover after the feature was already
+  accepted — not a written criterion, just a rough edge real use surfaced once
+  there was a pointing device to hover with instead of synthetic input.
 
 ## Blockers
 
