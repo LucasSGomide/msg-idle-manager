@@ -59,6 +59,10 @@ struct SlotEntry {
     overlay: gtk::Overlay,
     /// The name cover drawn under the view until the page paints.
     cover: gtk::Box,
+    /// The cover's name label, kept so [`SessionGrid::sync`] can refresh it
+    /// from the book on every pass — a rename would otherwise never reach it,
+    /// since it was set only once, at registration (`FR.13.4`).
+    cover_label: gtk::Label,
     /// The parked-account panel, an overlay kept for the slot's whole life and
     /// shown only while the account is parked or starting in this slot.
     placeholder: SlotPlaceholder,
@@ -175,7 +179,7 @@ impl SessionGrid {
     fn register_slot(&self, id: &SessionId, display_name: &str, view: Option<&WebView>) {
         let overlay = gtk::Overlay::new();
 
-        let cover = build_cover(display_name);
+        let (cover, cover_label) = build_cover(display_name);
         overlay.add_overlay(&cover);
 
         let placeholder = SlotPlaceholder::new();
@@ -273,6 +277,7 @@ impl SessionGrid {
             id: id.clone(),
             overlay,
             cover,
+            cover_label,
             placeholder,
             readout,
             grip: grip_handle,
@@ -473,6 +478,13 @@ impl SessionGrid {
         for entry in self.slots.borrow_mut().iter_mut() {
             if let Some(session) = book.sessions().iter().find(|s| s.id() == &entry.id) {
                 entry.placement = session.visibility();
+                // The cover and the placeholder both follow the book's name on
+                // every pass, the same way the placeholder's other fields
+                // already do — a rename would otherwise never reach either,
+                // since both were set once, at registration (`FR.13.4`).
+                let name = session.display_name();
+                entry.cover_label.set_markup(&cover_markup(name));
+                entry.placeholder.set_name(name);
                 apply_placeholder(&entry.placeholder, placeholder_panel(session.liveness()));
             }
             // There is nowhere to drop an account off-grid or in `Single`, so
@@ -734,22 +746,29 @@ fn install_styles() {
 }
 
 /// An opaque cover carrying the account's name, shown until the page paints.
-fn build_cover(display_name: &str) -> gtk::Box {
+fn build_cover(display_name: &str) -> (gtk::Box, gtk::Label) {
     let cover = gtk::Box::new(gtk::Orientation::Vertical, 0);
     cover.add_css_class("background");
 
     let label = gtk::Label::new(None);
-    label.set_markup(&format!(
-        "<span size='xx-large'>{}</span>",
-        glib::markup_escape_text(display_name)
-    ));
+    label.set_markup(&cover_markup(display_name));
     label.set_halign(gtk::Align::Center);
     label.set_valign(gtk::Align::Center);
     label.set_hexpand(true);
     label.set_vexpand(true);
     cover.append(&label);
 
-    cover
+    (cover, label)
+}
+
+/// The cover label's markup for `display_name`, shared by [`build_cover`] and
+/// [`SessionGrid::sync`] so a rename's refresh renders identically to the
+/// name the cover was first built with.
+fn cover_markup(display_name: &str) -> String {
+    format!(
+        "<span size='xx-large'>{}</span>",
+        glib::markup_escape_text(display_name)
+    )
 }
 
 /// The layout manager [`super::SessionGrid`] installs on itself.

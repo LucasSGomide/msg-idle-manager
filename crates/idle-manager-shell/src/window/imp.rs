@@ -22,6 +22,7 @@ use idle_manager_core::{
 
 use crate::add_game_dialog::{AddGameDialog, Confirmed};
 use crate::message_strip::MessageStrip;
+use crate::rename_dialog::RenameDialog;
 use crate::save_on_change::Saver;
 use crate::session_grid::SessionGrid;
 use crate::session_sidebar::SessionSidebar;
@@ -169,6 +170,13 @@ impl ObjectImpl for Window {
         self.sidebar.connect_keep_awake_toggled(move |id, value| {
             if let Some(window) = window.upgrade() {
                 window.imp().toggle_keep_awake(&id, value);
+            }
+        });
+
+        let window = self.obj().downgrade();
+        self.sidebar.connect_rename_requested(move |id| {
+            if let Some(window) = window.upgrade() {
+                window.imp().present_rename_dialog(&id);
             }
         });
 
@@ -491,6 +499,50 @@ impl Window {
         });
 
         dialog.present();
+    }
+
+    /// Opens the rename dialog for `id`, transient for the main window and
+    /// pre-filled with its current name (`present_add_game_dialog`'s pattern).
+    /// A no-op, logged, if the book has no account under `id`.
+    fn present_rename_dialog(&self, id: &SessionId) {
+        let Some(current_name) = self
+            .book
+            .borrow()
+            .sessions()
+            .iter()
+            .find(|session| session.id() == id)
+            .map(|session| session.display_name().to_owned())
+        else {
+            tracing::error!(session = %id, "no account to rename");
+            return;
+        };
+
+        let dialog = RenameDialog::new(&current_name);
+        dialog.set_transient_for(Some(&*self.obj()));
+
+        let window = self.obj().downgrade();
+        let id = id.clone();
+        dialog.connect_confirmed(move |name| {
+            let Some(window) = window.upgrade() else {
+                return;
+            };
+            window.imp().rename_account(&id, name);
+        });
+
+        dialog.present();
+    }
+
+    /// Applies a confirmed rename. Only when the book actually stores the
+    /// name — never for an unknown id or one that trims to empty — does it
+    /// redraw and save; it never touches a `SessionView` holder, so nothing
+    /// reloads, a running game keeps running and a parked one stays parked
+    /// (architecture rule 8).
+    fn rename_account(&self, id: &SessionId, name: &str) {
+        let renamed = self.book.borrow_mut().rename(id, name);
+        if renamed {
+            self.redraw();
+            self.request_save();
+        }
     }
 
     /// Adds an account from a typed name and address, then builds its view.
