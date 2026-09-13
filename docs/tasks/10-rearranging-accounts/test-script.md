@@ -251,6 +251,14 @@ run.
       source-place and outside-grid sub-cases above are independently
       confirmed. (The stuck drag was then released over Bravo's place as a
       real drop, which incidentally re-confirmed the swap behaviour above.)
+- [x] On a real desktop (not headless Xvfb), dragged an account and pressed
+      Escape mid-drag — the drag cancelled immediately, leaving every place
+      unchanged, closing the gap the headless run above could not exercise.
+      Escape is handled by GTK's own DnD cancellation before it ever reaches
+      `connect_account_dropped` (the only path that calls `request_save`), the
+      same mechanism already confirmed for the source-place and outside-grid
+      sub-cases above, so no separate `sessions.toml` check was needed for
+      this one. Confirmed by the user, not the headless harness.
 - [x] Remove one account from `sessions.toml` by hand and relaunch with three
       accounts in the four-place layout, leaving slot 1 empty (a genuinely
       unoccupied place, not a parked one) — drag Alpha from slot 3 into the

@@ -110,7 +110,7 @@ attach a handler to.
 - [x] `(manual)` dropping a live account on a parked account's place swaps them,
       the parked panel now shows in the live account's old place, and that
       account is still parked
-- [ ] `(manual)` a drop on the source place, a release outside the grid and
+- [x] `(manual)` a drop on the source place, a release outside the grid and
       Escape mid-drag each leave every place unchanged and `sessions.toml` not
       rewritten
 - [x] `(manual)` after swapping the focused account with another, the focus
