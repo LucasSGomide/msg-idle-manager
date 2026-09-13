@@ -81,28 +81,28 @@ arrangement.
 
 ## Acceptance criteria
 
-- [ ] `(unit)` moving an account onto another account's slot returns
+- [x] `(unit)` moving an account onto another account's slot returns
       `Swapped { with }` naming that account, trades exactly those two slots, and
       leaves every other account's visibility equal to before
-- [ ] `(unit)` moving an account onto an empty slot returns `Filled`, puts it in
+- [x] `(unit)` moving an account onto an empty slot returns `Filled`, puts it in
       the target and leaves its old slot holding no account
-- [ ] `(unit)` moving onto the account's own slot, onto a slot the layout does
+- [x] `(unit)` moving onto the account's own slot, onto a slot the layout does
       not have, moving an off-grid account and moving an unknown id each return
       `Unchanged` and leave the book equal to before
-- [ ] `(unit)` with the focused slot being the mover's, a swap and a fill both
+- [x] `(unit)` with the focused slot being the mover's, a swap and a fill both
       set `focused` to the target
-- [ ] `(unit)` with the focused slot being the target, a swap sets `focused` to
+- [x] `(unit)` with the focused slot being the target, a swap sets `focused` to
       the mover's old slot, so the account that had focus keeps it
-- [ ] `(unit)` with the focused slot being neither the mover's nor the target,
+- [x] `(unit)` with the focused slot being neither the mover's nor the target,
       `focused` is unchanged after a swap
-- [ ] `(unit)` after a swap, switching to another layout and back puts both
+- [x] `(unit)` after a swap, switching to another layout and back puts both
       accounts in the slots the swap gave them
-- [ ] `(unit)` after a real move `sessions` lists in-slot accounts by slot index
+- [x] `(unit)` after a real move `sessions` lists in-slot accounts by slot index
       then off-grid accounts in their previous relative order, both with and
       without off-grid accounts present
-- [ ] `(unit)` moving a parked account keeps it parked, and no account's
+- [x] `(unit)` moving a parked account keeps it parked, and no account's
       keep-awake flag or remembered zoom changes
-- [ ] `(unit)` restoring a new book from the workspace of a book after a move
+- [x] `(unit)` restoring a new book from the workspace of a book after a move
       reproduces the same slots and the same order
 
 ## References

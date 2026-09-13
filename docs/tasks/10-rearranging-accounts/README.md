@@ -24,6 +24,6 @@ share no file. 05 needs 03's move and 04's dragged-account type, and edits
 |---|---|---|---|---|---|
 | [01](01-one-rule-for-an-account-name.md) | One rule for an account name, and renaming in the book | back-end | — | 9/9 | done |
 | [02](02-renaming-from-the-sidebar.md) | Renaming an account from the sidebar | front-end | 01, 04 | 0/9 | not-started |
-| [03](03-moving-an-account-in-the-book.md) | Moving an account between places in the book | back-end | 01 | 0/10 | not-started |
+| [03](03-moving-an-account-in-the-book.md) | Moving an account between places in the book | back-end | 01 | 10/10 | done |
 | [04](04-the-grip-over-each-place.md) | The grip over each place | front-end | — | 9/9 | done |
 | [05](05-dropping-an-account-on-a-place.md) | Dropping an account on a place | front-end | 02, 03, 04 | 0/9 | not-started |

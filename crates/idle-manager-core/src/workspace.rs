@@ -61,7 +61,7 @@ pub struct Account {
     pub zoom: ZoomLevel,
 }
 
-/// Every account in the order it was added, plus the layout the window was
+/// Every account in the order it sits in, plus the layout the window was
 /// arranged for.
 ///
 /// The value [`SessionBook::workspace`] produces and [`SessionBook::restore`]
@@ -73,7 +73,7 @@ pub struct Account {
 /// [`SessionBook::restore`]: crate::SessionBook::restore
 #[derive(Debug, Clone, PartialEq)]
 pub struct Workspace {
-    /// The accounts, in the order they were added.
+    /// The accounts, in the order they sit in.
     pub accounts: Vec<Account>,
     /// The layout the window was arranged for.
     pub layout: Layout,
