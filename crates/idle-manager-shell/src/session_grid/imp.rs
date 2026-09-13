@@ -865,6 +865,7 @@ fn build_grip() -> gtk::Image {
     grip.set_margin_top(6);
     grip.set_margin_end(6);
     grip.set_visible(false);
+    grip.set_cursor(gdk::Cursor::from_name("grab", None).as_ref());
     grip
 }
 
