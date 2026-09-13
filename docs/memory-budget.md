@@ -293,6 +293,15 @@ chosen conservatively relative to the single-account working set the roadmap
 item's own earlier sample recorded (751 MiB, `docs/roadmap/05-memory-accounting/README.md`)
 since no settled multi-account figure exists to size it against instead.
 
+**Corrected 2026-09-12: 1024 MiB was too low and is now 3072 MiB.** The
+strict threshold (half the limit, 512 MiB) sat below a game in play — four
+Huntera accounts measured 557-589 MiB private each — and above it WebKit
+runs its critical release on *every* 30-second poll: all compiled JavaScript
+deleted, decoded images destroyed, a collection. The JIT workers burst in step
+with the poll and the four rendering processes held about 6.6 of 8 cores.
+At 3072 MiB the strict threshold is 1536 MiB, twice the largest rendering
+process on record, so only a runaway process pays it (`lib.rs`).
+
 Because the curve above does not settle, this limit and its thresholds are a
 ceiling on damage (the engine sheds caches and collects harder as a process
 approaches the limit), not a cure — the underlying growth this document
