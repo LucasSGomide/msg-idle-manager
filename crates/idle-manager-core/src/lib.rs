@@ -13,7 +13,7 @@ mod preset;
 mod session;
 mod workspace;
 
-pub use layout::{Layout, Outcome, Placement, SlotId, arrange};
+pub use layout::{Layout, MoveOutcome, Outcome, Placement, SlotId, arrange};
 pub use memory::{BudgetVerdict, MemoryReading};
 pub use ports::{
     MemoryProbe, MemoryProbeError, PresetCatalogue, PresetCatalogueReading, PresetFailure,
@@ -21,5 +21,7 @@ pub use ports::{
     WorkspaceWriteError, ZoomMemory, ZoomMemoryError,
 };
 pub use preset::{InvalidZoom, Preset, PresetId, ZoomLevel};
-pub use session::{Liveness, RememberedZoom, Session, SessionBook, SessionId, Visibility};
+pub use session::{
+    Liveness, RememberedZoom, Session, SessionBook, SessionId, Visibility, account_name,
+};
 pub use workspace::{Account, SavedLiveness, Workspace};

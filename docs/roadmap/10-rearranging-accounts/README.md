@@ -1,6 +1,6 @@
 # 10 — Renaming and rearranging accounts
 
-**Depends on:** 03, 07 · **Status:** not-started · **Estimate:** 8
+**Depends on:** 03, 07 · **Status:** done · **Estimate:** 8
 
 ## Context
 

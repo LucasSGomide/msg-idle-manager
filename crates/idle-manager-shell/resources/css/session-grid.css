@@ -11,3 +11,25 @@
   color: #ffffff;
   font-weight: bold;
 }
+
+/* The hover-revealed drag grip in a place's top-right corner (item 10 task
+ * 04's new pattern): a small, unobtrusive handle over live content. On its
+ * own opaque ground so it stays legible over any game, the same reasoning as
+ * the zoom readout above. */
+.slot-grip {
+  padding: 4px;
+  border-radius: 6px;
+  background-color: alpha(#000000, 0.55);
+  color: #ffffff;
+}
+
+/* The name tag that follows the pointer while a grip drag is under way: a
+ * small rounded chip, not a paintable of the place being dropped on, so the
+ * places being dropped on stay visible for the whole drag. */
+.drag-chip {
+  padding: 4px 10px;
+  border-radius: 999px;
+  background-color: alpha(#000000, 0.85);
+  color: #ffffff;
+  font-weight: bold;
+}

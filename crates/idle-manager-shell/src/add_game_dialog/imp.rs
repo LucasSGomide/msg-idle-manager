@@ -10,7 +10,7 @@ use gtk::prelude::*;
 use gtk::subclass::prelude::*;
 use gtk4 as gtk;
 
-use idle_manager_core::{Preset, PresetCatalogue};
+use idle_manager_core::{Preset, PresetCatalogue, account_name};
 
 use super::Confirmed;
 
@@ -249,7 +249,7 @@ impl AddGameDialog {
             return;
         }
 
-        let name_filled = !self.name_entry.text().trim().is_empty();
+        let name_filled = account_name(&self.name_entry.text()).is_some();
         let ready = if self.chosen.borrow().is_none() {
             name_filled && !self.address_entry.text().trim().is_empty()
         } else {
@@ -259,8 +259,7 @@ impl AddGameDialog {
     }
 
     fn confirm(&self) {
-        let name = self.name_entry.text();
-        let name = name.trim().to_owned();
+        let name = account_name(&self.name_entry.text()).unwrap_or_default();
 
         let confirmed = match self.chosen.borrow().clone() {
             Some(preset) => Confirmed::Preset {

@@ -78,7 +78,6 @@ failure are shown inside a chooser without a modal of their own.
 
 | # | Item | Est | Depends on | Status |
 |---|---|---|---|---|
-| [10](10-rearranging-accounts/README.md) | Renaming and rearranging accounts | 8 | 03, 07 | not-started |
 | [08](08-crash-recovery/README.md) | Surviving a crashed game | 5 | 03 | not-started |
 
 ## Blocked
@@ -101,3 +100,4 @@ _(none)_
 | [06](06-presets-and-adding-accounts/README.md) | Presets and adding an account | 5 | 01, 04 | done |
 | [07](07-workspace-restore/README.md) | Restoring the workspace on launch | 8 | 03, 04, 06 | done |
 | [09](09-interactive-zoom/README.md) | Interactive zoom, remembered per arrangement | 5 | 03, 06 | done |
+| [10](10-rearranging-accounts/README.md) | Renaming and rearranging accounts | 8 | 03, 07 | done |

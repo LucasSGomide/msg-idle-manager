@@ -75,6 +75,16 @@ impl SessionSidebar {
             .on_keep_awake_toggled
             .replace(Some(Box::new(handler)));
     }
+
+    /// Registers `handler` to run with an account's id when its row menu's
+    /// `Rename…` item is chosen. The row decides nothing else: the window
+    /// opens the rename dialog and the book decides whether a typed name is
+    /// stored (architecture rule 8). Replaces any previous handler.
+    pub fn connect_rename_requested(&self, handler: impl Fn(SessionId) + 'static) {
+        self.imp()
+            .on_rename_requested
+            .replace(Some(Box::new(handler)));
+    }
 }
 
 impl Default for SessionSidebar {

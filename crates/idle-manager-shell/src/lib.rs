@@ -15,6 +15,7 @@
 mod add_game_dialog;
 mod memory_footer;
 mod message_strip;
+mod rename_dialog;
 mod save_on_change;
 mod session_grid;
 mod session_sidebar;
@@ -211,6 +212,19 @@ mod tests {
             gio::ResourceLookupFlags::NONE,
         )
         .expect("look up the window template by its resource path");
+
+        assert!(!data.is_empty());
+    }
+
+    #[test]
+    fn the_rename_dialog_template_is_readable_from_the_registered_bundle() {
+        register_resources().expect("register the compiled bundle");
+
+        let data = gio::resources_lookup_data(
+            "/org/idlemanager/IdleManager/ui/rename-dialog.ui",
+            gio::ResourceLookupFlags::NONE,
+        )
+        .expect("look up the rename dialog template by its resource path");
 
         assert!(!data.is_empty());
     }

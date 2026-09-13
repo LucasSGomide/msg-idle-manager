@@ -10,5 +10,6 @@
     <file compressed="true">css/sidebar.css</file>
     <file compressed="true">css/session-grid.css</file>
     <file compressed="true" preprocess="xml-stripblanks">ui/add-game-dialog.ui</file>
+    <file compressed="true" preprocess="xml-stripblanks">ui/rename-dialog.ui</file>
   </gresource>
 </gresources>

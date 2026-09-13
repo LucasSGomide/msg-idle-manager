@@ -8,8 +8,8 @@ this task's `test-script.md` section written and run.
 
 A folder lives from breakdown until the item's branch lands — through review and
 merge, not just until the boxes are ticked. It is retired only once the roadmap
-item's header carries `Landed:` or `Merged:`. Items 01–07 and 09 are `done`.
+item's header carries `Landed:` or `Merged:`. Items 01–07, 09 and 10 are `done`.
 
 | # | Roadmap item | Tasks | Progress | Status |
 |---|---|---|---|---|
-| [10](10-rearranging-accounts/) | Renaming and rearranging accounts | 5 | 0/5 | not-started |
+| [10](10-rearranging-accounts/) | Renaming and rearranging accounts | 5 | 5/5 | done |

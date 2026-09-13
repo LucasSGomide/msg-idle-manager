@@ -39,10 +39,20 @@ type StartHandler = Box<dyn Fn(SessionId)>;
 /// up; the window decides what a notch means (architecture rule 8).
 type ScrollZoomHandler = Box<dyn Fn(SessionId, f64)>;
 
+/// A handler run with an account's id and the slot it was dropped on. The
+/// grid decides nothing about what a drop means — swap, fill or no-op is the
+/// book's call (architecture rule 8, task 05).
+type AccountDroppedHandler = Box<dyn Fn(SessionId, SlotId)>;
+
 /// How long the zoom readout stays up after the last gesture before it fades,
 /// leaving nothing behind (`FR.11.6`). A run of gestures rearms it, so one
 /// figure keeps updating rather than a queue forming.
 const ZOOM_READOUT_FADE_MILLIS: u64 = 1000;
+
+/// Opacity of the drop-target tint over a place under a drag (task 05's new
+/// pattern; code-standards rule 5). Translucent enough that a game's page or
+/// a parked panel underneath still reads through it.
+const DROP_HIGHLIGHT_ALPHA: f32 = 0.18;
 
 /// The transient percentage figure over one place, plus the fade timer that is
 /// cancelled and rearmed on every gesture (item 09's new pattern). Held in an
@@ -59,12 +69,21 @@ struct SlotEntry {
     overlay: gtk::Overlay,
     /// The name cover drawn under the view until the page paints.
     cover: gtk::Box,
+    /// The cover's name label, kept so [`SessionGrid::sync`] can refresh it
+    /// from the book on every pass — a rename would otherwise never reach it,
+    /// since it was set only once, at registration (`FR.13.4`).
+    cover_label: gtk::Label,
     /// The parked-account panel, an overlay kept for the slot's whole life and
     /// shown only while the account is parked or starting in this slot.
     placeholder: SlotPlaceholder,
     /// The transient zoom figure, a third overlay layer over the same stack
     /// that carries the cover and the panel — hidden until a gesture.
     readout: Rc<Readout>,
+    /// The drag grip (item 10 task 04's new pattern): shown while the pointer
+    /// hovers this place, hidden while a drag from it is under way, and
+    /// forced hidden by [`SessionGrid::sync`] for an off-grid entry or in the
+    /// `Single` layout, where there is nowhere to drop an account.
+    grip: gtk::Image,
     placement: Visibility,
 }
 
@@ -75,9 +94,15 @@ pub struct SessionGrid {
     slots: RefCell<Vec<SlotEntry>>,
     layout: Cell<Layout>,
     focused: Cell<usize>,
+    /// The slot under the pointer during a drag, tinted by [`Self::snapshot`]
+    /// until the pointer leaves the grid or the drag ends (task 05). Not the
+    /// same state as `focused`: grabbing or dropping never moves the current
+    /// marker (`docs/design.md` rule 1).
+    hovered_slot: Cell<Option<usize>>,
     pub(super) on_slot_focused: RefCell<Option<SlotFocusHandler>>,
     pub(super) on_start_requested: RefCell<Option<StartHandler>>,
     pub(super) on_zoom_scrolled: RefCell<Option<ScrollZoomHandler>>,
+    pub(super) on_account_dropped: RefCell<Option<AccountDroppedHandler>>,
 }
 
 #[glib::object_subclass]
@@ -125,6 +150,60 @@ impl ObjectImpl for SessionGrid {
             }
         });
         obj.add_controller(click);
+
+        // Tracks the pointer during a drag so the hovered place can be
+        // tinted. Its own pointer test covers the whole widget including its
+        // children (`FR.14.6`), which is what lets it track a drag across a
+        // place filled by a web page. It accepts no drops itself, so it never
+        // competes with the drop target below.
+        let drop_motion = gtk::DropControllerMotion::new();
+        let motion_grid = obj.downgrade();
+        drop_motion.connect_motion(move |_, x, y| {
+            if let Some(grid) = motion_grid.upgrade() {
+                grid.imp().set_hovered_slot_at(x, y);
+            }
+        });
+        let leave_grid = obj.downgrade();
+        drop_motion.connect_leave(move |_| {
+            if let Some(grid) = leave_grid.upgrade() {
+                grid.imp().clear_hovered_slot();
+            }
+        });
+        obj.add_controller(drop_motion);
+
+        // One drop target for the whole grid, not one per place, so an empty
+        // place — which has no overlay of its own — accepts a drop too.
+        // Capture phase: measured to be required, not a precaution
+        // (roadmap item's Technical References) — in the bubble phase
+        // `WebKitWebViewBase`'s own drop target on the page underneath
+        // consumes the drop first and the grid never receives it.
+        let drop_target =
+            gtk::DropTarget::new(super::DraggedAccount::static_type(), gdk::DragAction::MOVE);
+        drop_target.set_propagation_phase(gtk::PropagationPhase::Capture);
+        let drop_grid = obj.downgrade();
+        drop_target.connect_drop(move |_target, value, x, y| {
+            let Some(grid) = drop_grid.upgrade() else {
+                return false;
+            };
+            let imp = grid.imp();
+            // The drop ends the drag over this pointer whether or not it
+            // resolves to a slot, so the highlight always clears here rather
+            // than waiting on the motion controller's own `leave` — a drop at
+            // the same point the pointer already sat at is not a pointer
+            // motion and would otherwise leave the tint stuck.
+            imp.clear_hovered_slot();
+            let Some(slot) = imp.slot_at(x, y) else {
+                return false;
+            };
+            let Ok(payload) = value.get::<super::DraggedAccount>() else {
+                return false;
+            };
+            if let Some(handler) = imp.on_account_dropped.borrow().as_ref() {
+                handler(payload.session_id().clone(), slot);
+            }
+            true
+        });
+        obj.add_controller(drop_target);
     }
 
     fn dispose(&self) {
@@ -147,6 +226,7 @@ impl WidgetImpl for SessionGrid {
             child = current.next_sibling();
         }
 
+        self.draw_drop_highlight(snapshot);
         self.draw_slot_lines(snapshot);
     }
 }
@@ -170,7 +250,7 @@ impl SessionGrid {
     fn register_slot(&self, id: &SessionId, display_name: &str, view: Option<&WebView>) {
         let overlay = gtk::Overlay::new();
 
-        let cover = build_cover(display_name);
+        let (cover, cover_label) = build_cover(display_name);
         overlay.add_overlay(&cover);
 
         let placeholder = SlotPlaceholder::new();
@@ -180,6 +260,10 @@ impl SessionGrid {
 
         let readout = build_readout();
         overlay.add_overlay(&readout.label);
+
+        let grip_handle = build_grip();
+        overlay.add_overlay(&grip_handle);
+        self.wire_grip(&overlay, &grip_handle, id, display_name);
 
         // The wheel-zoom controller goes on the overlay, not the view: the
         // overlay lives for the account's whole life while the view is
@@ -264,12 +348,98 @@ impl SessionGrid {
             id: id.clone(),
             overlay,
             cover,
+            cover_label,
             placeholder,
             readout,
+            grip: grip_handle,
             placement: Visibility::OffGrid,
         });
 
         self.obj().queue_allocate();
+    }
+
+    /// Wires `handle` — the overlay's grip — to show on hover and to start a
+    /// drag past the threshold, per the recipe measured in the roadmap item's
+    /// Technical References.
+    fn wire_grip(&self, overlay: &gtk::Overlay, handle: &gtk::Image, id: &SessionId, name: &str) {
+        // Shows the grip while the pointer is anywhere inside the place —
+        // over the game's page or the parked panel alike — and hides it on
+        // leave (`FR.14.1`). Gated on layout here rather than only in `sync`:
+        // `Single` never shows a grip at all, even for the one place that is
+        // on screen, so there is nowhere to move an account (design's grip
+        // rule this slice owes; wireframe "one-place arrangement").
+        let hover = gtk::EventControllerMotion::new();
+        let enter_owner = self.obj().downgrade();
+        let enter_handle = handle.clone();
+        hover.connect_enter(move |_, _, _| {
+            if let Some(owner) = enter_owner.upgrade()
+                && owner.imp().layout.get() != Layout::Single
+            {
+                enter_handle.set_visible(true);
+            }
+        });
+        let leave_handle = handle.clone();
+        hover.connect_leave(move |_| {
+            leave_handle.set_visible(false);
+        });
+        overlay.add_controller(hover.clone());
+
+        // The grip recipe from `docs/research/gtk4-drag-and-accordion.md:35`:
+        // a claiming `GestureClick` grouped with a `DragSource`. Claiming
+        // denies the sequence to any ancestor gesture; grouping is what keeps
+        // the claim from also denying the drag source on this same widget.
+        // The grid's own click-to-focus gesture does not depend on this claim
+        // — it stays in the capture phase and instead skips focusing when a
+        // pick lands on `slot-grip` (`focus_slot_at`) — but the claim and
+        // group are still the documented, measured recipe (`FR.14.3`,
+        // Technical References).
+        let claim = gtk::GestureClick::new();
+        claim.connect_pressed(|gesture, _n_press, _x, _y| {
+            gesture.set_state(gtk::EventSequenceState::Claimed);
+        });
+
+        let source = gtk::DragSource::new();
+        source.set_actions(gdk::DragAction::MOVE);
+        let payload = super::DraggedAccount::new(id.clone());
+        source.set_content(Some(&gdk::ContentProvider::for_value(&payload.to_value())));
+
+        // A chip carrying the account's name, not a `WidgetPaintable` of the
+        // place: a quarter-window paintable would hide the very places being
+        // dropped on. The grip hides for the drag's duration — `drag-begin`
+        // fires the overlay's motion `leave` too, but hiding it directly here
+        // keeps the grip's own state authoritative.
+        let chip_text = name.to_owned();
+        let begin_handle = handle.clone();
+        source.connect_drag_begin(move |_source, drag| {
+            let chip = gtk::Label::new(Some(&chip_text));
+            chip.add_css_class("drag-chip");
+            gtk::DragIcon::for_drag(drag).set_child(Some(&chip));
+            begin_handle.set_visible(false);
+        });
+        // Restores the grip once the drag ends — dropped, cancelled, or
+        // Escaped — if the pointer is still over this place; a plain
+        // press-and-release never reaches this handler at all, since a drag
+        // only starts past the threshold. Also clears the drop highlight: a
+        // completed drop already clears it in the drop target's own handler,
+        // but Escape and a release outside the grid are cancelled by GTK
+        // before that handler ever runs, so this is the only place left to
+        // catch them.
+        let end_hover = hover;
+        let end_owner = self.obj().downgrade();
+        let end_handle = handle.clone();
+        source.connect_drag_end(move |_source, _drag, _delete| {
+            let Some(owner) = end_owner.upgrade() else {
+                return;
+            };
+            owner.imp().clear_hovered_slot();
+            if end_hover.contains_pointer() && owner.imp().layout.get() != Layout::Single {
+                end_handle.set_visible(true);
+            }
+        });
+
+        claim.group_with(&source);
+        handle.add_controller(claim);
+        handle.add_controller(source);
     }
 
     /// Whether `id` is the account sitting in the focused slot. False for an
@@ -380,10 +550,24 @@ impl SessionGrid {
         self.layout.set(book.layout());
         self.focused.set(book.focused().index());
 
+        let single = self.layout.get() == Layout::Single;
         for entry in self.slots.borrow_mut().iter_mut() {
             if let Some(session) = book.sessions().iter().find(|s| s.id() == &entry.id) {
                 entry.placement = session.visibility();
+                // The cover and the placeholder both follow the book's name on
+                // every pass, the same way the placeholder's other fields
+                // already do — a rename would otherwise never reach either,
+                // since both were set once, at registration (`FR.13.4`).
+                let name = session.display_name();
+                entry.cover_label.set_markup(&cover_markup(name));
+                entry.placeholder.set_name(name);
                 apply_placeholder(&entry.placeholder, placeholder_panel(session.liveness()));
+            }
+            // There is nowhere to drop an account off-grid or in `Single`, so
+            // the grip never shows there — a hidden widget is never picked,
+            // so a hidden grip cannot take a press either.
+            if single || entry.placement == Visibility::OffGrid {
+                entry.grip.set_visible(false);
             }
         }
 
@@ -433,9 +617,40 @@ impl SessionGrid {
 
     fn focus_slot_at(&self, x: f64, y: f64) {
         let obj = self.obj();
+
+        // A press on the grip must not make its place active (`FR.14.3`).
+        // The grid's own click gesture stays in the capture phase — a web
+        // page underneath would otherwise consume the click — so it cannot
+        // rely on the grip's own claim, which runs later in the target/bubble
+        // phases. It checks what is under the pointer instead: a pick that
+        // lands on `slot-grip` focuses nothing. Measured on X11 and Wayland
+        // (roadmap item's Technical References).
+        if let Some(picked) = obj.pick(x, y, gtk::PickFlags::DEFAULT)
+            && picked.has_css_class("slot-grip")
+        {
+            return;
+        }
+
+        let Some(slot) = self.slot_at(x, y) else {
+            return;
+        };
+
+        self.focused.set(slot.index());
+        if let Some(handler) = self.on_slot_focused.borrow().as_ref() {
+            handler(slot);
+        }
+        obj.queue_draw();
+    }
+
+    /// The slot the point `(x, y)` in the grid's own coordinates falls in, or
+    /// `None` outside the grid's own bounds or past however many slots the
+    /// current layout actually has. Shared by click-to-focus and the drop
+    /// target (task 05) — one place decides where a point on the grid lands.
+    fn slot_at(&self, x: f64, y: f64) -> Option<SlotId> {
+        let obj = self.obj();
         let (width, height) = (obj.width(), obj.height());
         if width <= 0 || height <= 0 {
-            return;
+            return None;
         }
 
         let layout = self.layout.get();
@@ -444,14 +659,63 @@ impl SessionGrid {
         let row = ((y * rows as f64 / f64::from(height)) as usize).min(rows - 1);
         let index = row * columns + column;
         if index >= layout.slot_count() {
-            return;
+            return None;
         }
 
-        self.focused.set(index);
-        if let Some(handler) = self.on_slot_focused.borrow().as_ref() {
-            handler(SlotId::new(index));
+        Some(SlotId::new(index))
+    }
+
+    /// Records the slot under `(x, y)` as the drop target's drag highlight and
+    /// queues a redraw when it actually changed slot. Outside every slot —
+    /// there is no slot at that point — clears the highlight the same way
+    /// [`Self::clear_hovered_slot`] does.
+    fn set_hovered_slot_at(&self, x: f64, y: f64) {
+        let slot = self.slot_at(x, y).map(SlotId::index);
+        if self.hovered_slot.replace(slot) != slot {
+            self.obj().queue_draw();
         }
-        obj.queue_draw();
+    }
+
+    /// Clears the drag highlight when the pointer leaves the grid entirely.
+    fn clear_hovered_slot(&self) {
+        if self.hovered_slot.replace(None).is_some() {
+            self.obj().queue_draw();
+        }
+    }
+
+    /// Tints whichever slot [`Self::hovered_slot`] names, including the
+    /// source place and an empty one — a drop is valid on either — drawn
+    /// after the children and before [`Self::draw_slot_lines`] so the hairline
+    /// and focus outline still read on top of it. A no-op with no drag under
+    /// way.
+    fn draw_drop_highlight(&self, snapshot: &gtk::Snapshot) {
+        let Some(index) = self.hovered_slot.get() else {
+            return;
+        };
+
+        let obj = self.obj();
+        let (width, height) = (obj.width() as f32, obj.height() as f32);
+        let layout = self.layout.get();
+        if index >= layout.slot_count() {
+            return;
+        }
+        let (columns, rows) = grid_dimensions(layout);
+        let slot_width = width / columns as f32;
+        let slot_height = height / rows as f32;
+        let column = (index % columns) as f32;
+        let row = (index / columns) as f32;
+
+        let base = obj.color();
+        let tint = gdk::RGBA::new(base.red(), base.green(), base.blue(), DROP_HIGHLIGHT_ALPHA);
+        snapshot.append_color(
+            &tint,
+            &graphene::Rect::new(
+                column * slot_width,
+                row * slot_height,
+                slot_width,
+                slot_height,
+            ),
+        );
     }
 
     fn draw_slot_lines(&self, snapshot: &gtk::Snapshot) {
@@ -588,6 +852,23 @@ fn build_readout() -> Rc<Readout> {
     })
 }
 
+/// The drag grip for a place's top-right corner (item 10 task 04's new
+/// pattern): the overlay child itself, not wrapped in a positioning box —
+/// wrapping it would need `can-target = false` on the wrapper or it would
+/// take every click in that corner away from the game underneath
+/// (`FR.14.4`). Hidden until the pointer hovers the place.
+fn build_grip() -> gtk::Image {
+    let grip = gtk::Image::from_icon_name("list-drag-handle-symbolic");
+    grip.add_css_class("slot-grip");
+    grip.set_halign(gtk::Align::End);
+    grip.set_valign(gtk::Align::Start);
+    grip.set_margin_top(6);
+    grip.set_margin_end(6);
+    grip.set_visible(false);
+    grip.set_cursor(gdk::Cursor::from_name("grab", None).as_ref());
+    grip
+}
+
 /// Installs `session-grid.css` on the default display once. The provider is
 /// display-global, so the [`Once`] keeps a second grid from stacking it — the
 /// same shape as the sidebar's own install.
@@ -608,22 +889,29 @@ fn install_styles() {
 }
 
 /// An opaque cover carrying the account's name, shown until the page paints.
-fn build_cover(display_name: &str) -> gtk::Box {
+fn build_cover(display_name: &str) -> (gtk::Box, gtk::Label) {
     let cover = gtk::Box::new(gtk::Orientation::Vertical, 0);
     cover.add_css_class("background");
 
     let label = gtk::Label::new(None);
-    label.set_markup(&format!(
-        "<span size='xx-large'>{}</span>",
-        glib::markup_escape_text(display_name)
-    ));
+    label.set_markup(&cover_markup(display_name));
     label.set_halign(gtk::Align::Center);
     label.set_valign(gtk::Align::Center);
     label.set_hexpand(true);
     label.set_vexpand(true);
     cover.append(&label);
 
-    cover
+    (cover, label)
+}
+
+/// The cover label's markup for `display_name`, shared by [`build_cover`] and
+/// [`SessionGrid::sync`] so a rename's refresh renders identically to the
+/// name the cover was first built with.
+fn cover_markup(display_name: &str) -> String {
+    format!(
+        "<span size='xx-large'>{}</span>",
+        glib::markup_escape_text(display_name)
+    )
 }
 
 /// The layout manager [`super::SessionGrid`] installs on itself.
