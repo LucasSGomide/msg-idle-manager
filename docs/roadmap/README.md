@@ -19,7 +19,7 @@ permanent ID, never renumbered**. Ordering lives in this table only.
 - The prose above the table is hand-written and says **why** the next item is
   next. The table sorts by estimate; that sort is not a priority.
 
-Items 01 to 04, 06, 07 and 09 are done. They built the base every other item assumes — a
+Items 01 to 07 and 09 are done. They built the base every other item assumes — a
 session with its own storage on disk, a way to create one, the grid that holds
 views out of sight, and the sidebar index of every account — plus the two
 controls over what an account costs (parking, which hands memory back and takes
@@ -35,21 +35,22 @@ place on screen is never marked hidden, so nothing throttles it. Keep-awake earn
 its place only while the window is minimised, and both mechanisms were measured
 doing so.
 
-**Next up: 05 — Memory accounting and performance.** It turns the claim the
-project rests on into a number on screen: what the application costs, and what
-parking actually returns. Everything before it asserted that; nothing had shown
-it — and the first measurement, taken on 2026-09-08 while the item was being
-sliced, showed the claim failing. One live account with every other account
-parked cost 884 MiB, most of it in a single rendering process, and the browser
-this application replaces cost less for the same game. So the item grew a second
-half and an estimate: it builds the instrument, then uses it, and its budget is
-written as a comparison against that browser rather than as a figure chosen for
-itself. The measurement also confirmed item 03's promise — there was exactly one
-rendering process for the one live account, so parking really does hand the
-memory back. It also gives item 04's open question a way to be answered: the
-shim's frame interval is a guess with no measurement behind it, and this is the
-first item that can price it. Item 08 then adds recovery from a crash nobody was
-awake to see, building on the durable workspace 07 just landed.
+Item 05 — Memory accounting and performance — turned the claim the project rests
+on into a number on screen: what the application costs, and what parking actually
+returns. Its first measurement, taken on 2026-09-08, showed the claim failing —
+one live account cost 884 MiB, more than the browser this application replaces —
+so the item grew a second half that used the instrument it built, and its budget
+is written as a comparison against that browser rather than a figure chosen for
+itself.
+
+**Next up: 10 or 08, both ready.** Item 10 — Renaming and rearranging accounts —
+lets a wrong name be corrected without deleting the account and logging in again,
+and lets an account be dragged to the place it belongs, with the sidebar list
+reordered to read like the window. It is the first half of the Rearranging
+Accounts and Account Workspaces requirements; workspaces are still to be planned
+and will build on the order and place rules 10 settles. Item 08 adds recovery
+from a crash nobody was awake to see, building on the durable workspace 07
+landed. Neither depends on the other.
 
 Item 09 shipped the first file the application writes on an account's behalf — a
 per-account `state.toml` holding the zoom chosen per arrangement — and with it
@@ -77,6 +78,7 @@ failure are shown inside a chooser without a modal of their own.
 
 | # | Item | Est | Depends on | Status |
 |---|---|---|---|---|
+| [10](10-rearranging-accounts/README.md) | Renaming and rearranging accounts | 8 | 03, 07 | not-started |
 | [08](08-crash-recovery/README.md) | Surviving a crashed game | 5 | 03 | not-started |
 
 ## Blocked

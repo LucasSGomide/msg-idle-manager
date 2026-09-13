@@ -67,6 +67,26 @@ composes with the drop target rather than competing with it.
 existing widget, and the cheapest way to show a thumbnail of what is being
 dragged. Drag icons take no input.
 
+**Measured 2026-09-13, while planning roadmap item 10.** A throwaway GTK 4.22 /
+WebKitGTK program ran twice, with identical results both times. The first run was
+under Xvfb (X11, no window manager) with XTest input. The second was fullscreen
+on Wayland, under a headless GNOME Shell 50.1 started with
+`gnome-shell --headless --no-x11 --virtual-monitor 1000x500 --wayland-display <name>`
+inside a private `dbus-run-session`, and driven through
+`org.gnome.Mutter.RemoteDesktop`. It settled two points above that were left
+open:
+
+- *The drop target's phase is required, not a precaution.* A private-type drop
+  target on the grid in the **capture** phase received the drop over a page, and
+  the page saw no drag events at all. In the **bubble** phase the grid never
+  received it: WebKit's drop target consumed it and the drag ended as accepted.
+  A **string** payload with no grid target was pasted into the page's text box.
+- *The grid's click gesture can stay in the capture phase.* Its handler
+  `pick`s under the press and skips focusing when the picked widget is the grip.
+  The grip's claiming click, grouped with its `DragSource`, still starts the
+  drag. The bubble-phase requirement above only matters if the grip has to beat
+  the ancestor's gesture outright.
+
 ## For the item that adds workspaces (`UN.15`–`UN.18`)
 
 **The accordion's model:** a root `gio::ListStore` of workspaces wrapped in
