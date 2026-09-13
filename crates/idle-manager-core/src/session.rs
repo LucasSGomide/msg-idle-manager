@@ -35,6 +35,21 @@ impl std::fmt::Display for SessionId {
     }
 }
 
+/// The one rule an account name must satisfy: the surrounding whitespace
+/// trimmed away, or `None` when nothing is left.
+///
+/// Shared by the add-game dialog and [`SessionBook::rename`] (`FR.13.3`), so
+/// the two can never enforce a different rule.
+#[must_use]
+pub fn account_name(raw: &str) -> Option<String> {
+    let trimmed = raw.trim();
+    if trimmed.is_empty() {
+        None
+    } else {
+        Some(trimmed.to_owned())
+    }
+}
+
 /// Whether a session is shown in a numbered slot or is out of sight.
 ///
 /// One field, three-free: there is no "hidden" boolean beside an optional slot,
@@ -578,6 +593,27 @@ impl SessionBook {
             s.liveness = Liveness::Starting;
         }
 
+        true
+    }
+
+    /// Renames `account` to `name`, applying [`account_name`]'s rule, and
+    /// reports whether anything was stored.
+    ///
+    /// `false` for an unknown id or a name that is empty once trimmed, and the
+    /// book is left exactly as it was. Otherwise the trimmed name replaces
+    /// `account`'s display name and nothing else: its id, liveness,
+    /// visibility, keep-awake flag, the book's focused slot and the order of
+    /// its sessions are untouched (`FR.13.2`, `FR.13.5`). Two accounts may
+    /// share a name, since [`SessionBook::add`] already allows that.
+    pub fn rename(&mut self, account: &SessionId, name: &str) -> bool {
+        let Some(trimmed) = account_name(name) else {
+            return false;
+        };
+        let Some(session) = self.sessions.iter_mut().find(|s| &s.id == account) else {
+            return false;
+        };
+
+        session.display_name = trimmed;
         true
     }
 
@@ -1926,5 +1962,161 @@ mod tests {
             ),
             (0, 0, Layout::default()),
         );
+    }
+
+    #[test]
+    fn account_name_trims_surrounding_whitespace() {
+        assert_eq!(
+            account_name("  Main account  "),
+            Some("Main account".to_owned())
+        );
+    }
+
+    #[test]
+    fn account_name_is_none_for_an_empty_or_whitespace_only_string() {
+        assert_eq!((account_name(""), account_name("   ")), (None, None));
+    }
+
+    #[test]
+    fn renaming_with_a_padded_name_stores_the_trimmed_name_and_returns_true() {
+        let mut book = SessionBook::new();
+        let id = book.add("One", "https://example.test/one");
+
+        let stored = book.rename(&id, "  New name  ");
+
+        assert_eq!(
+            (stored, session(&book, &id).display_name()),
+            (true, "New name"),
+        );
+    }
+
+    #[test]
+    fn renaming_changes_only_the_display_name() {
+        let mut book = SessionBook::new();
+        book.set_layout(Layout::SideBySide);
+        let first = book.add("One", "https://example.test/one");
+        book.add("Two", "https://example.test/two");
+        book.set_focused(SlotId::new(1));
+        let order = |book: &SessionBook| -> Vec<SessionId> {
+            book.sessions().iter().map(|s| s.id().clone()).collect()
+        };
+        let before = (
+            liveness_of(&book, &first),
+            visibility_of(&book, &first),
+            is_kept_awake(&book, &first),
+            book.focused(),
+            order(&book),
+        );
+
+        book.rename(&first, "  New name  ");
+
+        let after = (
+            liveness_of(&book, &first),
+            visibility_of(&book, &first),
+            is_kept_awake(&book, &first),
+            book.focused(),
+            order(&book),
+        );
+        assert_eq!(after, before);
+    }
+
+    #[test]
+    fn renaming_with_an_empty_or_whitespace_only_name_returns_false() {
+        let mut book = SessionBook::new();
+        let id = book.add("One", "https://example.test/one");
+
+        let stored = book.rename(&id, "   ");
+
+        assert!(!stored);
+    }
+
+    #[test]
+    fn renaming_with_an_empty_name_leaves_the_book_unchanged() {
+        let mut book = SessionBook::new();
+        let id = book.add("One", "https://example.test/one");
+        let before = (book.workspace(), book.focused());
+
+        book.rename(&id, "   ");
+
+        assert_eq!((book.workspace(), book.focused()), before);
+    }
+
+    #[test]
+    fn renaming_an_unknown_id_returns_false() {
+        let mut book = SessionBook::new();
+        book.add("One", "https://example.test/one");
+        let unknown = SessionId::new("session-9999");
+
+        let stored = book.rename(&unknown, "New name");
+
+        assert!(!stored);
+    }
+
+    #[test]
+    fn renaming_an_unknown_id_leaves_the_book_unchanged() {
+        let mut book = SessionBook::new();
+        book.add("One", "https://example.test/one");
+        let unknown = SessionId::new("session-9999");
+        let before = (book.workspace(), book.focused());
+
+        book.rename(&unknown, "New name");
+
+        assert_eq!((book.workspace(), book.focused()), before);
+    }
+
+    #[test]
+    fn renaming_a_parked_account_keeps_it_parked() {
+        let mut book = SessionBook::new();
+        let id = book.add("One", "https://example.test/one");
+        book.park(&id);
+
+        book.rename(&id, "New name");
+
+        assert_eq!(liveness_of(&book, &id), Liveness::Parked);
+    }
+
+    #[test]
+    fn renaming_a_queued_account_keeps_it_queued() {
+        let workspace = Workspace {
+            accounts: vec![Account {
+                liveness: SavedLiveness::Running,
+                ..saved_account("session-0001", "Queued")
+            }],
+            layout: Layout::Single,
+        };
+        let mut book = SessionBook::restore(workspace);
+        let id = book.sessions()[0].id().clone();
+
+        book.rename(&id, "New name");
+
+        assert_eq!(liveness_of(&book, &id), Liveness::Queued);
+    }
+
+    #[test]
+    fn renaming_to_a_name_another_account_already_has_is_accepted() {
+        let mut book = SessionBook::new();
+        let first = book.add("One", "https://example.test/one");
+        let second = book.add("Two", "https://example.test/two");
+
+        let stored = book.rename(&second, "One");
+
+        assert_eq!(
+            (
+                stored,
+                session(&book, &first).display_name(),
+                session(&book, &second).display_name(),
+            ),
+            (true, "One", "One"),
+        );
+    }
+
+    #[test]
+    fn the_workspace_after_a_rename_carries_the_new_name() {
+        let mut book = SessionBook::new();
+        let id = book.add("One", "https://example.test/one");
+
+        book.rename(&id, "Renamed");
+
+        assert_eq!(book.workspace().accounts[0].display_name, "Renamed");
     }
 }
