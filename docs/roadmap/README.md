@@ -78,7 +78,7 @@ failure are shown inside a chooser without a modal of their own.
 
 | # | Item | Est | Depends on | Status |
 |---|---|---|---|---|
-| [10](10-rearranging-accounts/README.md) | Renaming and rearranging accounts | 8 | 03, 07 | not-started |
+| [10](10-rearranging-accounts/README.md) | Renaming and rearranging accounts | 8 | 03, 07 | in-progress |
 | [08](08-crash-recovery/README.md) | Surviving a crashed game | 5 | 03 | not-started |
 
 ## Blocked
