@@ -143,3 +143,72 @@ run.
       the new `MoveOutcome` and `SessionBook::move_to_slot` in
       `idle-manager-core`, confirming this core-only change breaks nothing
       downstream.
+
+## 02 — Renaming an account from the sidebar
+
+- [x] `cargo test -p idle-manager-shell` — 35 tests pass, including
+      `tests::the_rename_dialog_template_is_readable_from_the_registered_bundle`
+      (looks up `/org/idlemanager/IdleManager/ui/rename-dialog.ui` from the
+      registered bundle the same way the window and slot-placeholder templates
+      are checked).
+- [x] With the app running per Setup, add "Alpha" (`data:text/plain,Alpha
+      Page`) then "Bravo" (`data:text/plain,Bravo Page`) — both live. Open
+      Alpha's ⋯ menu (background, not focused) — `Rename…` is last, below
+      "Keep running when hidden", sensitive.
+- [x] Park Alpha from its ⋯ menu, reopen its ⋯ menu — items read "Start",
+      "Keep running when hidden", "Rename…"; `Rename…` sensitive while "Start"
+      is not greyed (a parked account's Start is enabled; see the starting
+      case below for the greyed case).
+- [x] Quit, edit `sessions.toml` by hand to point Alpha's `url` at
+      `http://127.0.0.1:<port>/` where `<port>` is a local Python
+      `socket.accept()`-and-hold server that never writes a response, then
+      relaunch with both accounts `liveness = "running"` — Alpha's page never
+      finishes loading, so it sits in `Starting` (blue dot) indefinitely, and
+      Bravo sits `Queued` (purple dot) behind it in the start queue,
+      confirmed with a screenshot immediately after launch. Open Alpha's
+      (starting) ⋯ menu — "Start" is greyed, "Rename…" is not. Open Bravo's
+      (queued) ⋯ menu — same: "Start" greyed, "Rename…" sensitive. This
+      covers all four liveness states (live, parked, starting, queued) each
+      listing `Rename…` last and sensitive.
+- [x] Choose `Rename…` on the live, focused "Bravo" — a modal window titled
+      "Rename account" (no header-bar chrome renders under the headless,
+      window-manager-less Xvfb, matching the add-game dialog's own
+      appearance in this harness) opens over the main window with one entry
+      reading "Bravo", the whole word selected (screenshot shows it
+      highlighted).
+- [x] Backspace the selection to empty — `Rename` greys out, no error text or
+      red field appears. Type three spaces — `Rename` stays greyed. Type a
+      letter ("X", giving "X   ") — `Rename` turns sensitive (solid blue)
+      again.
+- [x] Press Escape — the window closes; the sidebar row still reads "Bravo"
+      and `sessions.toml` on disk is unchanged (`name = "Bravo"`, confirmed
+      by `cat`).
+- [x] Reopen Bravo's `Rename…`, type "Renamed Bravo", press Enter — the
+      window closes at once, the sidebar row reads "Renamed …" (ellipsized)
+      immediately, `sessions.toml` is rewritten to `name = "Renamed Bravo"`
+      within the debounce window, the memory footer still reads "1 running"
+      throughout with no reload spike, and the page's own content ("Bravo
+      Page") is unchanged, confirming no reload.
+- [x] Switch to the side-by-side (2) layout, where Alpha's place still shows
+      its loading cover/placeholder reading "Alpha" / "Starting" / a greyed
+      "Start" (its page never paints, per the hung server above). Open
+      Alpha's ⋯ menu, choose `Rename…`, type "Zulu", press Enter — the
+      window closes, the sidebar row and the place's placeholder panel both
+      switch to "Zulu" immediately, the panel still reads "Starting" with
+      "Start" greyed (account untouched, not restarted or reloaded).
+- [x] Park "Renamed Bravo" from its ⋯ menu — its place's placeholder panel
+      shows "Renamed Bravo" / "Parked" / an enabled "Start". Choose
+      `Rename…`, press Enter without changing the pre-filled text (same
+      name) — the window closes and nothing visible changes: panel still
+      reads "Renamed Bravo" / "Parked", "0 running" unchanged.
+- [x] Rename the same parked account to "Parked Yankee" — the sidebar row
+      and its place's parked panel both switch to "Parked Yankee" at once;
+      the account stays `Parked` ("Start" still enabled, "0 running"
+      unchanged).
+- [x] Quit the app (window close button) and relaunch against the same
+      `XDG_CONFIG_HOME`/`XDG_DATA_HOME` — the sidebar shows "Zulu" and
+      "Parked Yankee" (the renamed names survived the relaunch), and
+      `find <data-home>/idle-manager/profiles -maxdepth 1` still lists
+      `session-0001` and `session-0002` — the on-disk profile folder names,
+      derived from each account's hidden id, are unaffected by either
+      rename.

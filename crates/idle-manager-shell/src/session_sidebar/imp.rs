@@ -46,6 +46,11 @@ type ParkingHandler = Box<dyn Fn(SessionId)>;
 /// (architecture rule 8).
 type KeepAwakeHandler = Box<dyn Fn(SessionId, bool)>;
 
+/// A handler run with an account's id when its row menu's `Rename…` item is
+/// chosen. The menu carries only the id; the window opens the dialog and the
+/// book decides whether a typed name is stored (architecture rule 8).
+type RenameHandler = Box<dyn Fn(SessionId)>;
+
 /// The name the per-row menu's action group is inserted under. Local to the
 /// row's own `MenuButton`, distinct from any application- or window-scoped
 /// `win`/`app` prefix.
@@ -58,6 +63,12 @@ const PARKING_ACTION: &str = "parking";
 /// The stateful action a row's "Keep running when hidden" item is bound to,
 /// namespaced under [`ROW_ACTION_GROUP`] in the menu's detailed action name.
 const KEEP_AWAKE_ACTION: &str = "keep-awake";
+/// The action a row's `Rename…` item is bound to, namespaced under
+/// [`ROW_ACTION_GROUP`] in the menu's detailed action name. Stateless — it
+/// carries only the account's id, like [`PARKING_ACTION`] — and, unlike
+/// [`PARKING_ACTION`], never disabled: a rename is offered in every liveness
+/// (`FR.13.1`).
+const RENAME_ACTION: &str = "rename";
 
 /// The composite-template backing object for [`super::SessionSidebar`].
 #[derive(Default, CompositeTemplate)]
@@ -80,6 +91,7 @@ pub struct SessionSidebar {
     pub(super) on_activated: RefCell<Option<ActivateHandler>>,
     pub(super) on_parking_toggled: RefCell<Option<ParkingHandler>>,
     pub(super) on_keep_awake_toggled: RefCell<Option<KeepAwakeHandler>>,
+    pub(super) on_rename_requested: RefCell<Option<RenameHandler>>,
 }
 
 impl std::fmt::Debug for SessionSidebar {
@@ -349,6 +361,10 @@ fn bind_row_menu(
         Some("Keep running when hidden"),
         Some(&format!("{ROW_ACTION_GROUP}.{KEEP_AWAKE_ACTION}")),
     );
+    menu.append(
+        Some("Rename…"),
+        Some(&format!("{ROW_ACTION_GROUP}.{RENAME_ACTION}")),
+    );
     settings.set_menu_model(Some(&menu));
 
     let parking = gio::SimpleAction::new(PARKING_ACTION, None);
@@ -370,6 +386,7 @@ fn bind_row_menu(
         &data.is_kept_awake().to_variant(),
     );
     let keep_awake_sidebar = sidebar.clone();
+    let rename_id = id.clone();
     keep_awake.connect_change_state(move |_, requested| {
         let Some(requested) = requested.and_then(glib::Variant::get::<bool>) else {
             return;
@@ -382,8 +399,23 @@ fn bind_row_menu(
         }
     });
 
+    let rename = gio::SimpleAction::new(RENAME_ACTION, None);
+    // Always sensitive: a rename is offered in every liveness, including
+    // while an account is starting, unlike `PARKING_ACTION` above
+    // (`FR.13.1`).
+    let rename_sidebar = sidebar.clone();
+    rename.connect_activate(move |_, _| {
+        let Some(sidebar) = rename_sidebar.upgrade() else {
+            return;
+        };
+        if let Some(handler) = sidebar.imp().on_rename_requested.borrow().as_ref() {
+            handler(rename_id.clone());
+        }
+    });
+
     let group = gio::SimpleActionGroup::new();
     group.add_action(&parking);
     group.add_action(&keep_awake);
+    group.add_action(&rename);
     settings.insert_action_group(ROW_ACTION_GROUP, Some(&group));
 }

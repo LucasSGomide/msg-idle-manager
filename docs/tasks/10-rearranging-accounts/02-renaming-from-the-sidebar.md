@@ -97,26 +97,26 @@ already is.
 
 ## Acceptance criteria
 
-- [ ] `(manual)` the ⋯ menu of a live, a parked, a queued and a starting account
+- [x] `(manual)` the ⋯ menu of a live, a parked, a queued and a starting account
       each lists `Rename…` last, below "Keep running when hidden", and it is
       sensitive in all four
-- [ ] `(manual)` choosing `Rename…` opens a modal "Rename account" window over
+- [x] `(manual)` choosing `Rename…` opens a modal "Rename account" window over
       the main window whose field holds the current name fully selected
-- [ ] `(manual)` clearing the field, or leaving only spaces in it, makes `Rename`
+- [x] `(manual)` clearing the field, or leaving only spaces in it, makes `Rename`
       insensitive with no error text shown; typing a letter makes it sensitive
       again
-- [ ] `(manual)` Escape closes the window with the name unchanged in the row and
+- [x] `(manual)` Escape closes the window with the name unchanged in the row and
       `sessions.toml` not rewritten
-- [ ] `(manual)` typing a new name on a live account and pressing Enter closes
+- [x] `(manual)` typing a new name on a live account and pressing Enter closes
       the window, and the row and that place's name cover show the new name at
       once while the game's page keeps running without a reload
-- [ ] `(manual)` renaming a parked account shows the new name on its place's
+- [x] `(manual)` renaming a parked account shows the new name on its place's
       parked panel, and the account stays parked
-- [ ] `(manual)` confirming the same name closes the window and nothing visible
+- [x] `(manual)` confirming the same name closes the window and nothing visible
       changes
-- [ ] `(manual)` after a rename and a relaunch, the row shows the new name and
+- [x] `(manual)` after a rename and a relaunch, the row shows the new name and
       the account's profile folder on disk has the same name as before
-- [ ] `(unit)` `rename-dialog.ui` is readable from the compiled resource bundle,
+- [x] `(unit)` `rename-dialog.ui` is readable from the compiled resource bundle,
       as the window and add-game dialog templates are
 
 ## References
