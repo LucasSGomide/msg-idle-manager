@@ -64,23 +64,23 @@ file on disk with no change to how the file is written.
 
 ## Acceptance criteria
 
-- [ ] `(unit)` `account_name("  Main account  ")` returns `Some("Main account")`
-- [ ] `(unit)` `account_name` returns `None` for an empty string and for a
+- [x] `(unit)` `account_name("  Main account  ")` returns `Some("Main account")`
+- [x] `(unit)` `account_name` returns `None` for an empty string and for a
       whitespace-only string
-- [ ] `(unit)` `rename` with a padded name stores the trimmed name and returns
+- [x] `(unit)` `rename` with a padded name stores the trimmed name and returns
       `true`, and the session's id, liveness, visibility and keep-awake flag, the
       book's focused slot and the order of its sessions are all equal to before
-- [ ] `(unit)` `rename` with an empty or whitespace-only name returns `false` and
+- [x] `(unit)` `rename` with an empty or whitespace-only name returns `false` and
       leaves the book equal to before
-- [ ] `(unit)` `rename` of an unknown id returns `false` and leaves the book equal
+- [x] `(unit)` `rename` of an unknown id returns `false` and leaves the book equal
       to before
-- [ ] `(unit)` renaming a parked account and a queued account keeps each in the
+- [x] `(unit)` renaming a parked account and a queued account keeps each in the
       same liveness it had
-- [ ] `(unit)` renaming an account to the name another account already has is
+- [x] `(unit)` renaming an account to the name another account already has is
       accepted and both sessions keep their own ids
-- [ ] `(unit)` `SessionBook::workspace` after a rename carries the new name for
+- [x] `(unit)` `SessionBook::workspace` after a rename carries the new name for
       that account
-- [ ] `(manual)` in the add-game dialog, a whitespace-only name keeps the confirm
+- [x] `(manual)` in the add-game dialog, a whitespace-only name keeps the confirm
       button insensitive, and a padded name is added with its spaces trimmed
 
 ## References

@@ -12,4 +12,4 @@ item's header carries `Landed:` or `Merged:`. Items 01–07 and 09 are `done`.
 
 | # | Roadmap item | Tasks | Progress | Status |
 |---|---|---|---|---|
-| [10](10-rearranging-accounts/) | Renaming and rearranging accounts | 5 | 0/5 | not-started |
+| [10](10-rearranging-accounts/) | Renaming and rearranging accounts | 5 | 1/5 | in-progress |

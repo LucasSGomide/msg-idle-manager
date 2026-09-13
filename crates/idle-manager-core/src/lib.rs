@@ -21,5 +21,7 @@ pub use ports::{
     WorkspaceWriteError, ZoomMemory, ZoomMemoryError,
 };
 pub use preset::{InvalidZoom, Preset, PresetId, ZoomLevel};
-pub use session::{Liveness, RememberedZoom, Session, SessionBook, SessionId, Visibility};
+pub use session::{
+    Liveness, RememberedZoom, Session, SessionBook, SessionId, Visibility, account_name,
+};
 pub use workspace::{Account, SavedLiveness, Workspace};
