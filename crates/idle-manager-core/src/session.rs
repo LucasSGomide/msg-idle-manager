@@ -37,6 +37,54 @@ impl std::fmt::Display for SessionId {
     }
 }
 
+/// The fixed identifier of the built-in Ungrouped workspace, compared by
+/// [`WorkspaceId::is_ungrouped`] rather than by a display name, since a
+/// display name can be renamed and this one never is.
+const UNGROUPED_ID: &str = "ungrouped";
+
+/// The identifier the program mints for a workspace.
+///
+/// A newtype so it can never be passed where a [`SessionId`] belongs — both
+/// are strings to the compiler until made otherwise (code standards rule 2).
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct WorkspaceId(String);
+
+impl WorkspaceId {
+    /// Wraps an existing identifier string. [`crate::WorkspaceBook`] is the
+    /// only place a fresh one is minted; this is for adapters and tests that
+    /// already hold an id.
+    #[must_use]
+    pub fn new(value: impl Into<String>) -> Self {
+        WorkspaceId(value.into())
+    }
+
+    /// The fixed id of the built-in workspace every account starts in. Never
+    /// minted, never renamed, never removed.
+    #[must_use]
+    pub fn ungrouped() -> Self {
+        WorkspaceId(UNGROUPED_ID.to_owned())
+    }
+
+    /// Whether this is the built-in Ungrouped workspace's id.
+    #[must_use]
+    pub fn is_ungrouped(&self) -> bool {
+        self.0 == UNGROUPED_ID
+    }
+
+    /// The identifier as a string slice, for use as a path component or a
+    /// file key.
+    #[must_use]
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+}
+
+impl std::fmt::Display for WorkspaceId {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.0)
+    }
+}
+
 /// The one rule an account name must satisfy: the surrounding whitespace
 /// trimmed away, or `None` when nothing is left.
 ///
@@ -44,6 +92,22 @@ impl std::fmt::Display for SessionId {
 /// the two can never enforce a different rule.
 #[must_use]
 pub fn account_name(raw: &str) -> Option<String> {
+    let trimmed = raw.trim();
+    if trimmed.is_empty() {
+        None
+    } else {
+        Some(trimmed.to_owned())
+    }
+}
+
+/// The one rule a workspace name must satisfy: the surrounding whitespace
+/// trimmed away, or `None` when nothing is left.
+///
+/// Shared by every caller that names or renames a workspace
+/// (`WorkspaceBook::create_workspace`, `WorkspaceBook::rename_workspace`), the
+/// same shape as [`account_name`].
+#[must_use]
+pub fn workspace_name(raw: &str) -> Option<String> {
     let trimmed = raw.trim();
     if trimmed.is_empty() {
         None
@@ -257,7 +321,6 @@ pub struct SessionBook {
     layout: Layout,
     focused: SlotId,
     remembered: HashMap<SessionId, SlotId>,
-    minted: u64,
 }
 
 impl SessionBook {
@@ -269,7 +332,6 @@ impl SessionBook {
             layout: Layout::Single,
             focused: SlotId::FIRST,
             remembered: HashMap::new(),
-            minted: 0,
         }
     }
 
@@ -278,22 +340,23 @@ impl SessionBook {
     /// The accounts come back in the order the workspace held them. One saved
     /// as running becomes [`Liveness::Queued`] — nothing is running yet — and
     /// one saved as parked stays [`Liveness::Parked`], costing nothing. The
-    /// saved layout becomes active and each account's remembered slot is
-    /// seeded, so visibility is normalised through the same placement a layout
-    /// switch uses: an account whose saved slot the layout cannot show lands
-    /// off-grid and returns to that slot when a layout with it is chosen
-    /// (`FR.3.2`). Identifier minting resumes above the highest restored id, so
-    /// the next account added collides with none of them.
+    /// saved layout and focused place become active and each account's
+    /// remembered slot is seeded, so visibility is normalised through the same
+    /// placement a layout switch uses: an account whose saved slot the layout
+    /// cannot show lands off-grid and returns to that slot when a layout with
+    /// it is chosen (`FR.3.2`). The workspace's `id`, `name` and `is_expanded`
+    /// are not this book's to keep — [`crate::WorkspaceBook`] carries those
+    /// alongside the book it restores here — and minting is likewise
+    /// [`crate::WorkspaceBook`]'s job now, from one counter shared by every
+    /// workspace.
     #[must_use]
     pub fn restore(workspace: Workspace) -> Self {
-        let Workspace { accounts, layout } = workspace;
-
-        let minted = accounts
-            .iter()
-            .filter_map(|account| account.id.as_str().strip_prefix("session-"))
-            .filter_map(|suffix| suffix.parse::<u64>().ok())
-            .max()
-            .unwrap_or(0);
+        let Workspace {
+            accounts,
+            layout,
+            focused,
+            ..
+        } = workspace;
 
         let mut remembered: HashMap<SessionId, SlotId> = HashMap::new();
         for account in &accounts {
@@ -337,9 +400,8 @@ impl SessionBook {
         Self {
             sessions,
             layout,
-            focused: SlotId::FIRST,
+            focused: focused_or_first(focused, layout),
             remembered,
-            minted,
         }
     }
 
@@ -349,15 +411,26 @@ impl SessionBook {
         &self.sessions
     }
 
-    /// The whole arrangement as one value, ready to be saved.
+    /// The session named `id`, or `None` if this book does not hold it. The
+    /// one place a caller looks a session up by id, replacing the
+    /// `sessions().iter().find(...)` every reader used to repeat.
+    #[must_use]
+    pub fn session(&self, id: &SessionId) -> Option<&Session> {
+        self.sessions.iter().find(|session| &session.id == id)
+    }
+
+    /// The whole arrangement as one value, ready to be saved as workspace
+    /// `id` named `name`, expanded or not per `is_expanded` — the three facts
+    /// this book does not itself carry, supplied by
+    /// [`crate::WorkspaceBook`], which owns them.
     ///
     /// Accounts in the order they sit in, each carrying its name, address,
     /// zoom, identity, keep-awake flag, and where it sits, plus the active
-    /// layout. A
-    /// [`Liveness::Starting`] or [`Liveness::Queued`] account is reported as
-    /// [`SavedLiveness::Running`]: those describe a moment, not a wish.
+    /// layout and focused place. A [`Liveness::Starting`] or
+    /// [`Liveness::Queued`] account is reported as [`SavedLiveness::Running`]:
+    /// those describe a moment, not a wish.
     #[must_use]
-    pub fn workspace(&self) -> Workspace {
+    pub fn workspace(&self, id: WorkspaceId, name: String, is_expanded: bool) -> Workspace {
         let accounts = self
             .sessions
             .iter()
@@ -380,6 +453,10 @@ impl SessionBook {
             .collect();
 
         Workspace {
+            id,
+            name,
+            focused: self.focused,
+            is_expanded,
             accounts,
             layout: self.layout,
         }
@@ -436,17 +513,18 @@ impl SessionBook {
         }
     }
 
-    /// Mints an identifier for a new account created from a typed address,
-    /// places it, and returns the id.
+    /// Adds a new account created from a typed address under `id`, and places
+    /// it.
     ///
-    /// The session takes the lowest-numbered free slot of the current layout.
-    /// If every slot is occupied it takes the focused slot, and that slot's
-    /// previous occupant becomes [`Visibility::OffGrid`]. It carries no browser
-    /// identity and the default zoom — everything a preset would have supplied
-    /// falls back here.
-    pub fn add(&mut self, display_name: &str, start_address: &str) -> SessionId {
-        let id = self.mint_id();
-        let visibility = self.place(&id);
+    /// `id` is minted by the caller — [`crate::WorkspaceBook`], from the one
+    /// counter shared by every workspace — never by this book (code standards
+    /// rule 2). The session takes the lowest-numbered free slot of the current
+    /// layout. If every slot is occupied it takes the focused slot, and that
+    /// slot's previous occupant becomes [`Visibility::OffGrid`]. It carries no
+    /// browser identity and the default zoom — everything a preset would have
+    /// supplied falls back here.
+    pub fn add(&mut self, id: &SessionId, display_name: &str, start_address: &str) {
+        let visibility = self.place(id);
 
         self.sessions.push(Session {
             id: id.clone(),
@@ -460,15 +538,14 @@ impl SessionBook {
             preset_zoom: ZoomLevel::DEFAULT,
             remembered_zoom: RememberedZoom::new(),
         });
-
-        id
     }
 
-    /// Mints an identifier for a new account playing `preset`'s game under the
-    /// name `account_name`, places it exactly as [`SessionBook::add`] does, and
+    /// Adds a new account under `id`, playing `preset`'s game under the name
+    /// `account_name`, places it exactly as [`SessionBook::add`] does, and
     /// copies the preset's start address, zoom and browser identity onto it.
     ///
-    /// The preset's keep-awake default is applied through
+    /// `id` is minted by the caller, as [`SessionBook::add`] documents. The
+    /// preset's keep-awake default is applied through
     /// [`SessionBook::set_keep_awake`] — the one path that sets that flag —
     /// rather than written directly. That call moves a live account to
     /// [`Liveness::Starting`], so this follows it with
@@ -476,9 +553,8 @@ impl SessionBook {
     /// its first view is built carrying the setting already, and it ends
     /// [`Liveness::Live`] like any other. Both are existing transitions; no
     /// field is written behind their backs.
-    pub fn add_from_preset(&mut self, account_name: &str, preset: &Preset) -> SessionId {
-        let id = self.mint_id();
-        let visibility = self.place(&id);
+    pub fn add_from_preset(&mut self, id: &SessionId, account_name: &str, preset: &Preset) {
+        let visibility = self.place(id);
 
         self.sessions.push(Session {
             id: id.clone(),
@@ -493,15 +569,8 @@ impl SessionBook {
             remembered_zoom: RememberedZoom::new(),
         });
 
-        self.set_keep_awake(&id, preset.keep_awake_default);
-        self.mark_started(&id);
-
-        id
-    }
-
-    fn mint_id(&mut self) -> SessionId {
-        self.minted += 1;
-        SessionId(format!("session-{:04}", self.minted))
+        self.set_keep_awake(id, preset.keep_awake_default);
+        self.mark_started(id);
     }
 
     /// Places `id` into the lowest free slot of the current layout, or into the
@@ -677,6 +746,36 @@ impl SessionBook {
             .find(|session| session.visibility == focused)
     }
 
+    /// Removes `id` from this book, together with its remembered slot, and
+    /// returns it. Every other session's visibility is left exactly as it
+    /// was, so the freed place stays empty (`FR.17.8`, `FR.21.5`). `None` for
+    /// an id this book does not hold.
+    pub fn take(&mut self, id: &SessionId) -> Option<Session> {
+        let index = self.sessions.iter().position(|s| &s.id == id)?;
+        self.remembered.remove(id);
+        Some(self.sessions.remove(index))
+    }
+
+    /// Appends an arriving `session` to the end of this book's list, seated in
+    /// the lowest free slot of this book's current layout if one is free and
+    /// off-grid otherwise. Never displaces an already-seated session
+    /// (`FR.17.3`). Every other field — liveness, keep-awake, remembered
+    /// zoom — is carried over exactly as `session` held it.
+    pub fn adopt(&mut self, mut session: Session) {
+        let occupied = self.occupied_slots();
+        let free = self.layout.slots().find(|slot| !occupied.contains(slot));
+
+        session.visibility = match free {
+            Some(slot) => {
+                self.remembered.insert(session.id.clone(), slot);
+                Visibility::InSlot(slot)
+            }
+            None => Visibility::OffGrid,
+        };
+
+        self.sessions.push(session);
+    }
+
     fn liveness_of(&self, session: &SessionId) -> Option<Liveness> {
         self.sessions
             .iter()
@@ -838,16 +937,45 @@ impl Default for SessionBook {
     }
 }
 
+/// `focused` if `layout` actually has that slot, [`SlotId::FIRST`] otherwise —
+/// a hand-edited file naming a focused place outside the saved layout falls
+/// back rather than leaving the book focused nowhere.
+fn focused_or_first(focused: SlotId, layout: Layout) -> SlotId {
+    if layout.contains(focused) {
+        focused
+    } else {
+        SlotId::FIRST
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Mints a sequential id from how many sessions `book` already holds and
+    /// adds a typed-address account under it — minting moved to
+    /// [`crate::WorkspaceBook`], so these tests mint their own the same simple
+    /// way, valid because none of them ever removes a session before adding
+    /// another.
+    fn add(book: &mut SessionBook, display_name: &str, start_address: &str) -> SessionId {
+        let id = SessionId::new(format!("session-{:04}", book.sessions().len() + 1));
+        book.add(&id, display_name, start_address);
+        id
+    }
+
+    /// [`add`], for a preset-based account.
+    fn add_from_preset(book: &mut SessionBook, account_name: &str, preset: &Preset) -> SessionId {
+        let id = SessionId::new(format!("session-{:04}", book.sessions().len() + 1));
+        book.add_from_preset(&id, account_name, preset);
+        id
+    }
 
     #[test]
     fn a_minted_identifier_is_distinct_from_every_existing_one() {
         let mut book = SessionBook::new();
 
-        let first = book.add("One", "https://example.test/one");
-        let second = book.add("Two", "https://example.test/two");
+        let first = add(&mut book, "One", "https://example.test/one");
+        let second = add(&mut book, "Two", "https://example.test/two");
 
         assert_ne!(first, second);
     }
@@ -857,8 +985,8 @@ mod tests {
         let mut book = SessionBook::new();
         book.set_layout(Layout::Grid);
 
-        book.add("One", "https://example.test/one");
-        let second = book.add("Two", "https://example.test/two");
+        add(&mut book, "One", "https://example.test/one");
+        let second = add(&mut book, "Two", "https://example.test/two");
 
         let placed = book
             .sessions()
@@ -872,11 +1000,11 @@ mod tests {
     fn a_session_added_with_every_slot_full_displaces_the_focused_slot() {
         let mut book = SessionBook::new();
         book.set_layout(Layout::SideBySide);
-        let first = book.add("One", "https://example.test/one");
-        book.add("Two", "https://example.test/two");
+        let first = add(&mut book, "One", "https://example.test/one");
+        add(&mut book, "Two", "https://example.test/two");
         book.set_focused(SlotId::new(0));
 
-        book.add("Three", "https://example.test/three");
+        add(&mut book, "Three", "https://example.test/three");
 
         let displaced = book
             .sessions()
@@ -890,11 +1018,11 @@ mod tests {
     fn the_displacing_session_takes_the_focused_slot() {
         let mut book = SessionBook::new();
         book.set_layout(Layout::SideBySide);
-        book.add("One", "https://example.test/one");
-        book.add("Two", "https://example.test/two");
+        add(&mut book, "One", "https://example.test/one");
+        add(&mut book, "Two", "https://example.test/two");
         book.set_focused(SlotId::new(0));
 
-        let third = book.add("Three", "https://example.test/three");
+        let third = add(&mut book, "Three", "https://example.test/three");
 
         let placed = book
             .sessions()
@@ -908,10 +1036,10 @@ mod tests {
     fn shrinking_the_layout_leaves_the_sessions_that_still_fit_in_place() {
         let mut book = SessionBook::new();
         book.set_layout(Layout::Grid);
-        let first = book.add("One", "https://example.test/one");
-        let second = book.add("Two", "https://example.test/two");
-        book.add("Three", "https://example.test/three");
-        book.add("Four", "https://example.test/four");
+        let first = add(&mut book, "One", "https://example.test/one");
+        let second = add(&mut book, "Two", "https://example.test/two");
+        add(&mut book, "Three", "https://example.test/three");
+        add(&mut book, "Four", "https://example.test/four");
 
         book.set_layout(Layout::SideBySide);
 
@@ -938,10 +1066,10 @@ mod tests {
     fn shrinking_the_layout_pushes_the_sessions_that_no_longer_fit_off_grid() {
         let mut book = SessionBook::new();
         book.set_layout(Layout::Grid);
-        book.add("One", "https://example.test/one");
-        book.add("Two", "https://example.test/two");
-        let third = book.add("Three", "https://example.test/three");
-        let fourth = book.add("Four", "https://example.test/four");
+        add(&mut book, "One", "https://example.test/one");
+        add(&mut book, "Two", "https://example.test/two");
+        let third = add(&mut book, "Three", "https://example.test/three");
+        let fourth = add(&mut book, "Four", "https://example.test/four");
 
         book.set_layout(Layout::SideBySide);
 
@@ -962,9 +1090,9 @@ mod tests {
     fn growing_the_layout_returns_an_off_grid_session_to_its_remembered_slot() {
         let mut book = SessionBook::new();
         book.set_layout(Layout::Grid);
-        book.add("One", "https://example.test/one");
-        book.add("Two", "https://example.test/two");
-        let third = book.add("Three", "https://example.test/three");
+        add(&mut book, "One", "https://example.test/one");
+        add(&mut book, "Two", "https://example.test/two");
+        let third = add(&mut book, "Three", "https://example.test/three");
         book.set_layout(Layout::SideBySide);
 
         book.set_layout(Layout::Grid);
@@ -982,10 +1110,10 @@ mod tests {
     {
         let mut book = SessionBook::new();
         book.set_layout(Layout::SideBySide);
-        book.add("One", "https://example.test/one");
-        book.add("Two", "https://example.test/two");
+        add(&mut book, "One", "https://example.test/one");
+        add(&mut book, "Two", "https://example.test/two");
         book.set_focused(SlotId::new(0));
-        let third = book.add("Three", "https://example.test/three");
+        let third = add(&mut book, "Three", "https://example.test/three");
 
         book.set_layout(Layout::Grid);
 
@@ -1001,8 +1129,8 @@ mod tests {
     fn focusing_a_visible_session_moves_the_books_focus_to_its_slot() {
         let mut book = SessionBook::new();
         book.set_layout(Layout::SideBySide);
-        book.add("One", "https://example.test/one");
-        let two = book.add("Two", "https://example.test/two");
+        add(&mut book, "One", "https://example.test/one");
+        let two = add(&mut book, "Two", "https://example.test/two");
 
         book.focus_session(&two);
 
@@ -1013,10 +1141,10 @@ mod tests {
     fn focusing_an_off_grid_session_swaps_it_into_the_focused_slot_in_the_book() {
         let mut book = SessionBook::new();
         book.set_layout(Layout::SideBySide);
-        let first = book.add("One", "https://example.test/one");
-        book.add("Two", "https://example.test/two");
+        let first = add(&mut book, "One", "https://example.test/one");
+        add(&mut book, "Two", "https://example.test/two");
         book.set_focused(SlotId::new(0));
-        let third = book.add("Three", "https://example.test/three");
+        let third = add(&mut book, "Three", "https://example.test/three");
 
         book.focus_session(&first);
 
@@ -1040,8 +1168,8 @@ mod tests {
     fn a_placement_pass_leaves_names_and_addresses_untouched() {
         let mut book = SessionBook::new();
         book.set_layout(Layout::Grid);
-        book.add("Main account", "https://example.test/game");
-        book.add("Alt account", "https://example.test/game?alt");
+        add(&mut book, "Main account", "https://example.test/game");
+        add(&mut book, "Alt account", "https://example.test/game?alt");
 
         book.set_layout(Layout::Single);
 
@@ -1079,7 +1207,7 @@ mod tests {
     fn a_session_added_to_the_book_starts_live() {
         let mut book = SessionBook::new();
 
-        let id = book.add("One", "https://example.test/one");
+        let id = add(&mut book, "One", "https://example.test/one");
 
         assert_eq!(liveness_of(&book, &id), Liveness::Live);
     }
@@ -1087,7 +1215,7 @@ mod tests {
     #[test]
     fn parking_a_live_session_returns_parked() {
         let mut book = SessionBook::new();
-        let id = book.add("One", "https://example.test/one");
+        let id = add(&mut book, "One", "https://example.test/one");
 
         let state = book.park(&id);
 
@@ -1097,7 +1225,7 @@ mod tests {
     #[test]
     fn parking_a_session_leaves_its_visibility_unchanged() {
         let mut book = SessionBook::new();
-        let id = book.add("One", "https://example.test/one");
+        let id = add(&mut book, "One", "https://example.test/one");
         let visibility = visibility_of(&book, &id);
 
         book.park(&id);
@@ -1108,7 +1236,7 @@ mod tests {
     #[test]
     fn unparking_a_parked_session_returns_starting() {
         let mut book = SessionBook::new();
-        let id = book.add("One", "https://example.test/one");
+        let id = add(&mut book, "One", "https://example.test/one");
         book.park(&id);
 
         let state = book.unpark(&id);
@@ -1119,7 +1247,7 @@ mod tests {
     #[test]
     fn unparking_a_session_leaves_its_visibility_unchanged() {
         let mut book = SessionBook::new();
-        let id = book.add("One", "https://example.test/one");
+        let id = add(&mut book, "One", "https://example.test/one");
         book.park(&id);
         let visibility = visibility_of(&book, &id);
 
@@ -1131,7 +1259,7 @@ mod tests {
     #[test]
     fn ending_the_starting_interval_returns_live() {
         let mut book = SessionBook::new();
-        let id = book.add("One", "https://example.test/one");
+        let id = add(&mut book, "One", "https://example.test/one");
         book.park(&id);
         book.unpark(&id);
 
@@ -1143,7 +1271,7 @@ mod tests {
     #[test]
     fn parking_an_already_parked_session_returns_parked_and_changes_nothing_else() {
         let mut book = SessionBook::new();
-        let id = book.add("One", "https://example.test/one");
+        let id = add(&mut book, "One", "https://example.test/one");
         book.park(&id);
         let visibility = visibility_of(&book, &id);
 
@@ -1158,7 +1286,7 @@ mod tests {
     #[test]
     fn unparking_a_live_session_returns_live_and_changes_nothing_else() {
         let mut book = SessionBook::new();
-        let id = book.add("One", "https://example.test/one");
+        let id = add(&mut book, "One", "https://example.test/one");
         let visibility = visibility_of(&book, &id);
 
         let state = book.unpark(&id);
@@ -1173,8 +1301,8 @@ mod tests {
     fn the_live_session_count_is_the_number_of_running_accounts() {
         let mut book = SessionBook::new();
         book.set_layout(Layout::Grid);
-        book.add("One", "https://example.test/one");
-        book.add("Two", "https://example.test/two");
+        add(&mut book, "One", "https://example.test/one");
+        add(&mut book, "Two", "https://example.test/two");
 
         assert_eq!(book.live_session_count(), 2);
     }
@@ -1183,8 +1311,8 @@ mod tests {
     fn a_parked_account_is_not_counted_among_the_live_sessions() {
         let mut book = SessionBook::new();
         book.set_layout(Layout::Grid);
-        let one = book.add("One", "https://example.test/one");
-        book.add("Two", "https://example.test/two");
+        let one = add(&mut book, "One", "https://example.test/one");
+        add(&mut book, "Two", "https://example.test/two");
 
         book.park(&one);
 
@@ -1203,7 +1331,7 @@ mod tests {
     fn an_account_added_to_the_book_starts_with_keep_awake_off() {
         let mut book = SessionBook::new();
 
-        let id = book.add("One", "https://example.test/one");
+        let id = add(&mut book, "One", "https://example.test/one");
 
         assert!(!is_kept_awake(&book, &id));
     }
@@ -1211,7 +1339,7 @@ mod tests {
     #[test]
     fn turning_keep_awake_on_for_an_account_that_had_it_off_returns_true() {
         let mut book = SessionBook::new();
-        let id = book.add("One", "https://example.test/one");
+        let id = add(&mut book, "One", "https://example.test/one");
 
         let changed = book.set_keep_awake(&id, true);
 
@@ -1221,7 +1349,7 @@ mod tests {
     #[test]
     fn turning_keep_awake_on_for_an_account_that_had_it_off_leaves_the_flag_on() {
         let mut book = SessionBook::new();
-        let id = book.add("One", "https://example.test/one");
+        let id = add(&mut book, "One", "https://example.test/one");
 
         book.set_keep_awake(&id, true);
 
@@ -1231,7 +1359,7 @@ mod tests {
     #[test]
     fn setting_keep_awake_to_its_current_value_reports_no_change() {
         let mut book = SessionBook::new();
-        let id = book.add("One", "https://example.test/one");
+        let id = add(&mut book, "One", "https://example.test/one");
 
         let changed = book.set_keep_awake(&id, false);
 
@@ -1241,7 +1369,7 @@ mod tests {
     #[test]
     fn setting_keep_awake_to_its_current_value_leaves_liveness_unchanged() {
         let mut book = SessionBook::new();
-        let id = book.add("One", "https://example.test/one");
+        let id = add(&mut book, "One", "https://example.test/one");
         book.park(&id);
         let liveness = liveness_of(&book, &id);
 
@@ -1253,7 +1381,7 @@ mod tests {
     #[test]
     fn turning_keep_awake_on_for_a_live_account_leaves_it_starting() {
         let mut book = SessionBook::new();
-        let id = book.add("One", "https://example.test/one");
+        let id = add(&mut book, "One", "https://example.test/one");
 
         book.set_keep_awake(&id, true);
 
@@ -1263,7 +1391,7 @@ mod tests {
     #[test]
     fn turning_keep_awake_on_for_a_parked_account_leaves_it_parked() {
         let mut book = SessionBook::new();
-        let id = book.add("One", "https://example.test/one");
+        let id = add(&mut book, "One", "https://example.test/one");
         book.park(&id);
 
         book.set_keep_awake(&id, true);
@@ -1275,10 +1403,10 @@ mod tests {
     fn keep_awake_survives_a_layout_change_that_moves_the_account_between_slots() {
         let mut book = SessionBook::new();
         book.set_layout(Layout::Grid);
-        let id = book.add("One", "https://example.test/one");
-        book.add("Two", "https://example.test/two");
-        book.add("Three", "https://example.test/three");
-        book.add("Four", "https://example.test/four");
+        let id = add(&mut book, "One", "https://example.test/one");
+        add(&mut book, "Two", "https://example.test/two");
+        add(&mut book, "Three", "https://example.test/three");
+        add(&mut book, "Four", "https://example.test/four");
         book.set_keep_awake(&id, true);
 
         book.set_layout(Layout::SideBySide);
@@ -1291,10 +1419,10 @@ mod tests {
     fn keep_awake_survives_being_pushed_off_grid_and_brought_back_into_focus() {
         let mut book = SessionBook::new();
         book.set_layout(Layout::SideBySide);
-        let first = book.add("One", "https://example.test/one");
-        book.add("Two", "https://example.test/two");
+        let first = add(&mut book, "One", "https://example.test/one");
+        add(&mut book, "Two", "https://example.test/two");
         book.set_focused(SlotId::new(0));
-        book.add("Three", "https://example.test/three");
+        add(&mut book, "Three", "https://example.test/three");
         book.set_keep_awake(&first, true);
 
         book.focus_session(&first);
@@ -1305,7 +1433,7 @@ mod tests {
     #[test]
     fn keep_awake_survives_being_parked() {
         let mut book = SessionBook::new();
-        let id = book.add("One", "https://example.test/one");
+        let id = add(&mut book, "One", "https://example.test/one");
         book.set_keep_awake(&id, true);
 
         book.park(&id);
@@ -1316,7 +1444,7 @@ mod tests {
     #[test]
     fn keep_awake_survives_being_unparked() {
         let mut book = SessionBook::new();
-        let id = book.add("One", "https://example.test/one");
+        let id = add(&mut book, "One", "https://example.test/one");
         book.set_keep_awake(&id, true);
         book.park(&id);
 
@@ -1338,7 +1466,7 @@ mod tests {
     #[test]
     fn setting_keep_awake_on_an_unknown_id_leaves_the_book_untouched() {
         let mut book = SessionBook::new();
-        let id = book.add("One", "https://example.test/one");
+        let id = add(&mut book, "One", "https://example.test/one");
         let unknown = SessionId::new("session-9999");
 
         book.set_keep_awake(&unknown, true);
@@ -1369,7 +1497,7 @@ mod tests {
     fn an_account_from_a_preset_carries_the_typed_name_not_the_games_display_name() {
         let mut book = SessionBook::new();
 
-        let id = book.add_from_preset("Alt", &a_preset());
+        let id = add_from_preset(&mut book, "Alt", &a_preset());
 
         assert_eq!(session(&book, &id).display_name(), "Alt");
     }
@@ -1379,7 +1507,7 @@ mod tests {
         let mut book = SessionBook::new();
         let preset = a_preset();
 
-        let id = book.add_from_preset("Alt", &preset);
+        let id = add_from_preset(&mut book, "Alt", &preset);
 
         let account = session(&book, &id);
         assert_eq!(
@@ -1404,7 +1532,7 @@ mod tests {
             ..a_preset()
         };
 
-        let id = book.add_from_preset("Alt", &preset);
+        let id = add_from_preset(&mut book, "Alt", &preset);
 
         assert_eq!(session(&book, &id).browser_identity(), None);
     }
@@ -1417,7 +1545,7 @@ mod tests {
             ..a_preset()
         };
 
-        let id = book.add_from_preset("Alt", &preset);
+        let id = add_from_preset(&mut book, "Alt", &preset);
 
         assert!(!session(&book, &id).is_webgl_enabled());
     }
@@ -1426,7 +1554,7 @@ mod tests {
     fn a_typed_address_account_gets_a_webgl_context() {
         let mut book = SessionBook::new();
 
-        let id = book.add("Typed", "https://example.test/typed");
+        let id = add(&mut book, "Typed", "https://example.test/typed");
 
         assert!(session(&book, &id).is_webgl_enabled());
     }
@@ -1439,7 +1567,7 @@ mod tests {
             ..a_preset()
         };
 
-        let id = book.add_from_preset("Alt", &preset);
+        let id = add_from_preset(&mut book, "Alt", &preset);
 
         assert!(session(&book, &id).is_kept_awake());
     }
@@ -1452,7 +1580,7 @@ mod tests {
             ..a_preset()
         };
 
-        let id = book.add_from_preset("Alt", &preset);
+        let id = add_from_preset(&mut book, "Alt", &preset);
 
         assert_eq!(session(&book, &id).liveness(), Liveness::Live);
     }
@@ -1465,7 +1593,7 @@ mod tests {
             ..a_preset()
         };
 
-        let id = book.add_from_preset("Alt", &preset);
+        let id = add_from_preset(&mut book, "Alt", &preset);
 
         assert_eq!(session(&book, &id).liveness(), Liveness::Live);
     }
@@ -1474,9 +1602,9 @@ mod tests {
     fn an_account_from_a_preset_takes_the_lowest_free_slot_like_a_typed_one() {
         let mut book = SessionBook::new();
         book.set_layout(Layout::Grid);
-        book.add("One", "https://example.test/one");
+        add(&mut book, "One", "https://example.test/one");
 
-        let id = book.add_from_preset("Alt", &a_preset());
+        let id = add_from_preset(&mut book, "Alt", &a_preset());
 
         assert_eq!(
             session(&book, &id).visibility(),
@@ -1488,11 +1616,11 @@ mod tests {
     fn an_account_from_a_preset_into_a_full_grid_displaces_the_focused_slot() {
         let mut book = SessionBook::new();
         book.set_layout(Layout::SideBySide);
-        let first = book.add("One", "https://example.test/one");
-        book.add("Two", "https://example.test/two");
+        let first = add(&mut book, "One", "https://example.test/one");
+        add(&mut book, "Two", "https://example.test/two");
         book.set_focused(SlotId::new(0));
 
-        book.add_from_preset("Alt", &a_preset());
+        add_from_preset(&mut book, "Alt", &a_preset());
 
         assert_eq!(session(&book, &first).visibility(), Visibility::OffGrid);
     }
@@ -1501,7 +1629,7 @@ mod tests {
     fn an_account_from_a_typed_address_carries_no_identity_and_the_default_zoom() {
         let mut book = SessionBook::new();
 
-        let id = book.add("One", "https://example.test/one");
+        let id = add(&mut book, "One", "https://example.test/one");
 
         let account = session(&book, &id);
         assert_eq!(
@@ -1545,6 +1673,7 @@ mod tests {
                 saved_account("session-0002", "Alt"),
             ],
             layout: Layout::SideBySide,
+            ..Workspace::default()
         };
 
         let book = SessionBook::restore(workspace);
@@ -1581,6 +1710,7 @@ mod tests {
                 ..saved_account("session-0001", "Main")
             }],
             layout: Layout::Single,
+            ..Workspace::default()
         };
 
         let book = SessionBook::restore(workspace);
@@ -1596,6 +1726,7 @@ mod tests {
                 ..saved_account("session-0001", "Main")
             }],
             layout: Layout::Single,
+            ..Workspace::default()
         };
 
         let book = SessionBook::restore(workspace);
@@ -1621,6 +1752,7 @@ mod tests {
                 },
             ],
             layout: Layout::Grid,
+            ..Workspace::default()
         };
 
         let book = SessionBook::restore(workspace);
@@ -1639,6 +1771,7 @@ mod tests {
                 ..saved_account("session-0001", "Parked")
             }],
             layout: Layout::Single,
+            ..Workspace::default()
         };
 
         let book = SessionBook::restore(workspace);
@@ -1654,6 +1787,7 @@ mod tests {
                 in_slot(saved_account("session-0002", "B"), 1),
             ],
             layout: Layout::Single,
+            ..Workspace::default()
         };
         let mut book = SessionBook::restore(workspace);
         let while_single = book.sessions()[1].visibility();
@@ -1674,10 +1808,11 @@ mod tests {
                 saved_account("session-0007", "B"),
             ],
             layout: Layout::Single,
+            ..Workspace::default()
         };
         let mut book = SessionBook::restore(workspace);
 
-        let fresh = book.add("C", "https://example.test/c");
+        let fresh = add(&mut book, "C", "https://example.test/c");
 
         let restored: Vec<SessionId> = book
             .sessions()
@@ -1705,11 +1840,15 @@ mod tests {
                 },
             ],
             layout: Layout::SideBySide,
+            ..Workspace::default()
         };
 
         let restored = SessionBook::restore(workspace.clone());
 
-        assert_eq!(restored.workspace(), workspace);
+        assert_eq!(
+            restored.workspace(WorkspaceId::ungrouped(), "Ungrouped".to_owned(), true),
+            workspace
+        );
     }
 
     #[test]
@@ -1720,6 +1859,7 @@ mod tests {
                 ..saved_account("session-0001", "Queued")
             }],
             layout: Layout::Single,
+            ..Workspace::default()
         };
         let mut book = SessionBook::restore(workspace);
         let id = book.sessions()[0].id().clone();
@@ -1732,10 +1872,10 @@ mod tests {
     #[test]
     fn a_starting_account_is_written_to_the_workspace_as_running() {
         let mut book = SessionBook::new();
-        let id = book.add("One", "https://example.test/one");
+        let id = add(&mut book, "One", "https://example.test/one");
         book.set_keep_awake(&id, true);
 
-        let saved = book.workspace();
+        let saved = book.workspace(WorkspaceId::ungrouped(), "Ungrouped".to_owned(), true);
 
         assert_eq!(saved.accounts[0].liveness, SavedLiveness::Running);
     }
@@ -1747,7 +1887,7 @@ mod tests {
     #[test]
     fn zoom_for_returns_the_baseline_for_a_layout_with_no_remembered_size() {
         let mut book = SessionBook::new();
-        let id = book.add("One", "https://example.test/one");
+        let id = add(&mut book, "One", "https://example.test/one");
 
         assert_eq!(
             session(&book, &id).zoom_for(Layout::Single),
@@ -1758,7 +1898,7 @@ mod tests {
     #[test]
     fn zoom_for_returns_the_remembered_size_for_the_one_layout_that_has_one() {
         let mut book = SessionBook::new();
-        let id = book.add("One", "https://example.test/one");
+        let id = add(&mut book, "One", "https://example.test/one");
         book.restore_zoom(&id, [(Layout::Grid, accepted(1.5))].into_iter().collect());
 
         let session = session(&book, &id);
@@ -1776,7 +1916,8 @@ mod tests {
     #[test]
     fn preset_zoom_still_answers_the_game_files_value_after_a_remembered_size_is_installed() {
         let mut book = SessionBook::new();
-        let id = book.add_from_preset(
+        let id = add_from_preset(
+            &mut book,
             "Alt",
             &Preset {
                 zoom: accepted(0.8),
@@ -1791,7 +1932,7 @@ mod tests {
     #[test]
     fn restore_zoom_installs_a_whole_remembered_map_onto_the_named_account() {
         let mut book = SessionBook::new();
-        let id = book.add("One", "https://example.test/one");
+        let id = add(&mut book, "One", "https://example.test/one");
 
         book.restore_zoom(
             &id,
@@ -1816,7 +1957,7 @@ mod tests {
     #[test]
     fn restore_zoom_changes_nothing_for_an_id_the_book_does_not_hold() {
         let mut book = SessionBook::new();
-        let id = book.add("One", "https://example.test/one");
+        let id = add(&mut book, "One", "https://example.test/one");
 
         book.restore_zoom(
             &SessionId::new("session-9999"),
@@ -1832,7 +1973,8 @@ mod tests {
     #[test]
     fn the_workspace_an_account_produces_still_carries_its_baseline_zoom() {
         let mut book = SessionBook::new();
-        let id = book.add_from_preset(
+        let id = add_from_preset(
+            &mut book,
             "Alt",
             &Preset {
                 zoom: accepted(1.2),
@@ -1841,13 +1983,18 @@ mod tests {
         );
         book.restore_zoom(&id, [(Layout::Single, accepted(3.0))].into_iter().collect());
 
-        assert_eq!(book.workspace().accounts[0].zoom, accepted(1.2));
+        assert_eq!(
+            book.workspace(WorkspaceId::ungrouped(), "Ungrouped".to_owned(), true)
+                .accounts[0]
+                .zoom,
+            accepted(1.2)
+        );
     }
 
     #[test]
     fn zoom_in_returns_the_stepped_size_and_records_it_against_the_current_layout() {
         let mut book = SessionBook::new();
-        let id = book.add("One", "https://example.test/one");
+        let id = add(&mut book, "One", "https://example.test/one");
 
         let stepped = book.zoom_in(&id).expect("the account is in the book");
 
@@ -1863,7 +2010,7 @@ mod tests {
     #[test]
     fn zoom_out_returns_the_stepped_down_size_and_records_it_the_same_way() {
         let mut book = SessionBook::new();
-        let id = book.add("One", "https://example.test/one");
+        let id = add(&mut book, "One", "https://example.test/one");
 
         let stepped = book.zoom_out(&id).expect("the account is in the book");
 
@@ -1880,7 +2027,7 @@ mod tests {
     fn a_step_records_nothing_for_the_two_layouts_that_are_not_current() {
         let mut book = SessionBook::new();
         book.set_layout(Layout::Grid);
-        let id = book.add("One", "https://example.test/one");
+        let id = add(&mut book, "One", "https://example.test/one");
 
         book.zoom_in(&id);
 
@@ -1897,7 +2044,7 @@ mod tests {
     #[test]
     fn a_step_at_the_ranges_edge_returns_and_records_the_clamped_size() {
         let mut book = SessionBook::new();
-        let id = book.add("One", "https://example.test/one");
+        let id = add(&mut book, "One", "https://example.test/one");
         book.restore_zoom(
             &id,
             [(Layout::Single, accepted(ZoomLevel::MAX))]
@@ -1916,7 +2063,8 @@ mod tests {
     #[test]
     fn reset_zoom_drops_the_current_entry_keeps_the_others_and_returns_the_baseline() {
         let mut book = SessionBook::new();
-        let id = book.add_from_preset(
+        let id = add_from_preset(
+            &mut book,
             "Alt",
             &Preset {
                 zoom: accepted(0.8),
@@ -1949,7 +2097,7 @@ mod tests {
     #[test]
     fn the_zoom_transitions_return_none_for_an_id_the_book_does_not_hold() {
         let mut book = SessionBook::new();
-        let id = book.add("One", "https://example.test/one");
+        let id = add(&mut book, "One", "https://example.test/one");
         let unknown = SessionId::new("session-9999");
 
         let outcomes = (
@@ -1967,7 +2115,7 @@ mod tests {
     #[test]
     fn a_step_leaves_the_accounts_liveness_and_visibility_exactly_as_they_were() {
         let mut book = SessionBook::new();
-        let id = book.add("One", "https://example.test/one");
+        let id = add(&mut book, "One", "https://example.test/one");
         book.park(&id);
         let before = (liveness_of(&book, &id), visibility_of(&book, &id));
 
@@ -1979,7 +2127,7 @@ mod tests {
     #[test]
     fn switching_layout_changes_what_zoom_for_answers_without_changing_a_stored_size() {
         let mut book = SessionBook::new();
-        let id = book.add("One", "https://example.test/one");
+        let id = add(&mut book, "One", "https://example.test/one");
         let chosen = book.zoom_in(&id).expect("the account is in the book");
 
         book.set_layout(Layout::Grid);
@@ -1996,8 +2144,8 @@ mod tests {
     fn focused_session_returns_the_account_in_the_focused_slot() {
         let mut book = SessionBook::new();
         book.set_layout(Layout::SideBySide);
-        book.add("One", "https://example.test/one");
-        let two = book.add("Two", "https://example.test/two");
+        add(&mut book, "One", "https://example.test/one");
+        let two = add(&mut book, "Two", "https://example.test/two");
         book.set_focused(SlotId::new(1));
 
         assert_eq!(book.focused_session().map(Session::id), Some(&two));
@@ -2007,7 +2155,7 @@ mod tests {
     fn focused_session_is_none_when_the_focused_slot_holds_nothing() {
         let mut book = SessionBook::new();
         book.set_layout(Layout::SideBySide);
-        book.add("One", "https://example.test/one");
+        add(&mut book, "One", "https://example.test/one");
         book.set_focused(SlotId::new(1));
 
         assert!(book.focused_session().is_none());
@@ -2018,6 +2166,7 @@ mod tests {
         let book = SessionBook::restore(Workspace {
             accounts: Vec::new(),
             layout: Layout::default(),
+            ..Workspace::default()
         });
 
         assert_eq!(
@@ -2046,7 +2195,7 @@ mod tests {
     #[test]
     fn renaming_with_a_padded_name_stores_the_trimmed_name_and_returns_true() {
         let mut book = SessionBook::new();
-        let id = book.add("One", "https://example.test/one");
+        let id = add(&mut book, "One", "https://example.test/one");
 
         let stored = book.rename(&id, "  New name  ");
 
@@ -2060,8 +2209,8 @@ mod tests {
     fn renaming_changes_only_the_display_name() {
         let mut book = SessionBook::new();
         book.set_layout(Layout::SideBySide);
-        let first = book.add("One", "https://example.test/one");
-        book.add("Two", "https://example.test/two");
+        let first = add(&mut book, "One", "https://example.test/one");
+        add(&mut book, "Two", "https://example.test/two");
         book.set_focused(SlotId::new(1));
         let order = |book: &SessionBook| -> Vec<SessionId> {
             book.sessions().iter().map(|s| s.id().clone()).collect()
@@ -2089,7 +2238,7 @@ mod tests {
     #[test]
     fn renaming_with_an_empty_or_whitespace_only_name_returns_false() {
         let mut book = SessionBook::new();
-        let id = book.add("One", "https://example.test/one");
+        let id = add(&mut book, "One", "https://example.test/one");
 
         let stored = book.rename(&id, "   ");
 
@@ -2099,18 +2248,27 @@ mod tests {
     #[test]
     fn renaming_with_an_empty_name_leaves_the_book_unchanged() {
         let mut book = SessionBook::new();
-        let id = book.add("One", "https://example.test/one");
-        let before = (book.workspace(), book.focused());
+        let id = add(&mut book, "One", "https://example.test/one");
+        let before = (
+            book.workspace(WorkspaceId::ungrouped(), "Ungrouped".to_owned(), true),
+            book.focused(),
+        );
 
         book.rename(&id, "   ");
 
-        assert_eq!((book.workspace(), book.focused()), before);
+        assert_eq!(
+            (
+                book.workspace(WorkspaceId::ungrouped(), "Ungrouped".to_owned(), true),
+                book.focused()
+            ),
+            before
+        );
     }
 
     #[test]
     fn renaming_an_unknown_id_returns_false() {
         let mut book = SessionBook::new();
-        book.add("One", "https://example.test/one");
+        add(&mut book, "One", "https://example.test/one");
         let unknown = SessionId::new("session-9999");
 
         let stored = book.rename(&unknown, "New name");
@@ -2121,19 +2279,28 @@ mod tests {
     #[test]
     fn renaming_an_unknown_id_leaves_the_book_unchanged() {
         let mut book = SessionBook::new();
-        book.add("One", "https://example.test/one");
+        add(&mut book, "One", "https://example.test/one");
         let unknown = SessionId::new("session-9999");
-        let before = (book.workspace(), book.focused());
+        let before = (
+            book.workspace(WorkspaceId::ungrouped(), "Ungrouped".to_owned(), true),
+            book.focused(),
+        );
 
         book.rename(&unknown, "New name");
 
-        assert_eq!((book.workspace(), book.focused()), before);
+        assert_eq!(
+            (
+                book.workspace(WorkspaceId::ungrouped(), "Ungrouped".to_owned(), true),
+                book.focused()
+            ),
+            before
+        );
     }
 
     #[test]
     fn renaming_a_parked_account_keeps_it_parked() {
         let mut book = SessionBook::new();
-        let id = book.add("One", "https://example.test/one");
+        let id = add(&mut book, "One", "https://example.test/one");
         book.park(&id);
 
         book.rename(&id, "New name");
@@ -2149,6 +2316,7 @@ mod tests {
                 ..saved_account("session-0001", "Queued")
             }],
             layout: Layout::Single,
+            ..Workspace::default()
         };
         let mut book = SessionBook::restore(workspace);
         let id = book.sessions()[0].id().clone();
@@ -2161,8 +2329,8 @@ mod tests {
     #[test]
     fn renaming_to_a_name_another_account_already_has_is_accepted() {
         let mut book = SessionBook::new();
-        let first = book.add("One", "https://example.test/one");
-        let second = book.add("Two", "https://example.test/two");
+        let first = add(&mut book, "One", "https://example.test/one");
+        let second = add(&mut book, "Two", "https://example.test/two");
 
         let stored = book.rename(&second, "One");
 
@@ -2179,24 +2347,32 @@ mod tests {
     #[test]
     fn the_workspace_after_a_rename_carries_the_new_name() {
         let mut book = SessionBook::new();
-        let id = book.add("One", "https://example.test/one");
+        let id = add(&mut book, "One", "https://example.test/one");
 
         book.rename(&id, "Renamed");
 
-        assert_eq!(book.workspace().accounts[0].display_name, "Renamed");
+        assert_eq!(
+            book.workspace(WorkspaceId::ungrouped(), "Ungrouped".to_owned(), true)
+                .accounts[0]
+                .display_name,
+            "Renamed"
+        );
     }
 
     fn snapshot(book: &SessionBook) -> (Workspace, SlotId) {
-        (book.workspace(), book.focused())
+        (
+            book.workspace(WorkspaceId::ungrouped(), "Ungrouped".to_owned(), true),
+            book.focused(),
+        )
     }
 
     #[test]
     fn moving_onto_an_occupied_slot_returns_swapped_and_trades_exactly_those_two_slots() {
         let mut book = SessionBook::new();
         book.set_layout(Layout::Grid);
-        let one = book.add("One", "https://example.test/one");
-        let two = book.add("Two", "https://example.test/two");
-        let three = book.add("Three", "https://example.test/three");
+        let one = add(&mut book, "One", "https://example.test/one");
+        let two = add(&mut book, "Two", "https://example.test/two");
+        let three = add(&mut book, "Three", "https://example.test/three");
 
         let outcome = book.move_to_slot(&one, SlotId::new(1));
 
@@ -2220,8 +2396,8 @@ mod tests {
     fn moving_onto_an_empty_slot_returns_filled_and_leaves_the_old_slot_empty() {
         let mut book = SessionBook::new();
         book.set_layout(Layout::Grid);
-        let one = book.add("One", "https://example.test/one");
-        book.add("Two", "https://example.test/two");
+        let one = add(&mut book, "One", "https://example.test/one");
+        add(&mut book, "Two", "https://example.test/two");
 
         let outcome = book.move_to_slot(&one, SlotId::new(2));
 
@@ -2240,8 +2416,8 @@ mod tests {
     fn moving_onto_the_movers_own_slot_returns_unchanged_and_leaves_the_book_equal() {
         let mut book = SessionBook::new();
         book.set_layout(Layout::SideBySide);
-        let one = book.add("One", "https://example.test/one");
-        book.add("Two", "https://example.test/two");
+        let one = add(&mut book, "One", "https://example.test/one");
+        add(&mut book, "Two", "https://example.test/two");
         let before = snapshot(&book);
 
         let outcome = book.move_to_slot(&one, SlotId::new(0));
@@ -2253,8 +2429,8 @@ mod tests {
     fn moving_onto_a_slot_the_layout_does_not_have_returns_unchanged_and_leaves_the_book_equal() {
         let mut book = SessionBook::new();
         book.set_layout(Layout::SideBySide);
-        let one = book.add("One", "https://example.test/one");
-        book.add("Two", "https://example.test/two");
+        let one = add(&mut book, "One", "https://example.test/one");
+        add(&mut book, "Two", "https://example.test/two");
         let before = snapshot(&book);
 
         let outcome = book.move_to_slot(&one, SlotId::new(3));
@@ -2266,10 +2442,10 @@ mod tests {
     fn moving_an_off_grid_account_returns_unchanged_and_leaves_the_book_equal() {
         let mut book = SessionBook::new();
         book.set_layout(Layout::SideBySide);
-        let one = book.add("One", "https://example.test/one");
-        book.add("Two", "https://example.test/two");
+        let one = add(&mut book, "One", "https://example.test/one");
+        add(&mut book, "Two", "https://example.test/two");
         book.set_focused(SlotId::new(0));
-        book.add("Three", "https://example.test/three");
+        add(&mut book, "Three", "https://example.test/three");
         assert_eq!(visibility_of(&book, &one), Visibility::OffGrid);
         let before = snapshot(&book);
 
@@ -2282,8 +2458,8 @@ mod tests {
     fn moving_an_unknown_id_returns_unchanged_and_leaves_the_book_equal() {
         let mut book = SessionBook::new();
         book.set_layout(Layout::SideBySide);
-        book.add("One", "https://example.test/one");
-        book.add("Two", "https://example.test/two");
+        add(&mut book, "One", "https://example.test/one");
+        add(&mut book, "Two", "https://example.test/two");
         let unknown = SessionId::new("session-9999");
         let before = snapshot(&book);
 
@@ -2296,8 +2472,8 @@ mod tests {
     fn a_swap_where_focus_was_on_the_movers_slot_moves_focus_to_the_target() {
         let mut book = SessionBook::new();
         book.set_layout(Layout::SideBySide);
-        let one = book.add("One", "https://example.test/one");
-        book.add("Two", "https://example.test/two");
+        let one = add(&mut book, "One", "https://example.test/one");
+        add(&mut book, "Two", "https://example.test/two");
         book.set_focused(SlotId::new(0));
 
         book.move_to_slot(&one, SlotId::new(1));
@@ -2309,8 +2485,8 @@ mod tests {
     fn a_fill_where_focus_was_on_the_movers_slot_moves_focus_to_the_target() {
         let mut book = SessionBook::new();
         book.set_layout(Layout::Grid);
-        let one = book.add("One", "https://example.test/one");
-        book.add("Two", "https://example.test/two");
+        let one = add(&mut book, "One", "https://example.test/one");
+        add(&mut book, "Two", "https://example.test/two");
         book.set_focused(SlotId::new(0));
 
         book.move_to_slot(&one, SlotId::new(2));
@@ -2322,8 +2498,8 @@ mod tests {
     fn a_swap_where_focus_was_on_the_target_moves_focus_to_the_movers_old_slot() {
         let mut book = SessionBook::new();
         book.set_layout(Layout::SideBySide);
-        let one = book.add("One", "https://example.test/one");
-        book.add("Two", "https://example.test/two");
+        let one = add(&mut book, "One", "https://example.test/one");
+        add(&mut book, "Two", "https://example.test/two");
         book.set_focused(SlotId::new(1));
 
         book.move_to_slot(&one, SlotId::new(1));
@@ -2335,9 +2511,9 @@ mod tests {
     fn a_swap_where_focus_was_on_neither_slot_leaves_focus_unchanged() {
         let mut book = SessionBook::new();
         book.set_layout(Layout::Grid);
-        let one = book.add("One", "https://example.test/one");
-        book.add("Two", "https://example.test/two");
-        book.add("Three", "https://example.test/three");
+        let one = add(&mut book, "One", "https://example.test/one");
+        add(&mut book, "Two", "https://example.test/two");
+        add(&mut book, "Three", "https://example.test/three");
         book.set_focused(SlotId::new(2));
 
         book.move_to_slot(&one, SlotId::new(1));
@@ -2349,8 +2525,8 @@ mod tests {
     fn a_swap_survives_a_layout_switch_and_back() {
         let mut book = SessionBook::new();
         book.set_layout(Layout::Grid);
-        let one = book.add("One", "https://example.test/one");
-        let two = book.add("Two", "https://example.test/two");
+        let one = add(&mut book, "One", "https://example.test/one");
+        let two = add(&mut book, "Two", "https://example.test/two");
 
         book.move_to_slot(&one, SlotId::new(1));
         book.set_layout(Layout::SideBySide);
@@ -2373,8 +2549,8 @@ mod tests {
     fn a_real_move_reorders_in_slot_accounts_by_slot_index_with_no_off_grid_accounts_present() {
         let mut book = SessionBook::new();
         book.set_layout(Layout::SideBySide);
-        let one = book.add("One", "https://example.test/one");
-        let two = book.add("Two", "https://example.test/two");
+        let one = add(&mut book, "One", "https://example.test/one");
+        let two = add(&mut book, "Two", "https://example.test/two");
 
         book.move_to_slot(&one, SlotId::new(1));
 
@@ -2386,10 +2562,10 @@ mod tests {
     {
         let mut book = SessionBook::new();
         book.set_layout(Layout::SideBySide);
-        let one = book.add("One", "https://example.test/one");
-        let two = book.add("Two", "https://example.test/two");
+        let one = add(&mut book, "One", "https://example.test/one");
+        let two = add(&mut book, "Two", "https://example.test/two");
         book.set_focused(SlotId::new(0));
-        let three = book.add("Three", "https://example.test/three");
+        let three = add(&mut book, "Three", "https://example.test/three");
         // One is now off-grid, Three took slot 0, Two still holds slot 1.
         assert_eq!(order(&book), vec![one.clone(), two.clone(), three.clone()]);
 
@@ -2402,8 +2578,8 @@ mod tests {
     fn moving_a_parked_account_keeps_it_parked() {
         let mut book = SessionBook::new();
         book.set_layout(Layout::SideBySide);
-        let one = book.add("One", "https://example.test/one");
-        book.add("Two", "https://example.test/two");
+        let one = add(&mut book, "One", "https://example.test/one");
+        add(&mut book, "Two", "https://example.test/two");
         book.park(&one);
 
         book.move_to_slot(&one, SlotId::new(1));
@@ -2415,8 +2591,8 @@ mod tests {
     fn a_move_changes_no_accounts_keep_awake_flag() {
         let mut book = SessionBook::new();
         book.set_layout(Layout::SideBySide);
-        let one = book.add("One", "https://example.test/one");
-        let two = book.add("Two", "https://example.test/two");
+        let one = add(&mut book, "One", "https://example.test/one");
+        let two = add(&mut book, "Two", "https://example.test/two");
         book.set_keep_awake(&two, true);
 
         book.move_to_slot(&one, SlotId::new(1));
@@ -2428,8 +2604,8 @@ mod tests {
     fn a_move_changes_no_accounts_remembered_zoom() {
         let mut book = SessionBook::new();
         book.set_layout(Layout::SideBySide);
-        let one = book.add("One", "https://example.test/one");
-        book.add("Two", "https://example.test/two");
+        let one = add(&mut book, "One", "https://example.test/one");
+        add(&mut book, "Two", "https://example.test/two");
         let chosen = book.zoom_in(&one).expect("the account is in the book");
 
         book.move_to_slot(&one, SlotId::new(1));
@@ -2441,9 +2617,9 @@ mod tests {
     fn restoring_from_the_workspace_of_a_moved_book_reproduces_the_same_slots_and_order() {
         let mut book = SessionBook::new();
         book.set_layout(Layout::Grid);
-        book.add("One", "https://example.test/one");
-        book.add("Two", "https://example.test/two");
-        book.add("Three", "https://example.test/three");
+        add(&mut book, "One", "https://example.test/one");
+        add(&mut book, "Two", "https://example.test/two");
+        add(&mut book, "Three", "https://example.test/three");
         let one = book.sessions()[0].id().clone();
 
         book.move_to_slot(&one, SlotId::new(2));
@@ -2456,8 +2632,104 @@ mod tests {
         };
         let before = slots_and_order(&book);
 
-        let restored = SessionBook::restore(book.workspace());
+        let restored = SessionBook::restore(book.workspace(
+            WorkspaceId::ungrouped(),
+            "Ungrouped".to_owned(),
+            true,
+        ));
 
         assert_eq!(slots_and_order(&restored), before);
+    }
+
+    #[test]
+    fn take_removes_the_session_and_its_remembered_slot_leaving_others_seated() {
+        let mut book = SessionBook::new();
+        book.set_layout(Layout::Grid);
+        let one = add(&mut book, "One", "https://example.test/one");
+        let two = add(&mut book, "Two", "https://example.test/two");
+
+        let taken = book.take(&one).expect("one is in the book");
+
+        assert_eq!(
+            (
+                taken.id().clone(),
+                book.sessions().iter().any(|s| s.id() == &one),
+                visibility_of(&book, &two),
+            ),
+            (one, false, Visibility::InSlot(SlotId::new(1))),
+        );
+    }
+
+    #[test]
+    fn take_on_an_unknown_id_returns_none_and_changes_nothing() {
+        let mut book = SessionBook::new();
+        add(&mut book, "One", "https://example.test/one");
+        let before = book.workspace(WorkspaceId::ungrouped(), "Ungrouped".to_owned(), true);
+
+        let taken = book.take(&SessionId::new("session-9999"));
+
+        assert_eq!(
+            (
+                taken.is_none(),
+                book.workspace(WorkspaceId::ungrouped(), "Ungrouped".to_owned(), true)
+            ),
+            (true, before),
+        );
+    }
+
+    #[test]
+    fn adopt_appends_to_the_end_and_seats_in_the_lowest_free_slot() {
+        let mut book = SessionBook::new();
+        book.set_layout(Layout::Grid);
+        add(&mut book, "One", "https://example.test/one");
+        let mut source = SessionBook::new();
+        add(&mut source, "Filler", "https://example.test/filler");
+        let two = add(&mut source, "Two", "https://example.test/two");
+        let arriving = source.take(&two).expect("two is in the source book");
+
+        book.adopt(arriving);
+
+        assert_eq!(
+            (
+                book.sessions().last().map(Session::id),
+                book.sessions().last().map(Session::visibility),
+            ),
+            (Some(&two), Some(Visibility::InSlot(SlotId::new(1)))),
+        );
+    }
+
+    #[test]
+    fn adopt_into_a_full_book_seats_the_arrival_off_grid_without_displacing_anyone() {
+        let mut book = SessionBook::new();
+        book.set_layout(Layout::Single);
+        let one = add(&mut book, "One", "https://example.test/one");
+        let mut source = SessionBook::new();
+        add(&mut source, "Filler", "https://example.test/filler");
+        let two = add(&mut source, "Two", "https://example.test/two");
+        let arriving = source.take(&two).expect("two is in the source book");
+
+        book.adopt(arriving);
+
+        assert_eq!(
+            (visibility_of(&book, &one), visibility_of(&book, &two)),
+            (Visibility::InSlot(SlotId::FIRST), Visibility::OffGrid),
+        );
+    }
+
+    #[test]
+    fn adopt_carries_liveness_and_keep_awake_over_unchanged() {
+        let mut source = SessionBook::new();
+        let id = add(&mut source, "One", "https://example.test/one");
+        source.park(&id);
+        source.set_keep_awake(&id, true);
+        let arriving = source.take(&id).expect("id is in the source book");
+
+        let mut book = SessionBook::new();
+        book.adopt(arriving);
+
+        assert_eq!(
+            (liveness_of(&book, &id), is_kept_awake(&book, &id)),
+            (Liveness::Parked, true),
+        );
     }
 }

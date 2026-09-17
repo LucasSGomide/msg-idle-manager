@@ -12,7 +12,9 @@
 // macro used here is a vetted gtk4-rs entry point.
 #![allow(unsafe_code, unreachable_pub)]
 
+mod account_deletion;
 mod add_game_dialog;
+mod delete_account_dialog;
 mod memory_footer;
 mod message_strip;
 mod rename_dialog;
@@ -225,6 +227,19 @@ mod tests {
             gio::ResourceLookupFlags::NONE,
         )
         .expect("look up the rename dialog template by its resource path");
+
+        assert!(!data.is_empty());
+    }
+
+    #[test]
+    fn the_delete_account_dialog_template_is_readable_from_the_registered_bundle() {
+        register_resources().expect("register the compiled bundle");
+
+        let data = gio::resources_lookup_data(
+            "/org/idlemanager/IdleManager/ui/delete-account-dialog.ui",
+            gio::ResourceLookupFlags::NONE,
+        )
+        .expect("look up the delete-account dialog template by its resource path");
 
         assert!(!data.is_empty());
     }

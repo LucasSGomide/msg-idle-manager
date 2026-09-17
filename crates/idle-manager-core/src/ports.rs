@@ -6,7 +6,7 @@ use std::path::PathBuf;
 use crate::memory::MemoryReading;
 use crate::preset::Preset;
 use crate::session::{RememberedZoom, SessionId};
-use crate::workspace::Workspace;
+use crate::workspace::WorkspaceList;
 
 /// A memory sample could not be taken.
 ///
@@ -104,11 +104,11 @@ pub trait ProfileLocator: std::fmt::Debug {
     fn locate(&self, session: &SessionId) -> Result<ProfileDirectories, ProfileError>;
 }
 
-/// The saved workspace could not be read.
+/// The saved workspace list could not be read.
 ///
 /// Three-way at the call site: [`WorkspaceStore::read`] returns `Ok(None)` for
-/// a first run with no file, `Ok(Some(_))` for a workspace, and this for a
-/// failure — two cases a caller must tell apart, because one keeps the bad
+/// a first run with no file, `Ok(Some(_))` for a workspace list, and this for
+/// a failure — two cases a caller must tell apart, because one keeps the bad
 /// bytes aside to name to the user and the other has nothing to show.
 #[derive(Debug, thiserror::Error)]
 pub enum WorkspaceReadError {
@@ -132,7 +132,7 @@ pub enum WorkspaceReadError {
     },
 }
 
-/// The workspace could not be written.
+/// The workspace list could not be written.
 #[derive(Debug, thiserror::Error)]
 #[error("the workspace could not be saved: {reason}")]
 pub struct WorkspaceWriteError {
@@ -140,19 +140,19 @@ pub struct WorkspaceWriteError {
     pub reason: String,
 }
 
-/// Saves the whole arrangement and gives back the one it saved, without the
-/// domain knowing a file is involved.
+/// Saves the whole arrangement — every workspace — and gives back the one it
+/// saved, without the domain knowing a file is involved.
 ///
 /// Named for the capability, not the technology behind it (naming rule 10) and
 /// implemented outside the core (architecture rules 5, 6). The read is
-/// three-way — no file, a workspace, or a failure — and the write is atomic
-/// from the caller's point of view: it either replaces the saved workspace
+/// three-way — no file, a workspace list, or a failure — and the write is
+/// atomic from the caller's point of view: it either replaces the saved list
 /// entirely or leaves the previous one intact.
 ///
 /// `Send + Sync` so the shell can hand a write to a worker thread and keep the
 /// GTK main context free while the disk blocks (architecture rule 10).
 pub trait WorkspaceStore: std::fmt::Debug + Send + Sync {
-    /// Reads the saved workspace now.
+    /// Reads the saved workspace list now.
     ///
     /// # Errors
     ///
@@ -160,15 +160,15 @@ pub trait WorkspaceStore: std::fmt::Debug + Send + Sync {
     /// parse — the bytes are kept aside at the path the error carries;
     /// [`WorkspaceReadError::Inaccessible`] if the location cannot be read.
     /// A first run with no file is `Ok(None)`, not an error.
-    fn read(&self) -> Result<Option<Workspace>, WorkspaceReadError>;
+    fn read(&self) -> Result<Option<WorkspaceList>, WorkspaceReadError>;
 
-    /// Writes `workspace`, replacing any previously saved one.
+    /// Writes `workspaces`, replacing any previously saved list.
     ///
     /// # Errors
     ///
     /// [`WorkspaceWriteError`] if the write could not be completed; the
-    /// previously saved workspace is left intact in that case.
-    fn write(&self, workspace: &Workspace) -> Result<(), WorkspaceWriteError>;
+    /// previously saved list is left intact in that case.
+    fn write(&self, workspaces: &WorkspaceList) -> Result<(), WorkspaceWriteError>;
 }
 
 /// One preset entry the catalogue could not turn into a [`Preset`].
@@ -248,6 +248,42 @@ pub trait ZoomMemory: std::fmt::Debug {
     ) -> Result<(), ZoomMemoryError>;
 }
 
+/// An account's profile folder could not be removed.
+#[derive(Debug, thiserror::Error)]
+#[error("could not remove the account's data: {reason}")]
+pub struct ProfileRemovalError {
+    /// One line describing what was wrong, ready to show as-is.
+    pub reason: String,
+}
+
+/// Removes exactly one account's profile folder, without the domain knowing a
+/// filesystem is involved.
+///
+/// Named for the capability, not the technology (naming rule 10) and
+/// implemented outside the core (architecture rules 5, 6) — the domain's
+/// deletion flow must not know about the filesystem, and a test needs a fake.
+/// There is no open-file check: the engine never releases a deleted session's
+/// cookie and HSTS files while the application runs, so there is nothing to
+/// wait for (roadmap item 11, Technical References).
+///
+/// `Send + Sync` so the shell can call it through `gio::spawn_blocking`
+/// (architecture rule 10).
+pub trait ProfileRemoval: std::fmt::Debug + Send + Sync {
+    /// Removes `id`'s whole profile folder, together with everything in it.
+    /// A folder that does not exist counts as success, so a retry after a
+    /// partial removal can still finish (`FR.21.11`). Removes exactly that one
+    /// folder and never a parent or sibling (`FR.21.8`).
+    ///
+    /// # Errors
+    ///
+    /// [`ProfileRemovalError`] if the folder exists but could not be removed.
+    fn remove(&self, id: &SessionId) -> Result<(), ProfileRemovalError>;
+
+    /// Where `id`'s profile folder lives, for naming to the user when
+    /// [`ProfileRemoval::remove`] fails.
+    fn folder(&self, id: &SessionId) -> std::path::PathBuf;
+}
+
 /// Tells the domain which games it knows about, without the domain knowing the
 /// list comes from files on disk.
 ///
@@ -263,4 +299,34 @@ pub trait PresetCatalogue: std::fmt::Debug {
     /// hand appears on the next open with no restart. The returned presets are
     /// sorted by display name.
     fn read(&self) -> PresetCatalogueReading;
+}
+
+#[cfg(test)]
+mod tests {
+    use std::path::PathBuf;
+    use std::sync::Arc;
+
+    use super::*;
+
+    #[derive(Debug)]
+    struct FakeProfileRemoval;
+
+    impl ProfileRemoval for FakeProfileRemoval {
+        fn remove(&self, _id: &SessionId) -> Result<(), ProfileRemovalError> {
+            Ok(())
+        }
+
+        fn folder(&self, id: &SessionId) -> PathBuf {
+            PathBuf::from(id.as_str())
+        }
+    }
+
+    #[test]
+    fn an_arc_dyn_profile_removal_can_be_moved_into_a_thread_and_called_there() {
+        let removal: Arc<dyn ProfileRemoval> = Arc::new(FakeProfileRemoval);
+
+        let handle = std::thread::spawn(move || removal.remove(&SessionId::new("session-0001")));
+
+        assert!(handle.join().expect("the thread did not panic").is_ok());
+    }
 }

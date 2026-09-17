@@ -21,7 +21,7 @@ use gtk::graphene;
 use gtk::subclass::prelude::*;
 use gtk4 as gtk;
 
-use idle_manager_core::{Layout, Liveness, SessionBook, SessionId, SlotId, Visibility};
+use idle_manager_core::{Layout, Liveness, SessionId, SlotId, Visibility, WorkspaceBook};
 use webkit6::prelude::*;
 use webkit6::{LoadEvent, WebView};
 
@@ -516,6 +516,27 @@ impl SessionGrid {
         self.obj().queue_allocate();
     }
 
+    /// Removes `id`'s entry entirely: cancels its readout's fade timer if one
+    /// is armed, unparents its overlay from the grid, and drops it from
+    /// `slots`. Called only once the account's profile folder is actually
+    /// gone (`FR.21.5`, item 11 task 08) — the grid decides nothing about
+    /// when that is safe, the deletion sequence does. A no-op for an account
+    /// the grid has no entry for.
+    pub(super) fn remove_session(&self, id: &SessionId) {
+        let mut slots = self.slots.borrow_mut();
+        let Some(index) = slots.iter().position(|entry| &entry.id == id) else {
+            return;
+        };
+        let entry = slots.remove(index);
+        drop(slots);
+
+        if let Some(timer) = entry.readout.timer.borrow_mut().take() {
+            timer.remove();
+        }
+        entry.overlay.unparent();
+        self.obj().queue_allocate();
+    }
+
     /// Shows `figure` over `id`'s place, updating whatever is already there,
     /// and cancels and rearms that place's fade timer so a run of gestures
     /// shows one figure rather than a queue (`FR.11.6`). A no-op for an account
@@ -546,14 +567,16 @@ impl SessionGrid {
         *readout.timer.borrow_mut() = Some(timer);
     }
 
-    pub(super) fn sync(&self, book: &SessionBook) {
-        self.layout.set(book.layout());
-        self.focused.set(book.focused().index());
+    pub(super) fn sync(&self, book: &WorkspaceBook) {
+        self.layout.set(book.active().layout());
+        self.focused.set(book.active().focused().index());
 
         let single = self.layout.get() == Layout::Single;
         for entry in self.slots.borrow_mut().iter_mut() {
-            if let Some(session) = book.sessions().iter().find(|s| s.id() == &entry.id) {
-                entry.placement = session.visibility();
+            if let Some(session) = book
+                .workspaces()
+                .find_map(|workspace| workspace.book().session(&entry.id))
+            {
                 // The cover and the placeholder both follow the book's name on
                 // every pass, the same way the placeholder's other fields
                 // already do — a rename would otherwise never reach either,
@@ -563,6 +586,11 @@ impl SessionGrid {
                 entry.placeholder.set_name(name);
                 apply_placeholder(&entry.placeholder, placeholder_panel(session.liveness()));
             }
+            // An account not in the shown workspace is off-grid explicitly —
+            // today an entry the book cannot place at all would otherwise keep
+            // its stale placement, which with several workspaces would leave a
+            // hidden one's view drawn in a place (`FR.18.1`).
+            entry.placement = book.placement(&entry.id).unwrap_or(Visibility::OffGrid);
             // There is nowhere to drop an account off-grid or in `Single`, so
             // the grip never shows there — a hidden widget is never picked,
             // so a hidden grip cannot take a press either.

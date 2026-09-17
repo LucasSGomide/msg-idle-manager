@@ -17,7 +17,7 @@ use gtk::glib;
 use gtk::prelude::*;
 use gtk4 as gtk;
 
-use idle_manager_core::{Workspace, WorkspaceStore, WorkspaceWriteError};
+use idle_manager_core::{WorkspaceList, WorkspaceStore, WorkspaceWriteError};
 
 use crate::message_strip::MessageStrip;
 
@@ -29,9 +29,9 @@ const SAVE_DEBOUNCE_MILLIS: u64 = 400;
 struct Inner {
     store: Arc<dyn WorkspaceStore>,
     strip: MessageStrip,
-    /// The workspace the pending write will save — replaced by each request, so
-    /// only the latest state reaches disk.
-    latest: RefCell<Option<Workspace>>,
+    /// The workspace list the pending write will save — replaced by each
+    /// request, so only the latest state reaches disk.
+    latest: RefCell<Option<WorkspaceList>>,
     /// The armed debounce timer, if one is pending.
     timer: RefCell<Option<glib::SourceId>>,
 }
@@ -51,10 +51,10 @@ impl Saver {
         }))
     }
 
-    /// Records that `workspace` should be saved and (re)arms the debounce
+    /// Records that `workspaces` should be saved and (re)arms the debounce
     /// timer. Cheap: a caller in doubt calls it.
-    pub(crate) fn request(&self, workspace: Workspace) {
-        self.0.latest.replace(Some(workspace));
+    pub(crate) fn request(&self, workspaces: WorkspaceList) {
+        self.0.latest.replace(Some(workspaces));
 
         if let Some(timer) = self.0.timer.borrow_mut().take() {
             timer.remove();

@@ -8,6 +8,8 @@ this task's `test-script.md` section written and run.
 
 A folder lives from breakdown until the item's branch lands — through review and
 merge, not just until the boxes are ticked. It is retired only once the roadmap
-item's header carries `Landed:` or `Merged:`. Items 01–07, 09 and 10 are `done`.
+item's header carries `Landed:` or `Merged:`. Items 01–07 and 09–11 are `done`.
 
-_No breakdown is open. Create one with `/msg-roadmap-task-breakdown NN`._
+| # | Roadmap item | Tasks | Progress | Status |
+|---|---|---|---|---|
+| [11](11-account-workspaces/) | Account workspaces, and deleting an account | 8 | 8/8 | done |

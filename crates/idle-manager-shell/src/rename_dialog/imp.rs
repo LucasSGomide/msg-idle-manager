@@ -10,23 +10,45 @@ use gtk::prelude::*;
 use gtk::subclass::prelude::*;
 use gtk4 as gtk;
 
-use idle_manager_core::account_name;
+use super::NameCheck;
 
 /// A handler run with the typed name when the user confirms.
 type ConfirmHandler = Box<dyn Fn(&str)>;
 
+/// The check a confirm attempt runs against the current field text, supplied
+/// by the caller: `account_name` for renaming an account, which never answers
+/// [`NameCheck::Taken`], or a closure over `WorkspaceBook`'s own name rule for
+/// naming a workspace.
+type NameChecker = Box<dyn Fn(&str) -> NameCheck>;
+
 /// The composite-template backing object for [`super::RenameDialog`].
-#[derive(Default, CompositeTemplate)]
+#[derive(CompositeTemplate)]
 #[template(resource = "/org/idlemanager/IdleManager/ui/rename-dialog.ui")]
 pub struct RenameDialog {
     #[template_child]
     name_entry: TemplateChild<gtk::Entry>,
     #[template_child]
+    taken_label: TemplateChild<gtk::Label>,
+    #[template_child]
     rename_button: TemplateChild<gtk::Button>,
     #[template_child]
     cancel_button: TemplateChild<gtk::Button>,
 
+    check: RefCell<NameChecker>,
     pub(super) on_confirmed: RefCell<Option<ConfirmHandler>>,
+}
+
+impl Default for RenameDialog {
+    fn default() -> Self {
+        Self {
+            name_entry: TemplateChild::default(),
+            taken_label: TemplateChild::default(),
+            rename_button: TemplateChild::default(),
+            cancel_button: TemplateChild::default(),
+            check: RefCell::new(Box::new(|_| NameCheck::Ok)),
+            on_confirmed: RefCell::new(None),
+        }
+    }
 }
 
 impl std::fmt::Debug for RenameDialog {
@@ -59,7 +81,7 @@ impl ObjectImpl for RenameDialog {
         let dialog = obj.downgrade();
         self.name_entry.connect_changed(move |_| {
             if let Some(dialog) = dialog.upgrade() {
-                dialog.imp().refresh_rename_sensitivity();
+                dialog.imp().refresh_from_check();
             }
         });
 
@@ -96,29 +118,45 @@ impl WidgetImpl for RenameDialog {}
 impl WindowImpl for RenameDialog {}
 
 impl RenameDialog {
-    /// Fills the field with `name`, selects all of it and puts the keyboard
-    /// focus there, then derives `Rename`'s starting sensitivity from it —
-    /// the same trimmed-non-empty check the add-game dialog runs
-    /// (`account_name`, `FR.13.3`).
-    pub(super) fn set_current_name(&self, name: &str) {
-        self.name_entry.set_text(name);
+    /// Sets the window's title and confirm button label, fills the field with
+    /// `current_name`, selects all of it and puts the keyboard focus there,
+    /// installs `check`, then derives the confirm button's starting
+    /// sensitivity and the dim "taken" line from it.
+    pub(super) fn configure(
+        &self,
+        title: &str,
+        confirm_label: &str,
+        current_name: &str,
+        check: NameChecker,
+    ) {
+        self.obj().set_title(Some(title));
+        self.rename_button.set_label(confirm_label);
+        drop(self.check.replace(check));
+
+        self.name_entry.set_text(current_name);
         self.name_entry.select_region(0, -1);
         self.name_entry.grab_focus();
-        self.refresh_rename_sensitivity();
+        self.refresh_from_check();
     }
 
-    fn refresh_rename_sensitivity(&self) {
-        let ready = account_name(&self.name_entry.text()).is_some();
-        self.rename_button.set_sensitive(ready);
+    fn refresh_from_check(&self) {
+        let text = self.name_entry.text();
+        let result = (self.check.borrow())(&text);
+        self.rename_button
+            .set_sensitive(matches!(result, NameCheck::Ok));
+        self.taken_label
+            .set_visible(matches!(result, NameCheck::Taken));
     }
 
     fn confirm(&self) {
-        let Some(name) = account_name(&self.name_entry.text()) else {
+        let text = self.name_entry.text();
+        if !matches!((self.check.borrow())(&text), NameCheck::Ok) {
             return;
-        };
+        }
+        let trimmed = text.trim().to_owned();
 
         if let Some(handler) = self.on_confirmed.borrow().as_ref() {
-            handler(&name);
+            handler(&trimmed);
         }
         self.obj().close();
     }

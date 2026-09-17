@@ -4,6 +4,7 @@
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::rc::Rc;
+use std::sync::Arc;
 use std::time::Duration;
 
 use gtk::CompositeTemplate;
@@ -16,18 +17,31 @@ use webkit6::prelude::WebViewExt;
 use webkit6::{LoadEvent, WebView};
 
 use idle_manager_core::{
-    Layout, Liveness, MoveOutcome, Preset, PresetCatalogue, ProfileLocator, Session, SessionBook,
-    SessionId, SlotId, Workspace, WorkspaceReadError, ZoomLevel, ZoomMemory,
+    Layout, Liveness, MoveOutcome, Preset, PresetCatalogue, ProfileLocator, ProfileRemoval,
+    Session, SessionId, SlotId, WorkspaceBook, WorkspaceId, WorkspaceList, WorkspaceReadError,
+    ZoomLevel, ZoomMemory, account_name, workspace_name,
 };
 
+use crate::account_deletion;
 use crate::add_game_dialog::{AddGameDialog, Confirmed};
+use crate::delete_account_dialog::DeleteAccountDialog;
 use crate::message_strip::MessageStrip;
-use crate::rename_dialog::RenameDialog;
+use crate::rename_dialog::{NameCheck, RenameDialog};
 use crate::save_on_change::Saver;
 use crate::session_grid::SessionGrid;
-use crate::session_sidebar::SessionSidebar;
+use crate::session_sidebar::{MoveTarget, SessionSidebar};
 use crate::start_queue::StartQueue;
 use crate::web_view::{AccountSettings, SessionView};
+
+/// What a workspace name window is for — [`Window::present_workspace_name_dialog`]
+/// covers both, since only the title, confirm label, starting text and what
+/// confirming does differ (item 11 task 06, `FR.15.8`, `FR.17.6`).
+enum NameDialogPurpose {
+    /// Create a workspace holding exactly these ticked accounts.
+    Create(Vec<SessionId>),
+    /// Rename this already-existing workspace.
+    Rename(WorkspaceId),
+}
 
 /// The composite-template backing object for [`super::Window`].
 #[derive(Default, CompositeTemplate)]
@@ -55,6 +69,10 @@ pub struct Window {
     content: TemplateChild<gtk::Box>,
     #[template_child]
     empty_state: TemplateChild<gtk::Box>,
+    #[template_child]
+    first_run_label: TemplateChild<gtk::Label>,
+    #[template_child]
+    workspace_empty_label: TemplateChild<gtk::Label>,
 
     /// The window-level message bar under the header bar (design rule 9). Hidden
     /// until a workspace fails to load (task 04) or, later, a save fails
@@ -62,7 +80,7 @@ pub struct Window {
     message_strip: MessageStrip,
     grid: SessionGrid,
     sidebar: SessionSidebar,
-    book: RefCell<SessionBook>,
+    book: RefCell<WorkspaceBook>,
     locator: RefCell<Option<Rc<dyn ProfileLocator>>>,
     /// The debounced save-on-change path (task 06), created once the ports are
     /// attached.
@@ -95,6 +113,10 @@ pub struct Window {
     /// the previous toggle — an unbounded-with-toggle-count leak, fixed by
     /// disconnecting the tracked handler before connecting the next one.
     load_changed_handlers: RefCell<HashMap<SessionId, glib::SignalHandlerId>>,
+    /// Removes one account's profile folder (item 11 task 08). `Arc`, like
+    /// `WorkspaceStore` above, since `account_deletion::delete_account` calls
+    /// it through `gio::spawn_blocking`.
+    removal: RefCell<Option<Arc<dyn ProfileRemoval>>>,
 }
 
 impl std::fmt::Debug for Window {
@@ -134,7 +156,7 @@ impl ObjectImpl for Window {
         self.grid.connect_slot_focused(move |slot| {
             if let Some(window) = window.upgrade() {
                 let imp = window.imp();
-                imp.book.borrow_mut().set_focused(slot);
+                imp.book.borrow_mut().active_mut().set_focused(slot);
                 // The sidebar marks the focused-slot row as current, so a focus
                 // change made in the grid has to reach it too.
                 imp.redraw();
@@ -261,11 +283,12 @@ impl Window {
     pub(super) fn attach_ports(
         &self,
         ports: super::WindowPorts,
-        read_outcome: Result<Option<Workspace>, WorkspaceReadError>,
+        read_outcome: Result<Option<WorkspaceList>, WorkspaceReadError>,
     ) {
         self.locator.replace(Some(ports.locator));
         self.catalogue.replace(Some(ports.catalogue));
         self.zoom_memory.replace(Some(ports.zoom_memory));
+        self.removal.replace(Some(ports.removal));
         self.sidebar.start_memory_sampling(ports.probe);
         self.saver
             .replace(Some(Saver::new(ports.store, self.message_strip.clone())));
@@ -277,20 +300,20 @@ impl Window {
     /// before the ports are attached.
     fn request_save(&self) {
         if let Some(saver) = self.saver.borrow().as_ref() {
-            saver.request(self.book.borrow().workspace());
+            saver.request(self.book.borrow().saved());
         }
     }
 
     /// Acts on what the composition root read before the window was built: a
-    /// saved workspace to restore, no file (a first run), or a failure. A
+    /// saved workspace list to restore, no file (a first run), or a failure. A
     /// failure is never flattened into "no file" — it is logged in fields and
     /// shown in the strip, never dropped (code standards rules 14, 15).
-    fn apply_read_outcome(&self, outcome: Result<Option<Workspace>, WorkspaceReadError>) {
+    fn apply_read_outcome(&self, outcome: Result<Option<WorkspaceList>, WorkspaceReadError>) {
         match outcome {
             Ok(None) => {
                 tracing::info!("no saved workspace; opening a first run");
             }
-            Ok(Some(workspace)) => self.restore_workspace(workspace),
+            Ok(Some(workspaces)) => self.restore_workspace(workspaces),
             Err(error) => {
                 tracing::warn!(error = %error, "the saved workspace could not be read");
                 self.message_strip.show(&describe_read_error(&error));
@@ -298,55 +321,72 @@ impl Window {
         }
     }
 
-    /// Rebuilds the book from `workspace`, prepares each account's profile
-    /// directories, hands the grid a dormant holder at each saved placement,
-    /// and redraws once — list, arrangement and every slot — before anything
-    /// loads. An account whose profile cannot be prepared is logged and skipped,
-    /// not the whole restore abandoned. The start queue (task 05) brings the
-    /// running accounts up one at a time afterwards.
-    fn restore_workspace(&self, workspace: Workspace) {
+    /// Rebuilds the book from `workspaces`, prepares every account's profile
+    /// directories in every workspace — not only the one shown — hands the
+    /// grid a dormant holder at each saved placement, and redraws once — list,
+    /// arrangement and every slot — before anything loads. An account whose
+    /// profile cannot be prepared is logged and skipped, not the whole restore
+    /// abandoned. The start queue (task 05) brings the running accounts up one
+    /// at a time afterwards, the shown workspace's first (`FR.18.4`).
+    fn restore_workspace(&self, workspaces: WorkspaceList) {
         let Some(locator) = self.locator.borrow().clone() else {
             tracing::error!("no profile locator attached; cannot restore the workspace");
             return;
         };
 
-        *self.book.borrow_mut() = SessionBook::restore(workspace);
+        *self.book.borrow_mut() = WorkspaceBook::restore(workspaces);
 
         // Install every account's chosen sizes onto the book before any holder
         // is built, so a relaunched account is right before it is ever drawn
-        // and the start queue does not have to correct it (`FR.12.7`).
+        // and the start queue does not have to correct it (`FR.12.7`). Every
+        // workspace, not only the one shown — a hidden workspace's accounts
+        // still run and must open at the right size the first time they are
+        // shown.
         if let Some(memory) = self.zoom_memory.borrow().clone() {
             let ids: Vec<SessionId> = self
                 .book
                 .borrow()
-                .sessions()
-                .iter()
+                .workspaces()
+                .flat_map(|workspace| workspace.book().sessions())
                 .map(|session| session.id().clone())
                 .collect();
+            let mut book = self.book.borrow_mut();
             for id in ids {
                 let remembered = memory.read(&id);
-                self.book.borrow_mut().restore_zoom(&id, remembered);
+                if let Some(session_book) = book
+                    .workspaces_mut()
+                    .find(|session_book| session_book.session(&id).is_some())
+                {
+                    session_book.restore_zoom(&id, remembered);
+                }
             }
         }
 
-        // Each dormant holder opens at the size resolved for the arrangement
-        // being restored, not the game-file baseline (`FR.12.2`): a switch
-        // later re-resolves, but the first draw is already right.
-        let layout = self.book.borrow().layout();
+        // Each dormant holder opens at the size resolved for its own
+        // workspace's arrangement, not the game-file baseline (`FR.12.2`) —
+        // every workspace may have a different layout, so each account is
+        // resolved against the one it actually belongs to.
         let accounts: Vec<(SessionId, String, String, ZoomLevel, Option<String>, bool)> = self
             .book
             .borrow()
-            .sessions()
-            .iter()
-            .map(|session| {
-                (
-                    session.id().clone(),
-                    session.display_name().to_owned(),
-                    session.start_address().to_owned(),
-                    session.zoom_for(layout),
-                    session.browser_identity().map(str::to_owned),
-                    session.is_webgl_enabled(),
-                )
+            .workspaces()
+            .flat_map(|workspace| {
+                let layout = workspace.book().layout();
+                workspace
+                    .book()
+                    .sessions()
+                    .iter()
+                    .map(move |session| {
+                        (
+                            session.id().clone(),
+                            session.display_name().to_owned(),
+                            session.start_address().to_owned(),
+                            session.zoom_for(layout),
+                            session.browser_identity().map(str::to_owned),
+                            session.is_webgl_enabled(),
+                        )
+                    })
+                    .collect::<Vec<_>>()
             })
             .collect();
 
@@ -376,17 +416,18 @@ impl Window {
         self.redraw();
 
         // The header's layout toggles start on "1" from the template; the
-        // restored book may be arranged for another layout, and "that
+        // shown workspace may be arranged for another layout, and "that
         // arrangement selected" is part of a truthful restore. Done after
         // `redraw` and outside any `book` borrow, since flipping a toggle runs
         // its handler synchronously.
-        let layout = self.book.borrow().layout();
+        let layout = self.book.borrow().active().layout();
         self.select_layout_toggle(layout);
 
         tracing::info!(accounts = self.holders.borrow().len(), "workspace restored");
 
         // The arrangement is drawn; now bring the running accounts back one at
-        // a time (task 05). Nothing queued means nothing to do.
+        // a time (task 05), the shown workspace's first. Nothing queued means
+        // nothing to do.
         let order = self.book.borrow().start_order();
         if !order.is_empty() {
             self.start_queue
@@ -405,6 +446,11 @@ impl Window {
         toggle.set_active(true);
     }
 
+    /// A layout toggle was pressed. Returns early when it already names the
+    /// shown workspace's layout — reached after
+    /// [`Window::focus_session`] flips the toggle to match an incoming
+    /// workspace, so that never triggers a second arrangement or a second
+    /// save (`FR.16.4`).
     fn connect_layout_toggle(&self, toggle: &gtk::ToggleButton, layout: Layout) {
         let window = self.obj().downgrade();
         toggle.connect_toggled(move |toggle| {
@@ -413,31 +459,36 @@ impl Window {
             }
             if let Some(window) = window.upgrade() {
                 let imp = window.imp();
+                if imp.book.borrow().active().layout() == layout {
+                    return;
+                }
                 imp.book.borrow_mut().set_layout(layout);
                 imp.redraw();
-                imp.snap_all_zoom();
+                imp.snap_zoom_for_active();
                 imp.request_save();
             }
         });
     }
 
-    /// After an arrangement switch, redraw every account at the size it last
-    /// chose for the arrangement now in force, falling back to the game file's
-    /// size. No readout is shown — nobody asked for a size change, the
-    /// arrangement did (`FR.11.6`). Every account with a holder, not only the
-    /// visible ones: an off-grid or parked account is then already the right
-    /// size the moment it is next brought into a place, with no second code
-    /// path and no visible correction (`FR.11.7`). Nothing is written — a
-    /// switch consumes chosen sizes and never records one (`FR.12.4`).
-    fn snap_all_zoom(&self) {
-        let layout = self.book.borrow().layout();
-        let resolved: Vec<(SessionId, ZoomLevel)> = self
-            .book
-            .borrow()
+    /// After an arrangement switch, redraw every account in the **shown**
+    /// workspace at the size it last chose for the arrangement now in force,
+    /// falling back to the game file's size. No readout is shown — nobody
+    /// asked for a size change, the arrangement did (`FR.11.6`). Every
+    /// account with a holder, not only the visible ones: an off-grid or
+    /// parked account is then already the right size the moment it is next
+    /// brought into a place, with no second code path and no visible
+    /// correction (`FR.11.7`). Nothing is written — a switch consumes chosen
+    /// sizes and never records one (`FR.12.4`).
+    fn snap_zoom_for_active(&self) {
+        let book = self.book.borrow();
+        let layout = book.active().layout();
+        let resolved: Vec<(SessionId, ZoomLevel)> = book
+            .active()
             .sessions()
             .iter()
             .map(|session| (session.id().clone(), session.zoom_for(layout)))
             .collect();
+        drop(book);
 
         let mut holders = self.holders.borrow_mut();
         for (id, zoom) in resolved {
@@ -447,13 +498,31 @@ impl Window {
         }
     }
 
+    /// Opens the add-game dialog, its `Workspace` field filled from
+    /// [`WorkspaceBook::destinations`] for one more account, defaulting to
+    /// the shown workspace when it has room and to `Ungrouped` otherwise
+    /// (`FR.17.5`).
     fn present_add_game_dialog(&self) {
         let Some(catalogue) = self.catalogue.borrow().clone() else {
             tracing::error!("no preset catalogue attached; cannot open the add-game dialog");
             return;
         };
 
-        let dialog = AddGameDialog::new(catalogue.as_ref());
+        let book = self.book.borrow();
+        let destinations = book.destinations(1);
+        let shown = book.active_id().clone();
+        drop(book);
+        let default = if destinations
+            .workspaces()
+            .iter()
+            .any(|workspace| workspace.id() == &shown)
+        {
+            shown
+        } else {
+            WorkspaceId::ungrouped()
+        };
+
+        let dialog = AddGameDialog::new(catalogue.as_ref(), &destinations, &default);
         dialog.set_transient_for(Some(&*self.obj()));
 
         let window = self.obj().downgrade();
@@ -467,10 +536,15 @@ impl Window {
                 Confirmed::Preset {
                     preset,
                     account_name,
+                    workspace,
                 } => window
                     .imp()
-                    .create_account_from_preset(preset, account_name),
-                Confirmed::Custom { name, address } => window.imp().create_account(name, address),
+                    .create_account_from_preset(preset, account_name, workspace),
+                Confirmed::Custom {
+                    name,
+                    address,
+                    workspace,
+                } => window.imp().create_account(name, address, workspace),
             }
         });
 
@@ -484,16 +558,26 @@ impl Window {
         let Some(current_name) = self
             .book
             .borrow()
-            .sessions()
-            .iter()
-            .find(|session| session.id() == id)
+            .active()
+            .session(id)
             .map(|session| session.display_name().to_owned())
         else {
             tracing::error!(session = %id, "no account to rename");
             return;
         };
 
-        let dialog = RenameDialog::new(&current_name);
+        // `account_name`'s rule never answers `Taken` — two accounts may
+        // share a name (`SessionBook::add` already allows it).
+        let dialog =
+            RenameDialog::new(
+                "Rename account",
+                "Rename",
+                &current_name,
+                |text| match account_name(text) {
+                    Some(_) => NameCheck::Ok,
+                    None => NameCheck::Empty,
+                },
+            );
         dialog.set_transient_for(Some(&*self.obj()));
 
         let window = self.obj().downgrade();
@@ -519,6 +603,329 @@ impl Window {
             self.redraw();
             self.request_save();
         }
+    }
+
+    /// Opens the shared name window for `purpose`: creating a workspace from
+    /// the ticked accounts, or renaming one that exists —
+    /// `present_rename_dialog`'s pattern, with the name check run against
+    /// [`WorkspaceBook::name_conflict`] on every keystroke so the confirm
+    /// button and the dim "taken" line always track the book's own rule
+    /// (`FR.15.8`). A no-op, logged, if `purpose` names a workspace the book
+    /// no longer holds.
+    fn present_workspace_name_dialog(&self, purpose: NameDialogPurpose) {
+        let title = match &purpose {
+            NameDialogPurpose::Create(_) => "New workspace",
+            NameDialogPurpose::Rename(_) => "Rename workspace",
+        };
+        let confirm_label = match &purpose {
+            NameDialogPurpose::Create(_) => "Create",
+            NameDialogPurpose::Rename(_) => "Rename",
+        };
+        let current_name = match &purpose {
+            NameDialogPurpose::Create(_) => String::new(),
+            NameDialogPurpose::Rename(id) => {
+                let Some(name) = self
+                    .book
+                    .borrow()
+                    .workspaces()
+                    .find(|workspace| workspace.id() == id)
+                    .map(|workspace| workspace.name().to_owned())
+                else {
+                    tracing::error!(workspace = %id, "no workspace to rename");
+                    return;
+                };
+                name
+            }
+        };
+        let excluding = match &purpose {
+            NameDialogPurpose::Create(_) => None,
+            NameDialogPurpose::Rename(id) => Some(id.clone()),
+        };
+
+        let window = self.obj().downgrade();
+        let check = move |text: &str| {
+            let Some(window) = window.upgrade() else {
+                return NameCheck::Empty;
+            };
+            let Some(trimmed) = workspace_name(text) else {
+                return NameCheck::Empty;
+            };
+            if window
+                .imp()
+                .book
+                .borrow()
+                .name_conflict(&trimmed, excluding.as_ref())
+            {
+                NameCheck::Taken
+            } else {
+                NameCheck::Ok
+            }
+        };
+
+        let dialog = RenameDialog::new(title, confirm_label, &current_name, check);
+        dialog.set_transient_for(Some(&*self.obj()));
+
+        let window = self.obj().downgrade();
+        dialog.connect_confirmed(move |name| {
+            let Some(window) = window.upgrade() else {
+                return;
+            };
+            match &purpose {
+                NameDialogPurpose::Create(ids) => {
+                    window.imp().create_workspace_from_ticked(name, ids);
+                }
+                NameDialogPurpose::Rename(id) => {
+                    window.imp().apply_workspace_rename(id, name);
+                }
+            }
+        });
+
+        dialog.present();
+    }
+
+    /// A "New workspace" window confirmed `name` for the ticked `ids`. Only
+    /// on success does it leave selection mode, redraw and save; a refusal is
+    /// logged and changes nothing — the dialog's own name check and
+    /// `Destinations::can_create` mean this is not expected in practice (code
+    /// standards rule 1).
+    fn create_workspace_from_ticked(&self, name: &str, ids: &[SessionId]) {
+        // See `move_ticked`'s comment: bound to a `let` so the `RefMut`
+        // temporary drops before `redraw` below borrows the book again.
+        let result = self.book.borrow_mut().create_workspace(name, ids);
+        match result {
+            Ok(_) => {
+                self.sidebar.end_selection();
+                self.redraw();
+                self.request_save();
+            }
+            Err(refusal) => {
+                tracing::error!(?refusal, "could not create the workspace");
+            }
+        }
+    }
+
+    /// A "Rename workspace" window confirmed `name` for `id`. Only on success
+    /// does it redraw and save.
+    fn apply_workspace_rename(&self, id: &WorkspaceId, name: &str) {
+        let result = self.book.borrow_mut().rename_workspace(id, name);
+        match result {
+            Ok(()) => {
+                self.redraw();
+                self.request_save();
+            }
+            Err(refusal) => {
+                tracing::error!(?refusal, workspace = %id, "could not rename the workspace");
+            }
+        }
+    }
+
+    /// `Remove workspace` was chosen for `id`. On success, when `id` was the
+    /// shown workspace, runs what a switch runs — `select_layout_toggle` for
+    /// `Ungrouped`'s layout and `snap_zoom_for_active` — then always redraws
+    /// and saves. Never touches a `SessionView` holder or the disk: the
+    /// accounts keep running exactly as they were, just regrouped under
+    /// `Ungrouped` (`FR.15.4`, `FR.15.11`, `FR.21.8`).
+    fn remove_workspace(&self, id: &WorkspaceId) {
+        let was_active = self.book.borrow().active_id() == id;
+        // See `move_ticked`'s comment: bound to a `let` so the `RefMut`
+        // temporary drops before `select_layout_toggle`/`redraw` below borrow
+        // the book again.
+        let result = self.book.borrow_mut().remove_workspace(id);
+        match result {
+            Ok(()) => {
+                if was_active {
+                    let layout = self.book.borrow().active().layout();
+                    self.select_layout_toggle(layout);
+                    self.snap_zoom_for_active();
+                }
+                self.redraw();
+                self.request_save();
+            }
+            Err(refusal) => {
+                tracing::error!(?refusal, workspace = %id, "could not remove the workspace");
+            }
+        }
+    }
+
+    /// Opens the delete-account confirmation for `id`, transient for the main
+    /// window (`present_rename_dialog`'s pattern). Searched across every
+    /// workspace, since deletion is offered for an account in any of them
+    /// (`FR.21.1`). A no-op, logged, if the book has no account under `id`.
+    fn present_delete_dialog(&self, id: &SessionId) {
+        let Some(name) = self.book.borrow().workspaces().find_map(|workspace| {
+            workspace
+                .book()
+                .session(id)
+                .map(|session| session.display_name().to_owned())
+        }) else {
+            tracing::error!(session = %id, "no account to delete");
+            return;
+        };
+
+        let dialog = DeleteAccountDialog::new(&name);
+        dialog.set_transient_for(Some(&*self.obj()));
+
+        let window = self.obj().downgrade();
+        let confirm_id = id.clone();
+        let confirm_dialog = dialog.clone();
+        dialog.connect_confirmed(move || {
+            if let Some(window) = window.upgrade() {
+                window
+                    .imp()
+                    .run_account_deletion(&confirm_id, confirm_dialog.clone());
+            }
+        });
+
+        let window = self.obj().downgrade();
+        let retry_id = id.clone();
+        let retry_dialog = dialog.clone();
+        dialog.connect_retry(move || {
+            if let Some(window) = window.upgrade() {
+                window
+                    .imp()
+                    .run_account_deletion(&retry_id, retry_dialog.clone());
+            }
+        });
+
+        let window = self.obj().downgrade();
+        let close_id = id.clone();
+        dialog.connect_closed_after_failure(move || {
+            if let Some(window) = window.upgrade() {
+                window.imp().restore_after_failed_delete(&close_id);
+            }
+        });
+
+        dialog.present();
+    }
+
+    /// Runs (or re-runs, for `Retry`) the fixed deletion sequence for `id`
+    /// (`FR.21.10`), reporting progress and outcome through `dialog`. Parks
+    /// the account first — idempotent, so a retry costs nothing extra — then
+    /// hands whichever holder `id` still has, if any, to
+    /// [`account_deletion::delete_account`], which skips the steps that need
+    /// one when an earlier attempt already ran them. Only on success does it
+    /// forget the account everywhere; a failure shows the dialog's `failed`
+    /// page with the reason and the account's own folder path. A no-op,
+    /// logged, if the removal port was never attached.
+    fn run_account_deletion(&self, id: &SessionId, dialog: DeleteAccountDialog) {
+        let Some(removal) = self.removal.borrow().clone() else {
+            tracing::error!("no profile removal port attached; cannot delete an account");
+            return;
+        };
+
+        let name = self.book.borrow().workspaces().find_map(|workspace| {
+            workspace
+                .book()
+                .session(id)
+                .map(|session| session.display_name().to_owned())
+        });
+        let name = name.unwrap_or_default();
+        dialog.show_working(&name);
+
+        // Idempotent (`SessionBook::park`'s own doc): safe to run again on
+        // every retry.
+        self.book.borrow_mut().park(id);
+        self.redraw();
+        self.request_save();
+
+        let holder = self.holders.borrow_mut().remove(id);
+        let grid = self.grid.clone();
+        let window = self.obj().downgrade();
+        let task_id = id.clone();
+
+        glib::spawn_future_local(async move {
+            let outcome =
+                account_deletion::delete_account(task_id.clone(), holder, grid, removal.clone())
+                    .await;
+
+            let Some(window) = window.upgrade() else {
+                return;
+            };
+            match outcome {
+                Ok(()) => window.imp().finish_account_deletion(&task_id, &dialog),
+                Err(error) => {
+                    let folder = removal.folder(&task_id);
+                    dialog.show_failed(&name, &error.reason, &folder);
+                }
+            }
+        });
+    }
+
+    /// A deletion attempt for `id` actually removed the folder. Forgets the
+    /// account everywhere: the book (`FR.21.5`), any pending zoom-save timer
+    /// (`FR.12.5`), and its `load_changed_handlers` entry — the view it was
+    /// on is already gone, so there is nothing left to disconnect, unlike
+    /// `toggle_keep_awake`'s in-place reload — then prunes it from the
+    /// sidebar's ticked set, closes `dialog`, redraws and saves.
+    fn finish_account_deletion(&self, id: &SessionId, dialog: &DeleteAccountDialog) {
+        self.book.borrow_mut().remove_account(id);
+        if let Some(timer) = self.zoom_save_timers.borrow_mut().remove(id) {
+            timer.remove();
+        }
+        self.load_changed_handlers.borrow_mut().remove(id);
+        self.sidebar.forget_ticked(id);
+        dialog.close_on_success();
+        self.redraw();
+        self.request_save();
+    }
+
+    /// `Close` was pressed after a failed deletion attempt. By the time
+    /// `failed` shows, the attempt has always already cleared `id`'s data and
+    /// torn down its holder and grid entry (`account_deletion::delete_account`
+    /// runs that step before the folder removal that failed) — this rebuilds
+    /// a fresh dormant holder and grid placeholder for it, exactly as a
+    /// restore does for any other parked account (`restore_workspace`'s
+    /// pattern), so the row reads `parked` and the account is ready to be
+    /// deleted again later. A no-op if a holder is somehow still present, or
+    /// if the book no longer has the account.
+    fn restore_after_failed_delete(&self, id: &SessionId) {
+        if self.holders.borrow().contains_key(id) {
+            return;
+        }
+        let Some(locator) = self.locator.borrow().clone() else {
+            tracing::error!("no profile locator attached; cannot rebuild the parked account");
+            return;
+        };
+
+        let book = self.book.borrow();
+        let Some(workspace) = book
+            .workspaces()
+            .find(|workspace| workspace.book().session(id).is_some())
+        else {
+            return;
+        };
+        let layout = workspace.book().layout();
+        let session = workspace.book().session(id).expect("just found above");
+        let (name, address, zoom, identity, webgl_enabled) = (
+            session.display_name().to_owned(),
+            session.start_address().to_owned(),
+            session.zoom_for(layout),
+            session.browser_identity().map(str::to_owned),
+            session.is_webgl_enabled(),
+        );
+        drop(book);
+
+        let directories = match locator.locate(id) {
+            Ok(directories) => directories,
+            Err(error) => {
+                tracing::error!(session = %id, %error, "could not prepare the profile directories");
+                return;
+            }
+        };
+
+        let holder = SessionView::dormant(
+            id,
+            &directories,
+            &address,
+            AccountSettings {
+                zoom,
+                identity,
+                webgl_enabled,
+            },
+        );
+        self.grid.add_dormant_session(id, &name);
+        self.holders.borrow_mut().insert(id.clone(), holder);
+        self.redraw();
     }
 
     /// The sidebar row's own intents: focusing, parking, keep-awake and
@@ -554,6 +961,94 @@ impl Window {
                 window.imp().present_rename_dialog(&id);
             }
         });
+
+        let window = self.obj().downgrade();
+        self.sidebar
+            .connect_expansion_toggled(move |workspace, expanded| {
+                if let Some(window) = window.upgrade() {
+                    window.imp().set_expanded(&workspace, expanded);
+                }
+            });
+
+        let window = self.obj().downgrade();
+        self.sidebar.connect_move_requested(move |ids, target| {
+            if let Some(window) = window.upgrade() {
+                window.imp().move_ticked(&ids, target);
+            }
+        });
+
+        let window = self.obj().downgrade();
+        self.sidebar.connect_selection_changed(move || {
+            if let Some(window) = window.upgrade() {
+                window.imp().redraw();
+            }
+        });
+
+        let window = self.obj().downgrade();
+        self.sidebar.connect_workspace_rename_requested(move |id| {
+            if let Some(window) = window.upgrade() {
+                window
+                    .imp()
+                    .present_workspace_name_dialog(NameDialogPurpose::Rename(id));
+            }
+        });
+
+        let window = self.obj().downgrade();
+        self.sidebar.connect_workspace_remove_requested(move |id| {
+            if let Some(window) = window.upgrade() {
+                window.imp().remove_workspace(&id);
+            }
+        });
+
+        let window = self.obj().downgrade();
+        self.sidebar.connect_delete_requested(move |id| {
+            if let Some(window) = window.upgrade() {
+                window.imp().present_delete_dialog(&id);
+            }
+        });
+    }
+
+    /// A heading was expanded or collapsed. Stored and saved; nothing else
+    /// changes, so this never redraws (`FR.16.2`).
+    fn set_expanded(&self, workspace: &WorkspaceId, expanded: bool) {
+        self.book.borrow_mut().set_expanded(workspace, expanded);
+        self.request_save();
+    }
+
+    /// `Move to…` chose `target` for the ticked `ids`. An existing workspace
+    /// moves them straight away — only on success does it leave selection
+    /// mode and clear the ticks, redraw and save; no liveness changes and the
+    /// shown workspace stays shown (`FR.17.8`). A refusal is logged and
+    /// changes nothing; the menu never offers a destination the book would
+    /// refuse, so this is not expected to be reached in practice (code
+    /// standards rule 1). `MoveTarget::New` opens the "New workspace" window
+    /// instead — selection mode and the ticks survive until that window
+    /// itself confirms or is cancelled (`FR.17.7`).
+    fn move_ticked(&self, ids: &[SessionId], target: MoveTarget) {
+        let workspace = match target {
+            MoveTarget::Existing(workspace) => workspace,
+            MoveTarget::New => {
+                self.present_workspace_name_dialog(NameDialogPurpose::Create(ids.to_vec()));
+                return;
+            }
+        };
+        // Bound to a `let` rather than matched directly on the `borrow_mut()`
+        // call: a `match` scrutinee's temporaries live to the end of the
+        // whole expression, so matching the `RefMut` in place would keep
+        // `book` borrowed through the `Ok` arm below and panic on `redraw`'s
+        // own borrow (measured 2026-09-14, the same hazard `sync`'s own
+        // guard already fixed for the sidebar's tree).
+        let result = self.book.borrow_mut().move_accounts(ids, &workspace);
+        match result {
+            Ok(()) => {
+                self.sidebar.end_selection();
+                self.redraw();
+                self.request_save();
+            }
+            Err(refusal) => {
+                tracing::error!(?refusal, %workspace, "could not move the ticked accounts");
+            }
+        }
     }
 
     /// The drop half of the drag (item 10 task 05): the grid only reports
@@ -576,7 +1071,7 @@ impl Window {
     /// touches a `SessionView` holder or a zoom, so no page reloads, starts,
     /// stops or resizes (`FR.14.8`).
     fn drop_account(&self, id: &SessionId, slot: SlotId) {
-        let outcome = self.book.borrow_mut().move_to_slot(id, slot);
+        let outcome = self.book.borrow_mut().active_mut().move_to_slot(id, slot);
         match outcome {
             MoveOutcome::Swapped { .. } | MoveOutcome::Filled => {
                 self.redraw();
@@ -586,24 +1081,59 @@ impl Window {
         }
     }
 
-    /// Adds an account from a typed name and address, then builds its view.
-    fn create_account(&self, name: &str, address: &str) {
-        let id = self.book.borrow_mut().add(name, address);
-        self.realise_account(&id);
+    /// Adds an account from a typed name and address into `workspace`, then
+    /// builds its view. Never switches which workspace is shown, so an
+    /// account added into a hidden workspace starts running out of sight
+    /// (`FR.17.9`). A refusal — `workspace` is named and already full — is
+    /// logged and creates nothing; it cannot arise from the add-game window
+    /// today, since its `Workspace` field never offers a full workspace, but
+    /// the book's answer is trusted over an assumption about the caller
+    /// (code standards rule 1).
+    fn create_account(&self, name: &str, address: &str, workspace: &WorkspaceId) {
+        // See `move_ticked`'s comment: bound to a `let` so the `RefMut`
+        // temporary drops before `realise_account` below borrows the book
+        // again.
+        let result = self.book.borrow_mut().add(workspace, name, address);
+        match result {
+            Ok(id) => self.realise_account(&id),
+            Err(refusal) => {
+                tracing::error!(?refusal, %workspace, "could not add the account");
+            }
+        }
     }
 
-    /// Adds an account for `preset`'s game under `account_name` — the book
-    /// copies the game's address, zoom, browser identity and keep-awake default
-    /// onto it — then builds its view.
-    fn create_account_from_preset(&self, preset: &Preset, account_name: &str) {
-        let id = self.book.borrow_mut().add_from_preset(account_name, preset);
-        self.realise_account(&id);
+    /// Adds an account for `preset`'s game under `account_name` into
+    /// `workspace` — the book copies the game's address, zoom, browser
+    /// identity and keep-awake default onto it — then builds its view.
+    /// Otherwise exactly [`Window::create_account`].
+    fn create_account_from_preset(
+        &self,
+        preset: &Preset,
+        account_name: &str,
+        workspace: &WorkspaceId,
+    ) {
+        // See `move_ticked`'s comment: bound to a `let` so the `RefMut`
+        // temporary drops before `realise_account` below borrows the book
+        // again.
+        let result = self
+            .book
+            .borrow_mut()
+            .add_from_preset(workspace, account_name, preset);
+        match result {
+            Ok(id) => self.realise_account(&id),
+            Err(refusal) => {
+                tracing::error!(?refusal, %workspace, "could not add the account");
+            }
+        }
     }
 
     /// Prepares the profile directories for a just-added account and hands its
     /// first view to the grid. Reads the account's name, address, zoom and
     /// browser identity off the book, never off a preset kept on the side —
     /// which is what makes the account independent of the file it came from.
+    /// Resolves the zoom against the layout of whichever workspace the
+    /// account actually joined, not the shown one, so it appears at the
+    /// right size the first time that workspace is shown (item 11 task 07).
     fn realise_account(&self, id: &SessionId) {
         let Some(locator) = self.locator.borrow().clone() else {
             tracing::error!("no profile locator attached; cannot create an account");
@@ -616,26 +1146,33 @@ impl Window {
         // stored sizes and reads back an empty map.
         if let Some(memory) = self.zoom_memory.borrow().clone() {
             let remembered = memory.read(id);
-            self.book.borrow_mut().restore_zoom(id, remembered);
+            let mut book = self.book.borrow_mut();
+            if let Some(session_book) = book
+                .workspaces_mut()
+                .find(|book| book.session(id).is_some())
+            {
+                session_book.restore_zoom(id, remembered);
+            }
         }
 
-        let layout = self.book.borrow().layout();
-        let Some((name, address, zoom, identity, webgl_enabled)) =
-            self.book.borrow().sessions().iter().find_map(|session| {
-                (session.id() == id).then(|| {
-                    (
-                        session.display_name().to_owned(),
-                        session.start_address().to_owned(),
-                        session.zoom_for(layout),
-                        session.browser_identity().map(str::to_owned),
-                        session.is_webgl_enabled(),
-                    )
-                })
-            })
+        let book = self.book.borrow();
+        let Some(workspace) = book
+            .workspaces()
+            .find(|workspace| workspace.book().session(id).is_some())
         else {
             tracing::error!(session = %id, "the account is not in the book");
             return;
         };
+        let layout = workspace.book().layout();
+        let session = workspace.book().session(id).expect("just found above");
+        let (name, address, zoom, identity, webgl_enabled) = (
+            session.display_name().to_owned(),
+            session.start_address().to_owned(),
+            session.zoom_for(layout),
+            session.browser_identity().map(str::to_owned),
+            session.is_webgl_enabled(),
+        );
+        drop(book);
 
         let directories = match locator.locate(id) {
             Ok(directories) => directories,
@@ -665,8 +1202,20 @@ impl Window {
         self.request_save();
     }
 
+    /// Focuses `id`. When it belongs to a workspace that is not shown, the
+    /// book switches to it first — the header's layout buttons are flipped to
+    /// its arrangement and its accounts are snapped to their sizes for it,
+    /// without treating the flip as a second layout switch of its own
+    /// (`connect_layout_toggle`'s own guard), and no view is built, destroyed,
+    /// stopped or reloaded (`FR.16.3`).
     fn focus_session(&self, id: &SessionId) {
-        self.book.borrow_mut().focus_session(id);
+        let switch = self.book.borrow_mut().focus_account(id);
+        if let Some(switch) = switch {
+            let layout = self.book.borrow().active().layout();
+            self.select_layout_toggle(layout);
+            self.snap_zoom_for_active();
+            tracing::debug!(from = %switch.from(), to = %switch.to(), "switched the shown workspace");
+        }
         self.redraw();
         self.request_save();
     }
@@ -678,9 +1227,8 @@ impl Window {
         let liveness = self
             .book
             .borrow()
-            .sessions()
-            .iter()
-            .find(|session| session.id() == id)
+            .active()
+            .session(id)
             .map(Session::liveness);
 
         match liveness {
@@ -759,30 +1307,22 @@ impl Window {
         Some(view)
     }
 
-    /// Whether the book still reports `id` as [`Liveness::Queued`]. The start
-    /// queue asks before each turn, so a state that changed while it was
-    /// draining is never overwritten by a start nobody asked for.
+    /// Whether the book still reports `id` as [`Liveness::Queued`], wherever
+    /// its workspace is — the start queue also brings back accounts in a
+    /// hidden workspace (`FR.18.4`). The start queue asks before each turn, so
+    /// a state that changed while it was draining is never overwritten by a
+    /// start nobody asked for.
     pub(crate) fn is_queued(&self, id: &SessionId) -> bool {
-        self.book
-            .borrow()
-            .sessions()
-            .iter()
-            .any(|session| session.id() == id && session.liveness() == Liveness::Queued)
+        liveness_anywhere(&self.book.borrow(), id) == Some(Liveness::Queued)
     }
 
     /// The shell reports a started account's first paint: end its starting
     /// interval in the book and redraw. A no-op unless the account is actually
-    /// starting, so a later navigation's load event does not churn the sidebar.
+    /// starting, so a later navigation's load event does not churn the
+    /// sidebar. Searched wherever the account's workspace is, since the start
+    /// queue may be starting one in a hidden workspace.
     fn finish_starting(&self, id: &SessionId) {
-        let starting = self
-            .book
-            .borrow()
-            .sessions()
-            .iter()
-            .find(|session| session.id() == id)
-            .map(Session::liveness)
-            == Some(Liveness::Starting);
-        if !starting {
+        if liveness_anywhere(&self.book.borrow(), id) != Some(Liveness::Starting) {
             return;
         }
 
@@ -854,6 +1394,7 @@ impl Window {
         let Some(id) = self
             .book
             .borrow()
+            .active()
             .focused_session()
             .map(|session| session.id().clone())
         else {
@@ -920,9 +1461,8 @@ impl Window {
         let Some(remembered) = self
             .book
             .borrow()
-            .sessions()
-            .iter()
-            .find(|session| session.id() == id)
+            .active()
+            .session(id)
             .map(|session| session.remembered_zoom().clone())
         else {
             return;
@@ -937,11 +1477,34 @@ impl Window {
         let book = self.book.borrow();
         self.grid.sync(&book);
         self.sidebar.sync(&book);
+        self.sidebar
+            .set_move_destinations(book.destinations(self.sidebar.ticked_count()));
 
-        let empty = book.sessions().is_empty();
-        self.empty_state.set_visible(empty);
-        self.grid.set_visible(!empty);
+        // Two distinct empty states (`FR.15.10`): no account anywhere is the
+        // existing first-run message and its button; the shown workspace
+        // alone being empty, while another workspace holds accounts, is the
+        // quiet "No games in this workspace" line with no button.
+        let shown_empty = book.active().sessions().is_empty();
+        let no_accounts_anywhere = book
+            .workspaces()
+            .all(|workspace| workspace.book().sessions().is_empty());
+        self.empty_state.set_visible(shown_empty);
+        self.first_run_label.set_visible(no_accounts_anywhere);
+        self.add_first_game_button.set_visible(no_accounts_anywhere);
+        self.workspace_empty_label
+            .set_visible(shown_empty && !no_accounts_anywhere);
+        self.grid.set_visible(!shown_empty);
     }
+}
+
+/// `id`'s liveness, searched across every workspace `book` holds — the one
+/// place a caller needs an account's state regardless of which workspace it
+/// belongs to, since [`WorkspaceBook`] does not yet forward every
+/// [`Session`] query itself. `None` for an id no workspace holds.
+fn liveness_anywhere(book: &WorkspaceBook, id: &SessionId) -> Option<Liveness> {
+    book.workspaces()
+        .find_map(|workspace| workspace.book().session(id))
+        .map(Session::liveness)
 }
 
 /// How long after the last zoom gesture the settled size is written, so a

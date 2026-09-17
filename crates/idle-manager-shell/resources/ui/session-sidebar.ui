@@ -3,12 +3,35 @@
   <requires lib="gtk" version="4.0"/>
   <template class="IdleManagerSessionSidebar" parent="GtkBox">
     <property name="orientation">vertical</property>
-    <property name="width-request">150</property>
+    <property name="width-request">200</property>
     <property name="hexpand">false</property>
     <property name="vexpand">true</property>
     <style>
       <class name="navigation-sidebar"/>
     </style>
+    <child>
+      <object class="GtkBox" id="title_row">
+        <property name="margin-start">6</property>
+        <property name="margin-end">6</property>
+        <property name="margin-top">6</property>
+        <property name="margin-bottom">6</property>
+        <child>
+          <object class="GtkLabel">
+            <property name="label">Accounts</property>
+            <property name="hexpand">true</property>
+            <property name="xalign">0</property>
+            <style>
+              <class name="heading"/>
+            </style>
+          </object>
+        </child>
+        <child>
+          <object class="GtkToggleButton" id="select_toggle">
+            <property name="label">Select</property>
+          </object>
+        </child>
+      </object>
+    </child>
     <child>
       <object class="GtkScrolledWindow" id="scroller">
         <property name="hscrollbar-policy">never</property>
@@ -32,6 +55,31 @@
         <style>
           <class name="dim-label"/>
         </style>
+      </object>
+    </child>
+    <child>
+      <object class="GtkBox" id="selection_bar">
+        <property name="visible">false</property>
+        <property name="margin-start">6</property>
+        <property name="margin-end">6</property>
+        <property name="margin-top">6</property>
+        <property name="margin-bottom">6</property>
+        <child>
+          <object class="GtkLabel" id="ticked_label">
+            <property name="label">0 ticked</property>
+            <property name="hexpand">true</property>
+            <property name="xalign">0</property>
+            <style>
+              <class name="dim-label"/>
+            </style>
+          </object>
+        </child>
+        <child>
+          <object class="GtkMenuButton" id="move_to_button">
+            <property name="label">Move to…</property>
+            <property name="sensitive">false</property>
+          </object>
+        </child>
       </object>
     </child>
     <child>

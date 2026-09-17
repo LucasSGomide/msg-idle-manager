@@ -21,7 +21,7 @@ pub enum Layout {
 impl Layout {
     /// How many slots this layout shows at once: 1, 2 or 4.
     #[must_use]
-    pub fn slot_count(self) -> usize {
+    pub const fn slot_count(self) -> usize {
         match self {
             Layout::Single => 1,
             Layout::SideBySide => 2,

@@ -14,41 +14,72 @@ use idle_manager_core::{Liveness, Session, Visibility};
 /// names a configuration that does not change, not a state that does.
 const KEEP_AWAKE_MARK: &str = "◆";
 
+/// The dim line a named workspace with no accounts shows once expanded — a
+/// real leaf in the tree, indented exactly like an account row, rather than
+/// hidden state on the heading, so the tree model's own expand/collapse
+/// handles when it is in the flat list for free (roadmap item 11).
+const NO_ACCOUNTS_TEXT: &str = "No accounts";
+
 glib::wrapper! {
     /// A list item's data: the account's id, the name markup the bound widget
     /// shows, a status key naming its state marker, and the Park/Start menu
-    /// item's label. Build one with [`Row::new`]; update it in place with
-    /// [`Row::refresh`].
+    /// item's label. Build one with [`Row::new`], or [`Row::placeholder`] for
+    /// the dim "No accounts" leaf under an empty workspace.
     pub struct Row(ObjectSubclass<imp::Row>);
 }
 
 impl Row {
-    /// A row for `session`. `current` marks the row whose account holds the
-    /// focused slot — the one fact a [`Session`] does not carry about itself.
-    pub(crate) fn new(session: &Session, current: bool) -> Self {
+    /// A row for `session`, seated as `visibility` — [`WorkspaceBook::placement`]'s
+    /// answer, never `session.visibility()` directly, since an account in a
+    /// workspace that is not shown must key as `background` regardless of the
+    /// slot it still holds there (`FR.15.7`). `current` marks the row whose
+    /// account holds the shown workspace's focused slot.
+    ///
+    /// [`WorkspaceBook::placement`]: idle_manager_core::WorkspaceBook::placement
+    pub(crate) fn new(session: &Session, visibility: Visibility, current: bool) -> Self {
+        let (liveness, display_name) = (session.liveness(), session.display_name());
+
         let row: Self = glib::Object::builder()
             .property("id", session.id().as_str())
-            .property("display-name", session.display_name())
+            .property("display-name", display_name)
+            .property("status", status_key(liveness, visibility, current))
+            .property(
+                "name-markup",
+                name_markup(display_name, liveness, visibility, current),
+            )
+            .property("action-label", action_label(liveness))
+            .property("action-sensitive", action_sensitive(liveness))
+            .property("is-kept-awake", session.is_kept_awake())
+            .property(
+                "keep-awake-mark",
+                keep_awake_indication(session.is_kept_awake()),
+            )
             .build();
-        row.refresh(session, current);
         row
     }
 
-    /// Rewrites the rendered state from `session`'s current standing.
-    pub(crate) fn refresh(&self, session: &Session, current: bool) {
-        let (liveness, visibility, display_name) = (
-            session.liveness(),
-            session.visibility(),
-            session.display_name(),
-        );
-
-        self.set_display_name(display_name);
-        self.set_status(status_key(liveness, visibility, current));
-        self.set_name_markup(name_markup(display_name, liveness, visibility, current));
-        self.set_action_label(action_label(liveness));
-        self.set_action_sensitive(action_sensitive(liveness));
-        self.set_is_kept_awake(session.is_kept_awake());
-        self.set_keep_awake_mark(keep_awake_indication(session.is_kept_awake()));
+    /// The dim, insensitive "No accounts" leaf shown under a named workspace
+    /// that holds nothing, once expanded. Carries no account id, no dot, no
+    /// menu and no keep-awake mark; [`Row::is_placeholder`] is what the
+    /// factory reads to hide those widgets and skip activation.
+    pub(crate) fn placeholder() -> Self {
+        glib::Object::builder()
+            .property("id", "")
+            .property("display-name", NO_ACCOUNTS_TEXT)
+            .property("status", "")
+            .property(
+                "name-markup",
+                format!(
+                    "<span alpha=\"55%\">{}</span>",
+                    glib::markup_escape_text(NO_ACCOUNTS_TEXT)
+                ),
+            )
+            .property("action-label", "")
+            .property("action-sensitive", false)
+            .property("is-kept-awake", false)
+            .property("keep-awake-mark", "")
+            .property("is-placeholder", true)
+            .build()
     }
 }
 
@@ -149,7 +180,7 @@ fn name_markup(
 
 #[cfg(test)]
 mod tests {
-    use idle_manager_core::{SessionBook, SlotId};
+    use idle_manager_core::{SessionBook, SessionId, SlotId};
 
     use super::*;
 
@@ -257,8 +288,10 @@ mod tests {
     #[test]
     fn status_key_is_the_same_whether_or_not_the_account_is_kept_awake() {
         let mut book = SessionBook::new();
-        let plain = book.add("Plain", "https://example.test/plain");
-        let awake = book.add("Awake", "https://example.test/awake");
+        let plain = SessionId::new("session-0001");
+        book.add(&plain, "Plain", "https://example.test/plain");
+        let awake = SessionId::new("session-0002");
+        book.add(&awake, "Awake", "https://example.test/awake");
         book.park(&plain);
         book.park(&awake);
         book.set_keep_awake(&awake, true);
