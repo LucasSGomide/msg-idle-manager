@@ -49,8 +49,13 @@ window and a fixed sequence, since a measurement showed the web engine never
 releases a deleted account's files, so deletion removes the folder without
 waiting for them.
 
-**Next up: 08.** Item 08 adds recovery from a crash nobody was awake to see,
-building on the durable workspace 07 landed.
+**Next up: 12, then 08.** Item 12 makes the application run natively on
+Windows, with GTK 4 kept and Microsoft Edge WebView2 used in place of WebKitGTK
+there. It goes first because it moves every web-engine call behind one
+shell-internal seam. Item 08 adds recovery from a crash nobody was awake to see,
+building on the durable workspace 07 landed. Built after 12, its restart logic
+is written once against that seam and works on both engines. Otherwise it would
+be written against WebKit and then ported.
 
 Item 09 shipped the first file the application writes on an account's behalf — a
 per-account `state.toml` holding the zoom chosen per arrangement — and with it
@@ -78,6 +83,7 @@ failure are shown inside a chooser without a modal of their own.
 
 | # | Item | Est | Depends on | Status |
 |---|---|---|---|---|
+| [12](12-windows-support/README.md) | Running natively on Windows | 13 | 05, 11 | not-started |
 | [08](08-crash-recovery/README.md) | Surviving a crashed game | 5 | 03 | not-started |
 
 ## Blocked
