@@ -12,8 +12,8 @@ use gtk::subclass::prelude::*;
 use gtk4 as gtk;
 
 use idle_manager_core::{
-    MemoryProbe, PresetCatalogue, ProfileLocator, Workspace, WorkspaceReadError, WorkspaceStore,
-    ZoomMemory,
+    MemoryProbe, PresetCatalogue, ProfileLocator, ProfileRemoval, WorkspaceList,
+    WorkspaceReadError, WorkspaceStore, ZoomMemory,
 };
 
 /// The ports the window runs against, built once by the composition root and
@@ -31,6 +31,10 @@ pub struct WindowPorts {
     /// What the application currently costs in memory, for the sidebar footer
     /// (item 05).
     pub probe: Arc<dyn MemoryProbe>,
+    /// Removes one account's profile folder (item 11 task 08). `Arc`, not
+    /// `Rc`, like `store` above: the deletion sequence calls it through
+    /// `gio::spawn_blocking`, which needs `Send`.
+    pub removal: Arc<dyn ProfileRemoval>,
 }
 
 glib::wrapper! {
@@ -55,7 +59,7 @@ impl Window {
     pub fn new(
         app: &gtk::Application,
         ports: WindowPorts,
-        read_outcome: Result<Option<Workspace>, WorkspaceReadError>,
+        read_outcome: Result<Option<WorkspaceList>, WorkspaceReadError>,
     ) -> Self {
         let window: Self = glib::Object::builder().property("application", app).build();
         window.imp().attach_ports(ports, read_outcome);

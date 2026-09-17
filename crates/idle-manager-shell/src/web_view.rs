@@ -4,6 +4,7 @@
 use std::cell::OnceCell;
 use std::path::Path;
 
+use gtk::gio;
 use gtk::glib;
 use gtk4 as gtk;
 use webkit6::prelude::*;
@@ -11,7 +12,7 @@ use webkit6::{
     CookiePersistentStorage, Feature, FeatureList, NavigationAction, NetworkSession,
     PermissionRequest, ScriptDialog, Settings, URIRequest, UserContentInjectedFrames,
     UserContentManager, UserScript, UserScriptInjectionTime, WebProcessTerminationReason,
-    WebResource, WebView,
+    WebResource, WebView, WebsiteDataTypes,
 };
 
 use idle_manager_core::{ProfileDirectories, SessionId, ZoomLevel};
@@ -254,6 +255,36 @@ impl SessionView {
         view.reload();
 
         Some(view)
+    }
+
+    /// Wipes every kind of website data this account's network session holds
+    /// — cookies, storage, caches, the lot — through the engine's own async
+    /// clear call, awaited so [`crate::account_deletion`]'s sequence can order
+    /// it before the profile folder is removed. Irreversible the moment it
+    /// completes: this is the step that makes a deletion attempt unsafe to
+    /// abandon half way (roadmap item 11, "Behind the spinner"). A no-op,
+    /// logged, if the session reports no data manager — never expected, since
+    /// a non-ephemeral [`NetworkSession`] always has one (code standards
+    /// rule 1).
+    pub async fn clear_data(&self) {
+        let Some(manager) = self.network_session.website_data_manager() else {
+            tracing::warn!(session = %self.id, "no website data manager; nothing to clear");
+            return;
+        };
+
+        let result = gio::GioFuture::new(&manager, move |manager, cancellable, result| {
+            manager.clear(
+                WebsiteDataTypes::ALL,
+                glib::TimeSpan(0),
+                Some(cancellable),
+                move |outcome| result.resolve(outcome),
+            );
+        })
+        .await;
+
+        if let Err(error) = result {
+            tracing::warn!(session = %self.id, %error, "could not clear website data");
+        }
     }
 
     /// Sets this account's page zoom to `zoom`.

@@ -78,7 +78,7 @@
                 <property name="valign">center</property>
                 <property name="spacing">12</property>
                 <child>
-                  <object class="GtkLabel">
+                  <object class="GtkLabel" id="first_run_label">
                     <property name="label">No games yet — add one to get started.</property>
                     <style>
                       <class name="dim-label"/>
@@ -93,6 +93,16 @@
                     <style>
                       <class name="suggested-action"/>
                       <class name="pill"/>
+                    </style>
+                  </object>
+                </child>
+                <child>
+                  <object class="GtkLabel" id="workspace_empty_label">
+                    <property name="label">No games in this workspace</property>
+                    <property name="visible">false</property>
+                    <style>
+                      <class name="dim-label"/>
+                      <class name="title-3"/>
                     </style>
                   </object>
                 </child>

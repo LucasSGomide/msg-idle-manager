@@ -9,7 +9,7 @@ use gtk::glib;
 use gtk::subclass::prelude::*;
 use gtk4 as gtk;
 
-use idle_manager_core::{SessionBook, SessionId, SlotId};
+use idle_manager_core::{SessionId, SlotId, WorkspaceBook};
 use webkit6::WebView;
 
 glib::wrapper! {
@@ -75,9 +75,12 @@ impl SessionGrid {
         self.imp().add_dormant_session(session, display_name);
     }
 
-    /// Re-places every known session from `book` and redraws. A session in the
-    /// book with no view here is skipped; its slot simply stays empty.
-    pub fn sync(&self, book: &SessionBook) {
+    /// Re-places every known session from `book` and redraws. Layout and focus
+    /// come from the shown workspace; an account in another workspace is
+    /// placed off-grid explicitly, from
+    /// [`idle_manager_core::WorkspaceBook::placement`]. A session in the book
+    /// with no view here is skipped; its slot simply stays empty.
+    pub fn sync(&self, book: &WorkspaceBook) {
         self.imp().sync(book);
     }
 
@@ -99,6 +102,13 @@ impl SessionGrid {
     /// the page paints. A no-op if the grid has no entry for `session`.
     pub fn attach_view(&self, session: &SessionId, view: &WebView) {
         self.imp().attach_view(session, view);
+    }
+
+    /// Removes `session`'s entry entirely — its overlay unparented from the
+    /// grid and dropped — once its profile folder is actually gone (item 11
+    /// task 08, `FR.21.5`). A no-op if the grid has no entry for it.
+    pub fn remove_session(&self, session: &SessionId) {
+        self.imp().remove_session(session);
     }
 
     /// Shows `figure` as the transient readout over `session`'s place, updating

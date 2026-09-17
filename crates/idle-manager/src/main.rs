@@ -10,11 +10,13 @@ use anyhow::Context;
 use gtk::glib;
 use gtk::prelude::*;
 use gtk4 as gtk;
-use idle_manager_core::{MemoryProbe, PresetCatalogue, ProfileLocator, WorkspaceStore, ZoomMemory};
+use idle_manager_core::{
+    MemoryProbe, PresetCatalogue, ProfileLocator, ProfileRemoval, WorkspaceStore, ZoomMemory,
+};
 use idle_manager_metrics::ProcPssProbe;
 use idle_manager_shell::{Window, WindowPorts};
 use idle_manager_store::{
-    TomlPresetCatalogue, TomlWorkspaceStore, TomlZoomMemory, XdgProfileLocator,
+    TomlPresetCatalogue, TomlWorkspaceStore, TomlZoomMemory, XdgProfileLocator, XdgProfileRemoval,
 };
 
 /// The application's D-Bus and settings identifier.
@@ -74,6 +76,9 @@ fn run() -> anyhow::Result<ExitCode> {
     let zoom_memory = TomlZoomMemory::new().context("resolve the XDG data directory")?;
     let zoom_memory: Rc<dyn ZoomMemory> = Rc::new(zoom_memory);
 
+    let removal = XdgProfileRemoval::new().context("resolve the XDG data directory")?;
+    let removal: Arc<dyn ProfileRemoval> = Arc::new(removal);
+
     let probe: Arc<dyn MemoryProbe> = Arc::new(ProcPssProbe::new());
 
     let app = gtk::Application::builder().application_id(APP_ID).build();
@@ -96,6 +101,7 @@ fn run() -> anyhow::Result<ExitCode> {
                 store: Arc::clone(&store),
                 zoom_memory: Rc::clone(&zoom_memory),
                 probe: Arc::clone(&probe),
+                removal: Arc::clone(&removal),
             },
             read_outcome,
         );
