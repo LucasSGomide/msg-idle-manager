@@ -116,6 +116,16 @@
                         <property name="visible">false</property>
                       </object>
                     </child>
+                    <child>
+                      <object class="GtkLabel">
+                        <property name="label">Workspace</property>
+                        <property name="xalign">0</property>
+                        <property name="margin-top">6</property>
+                      </object>
+                    </child>
+                    <child>
+                      <object class="GtkDropDown" id="workspace_dropdown"/>
+                    </child>
                   </object>
                 </property>
               </object>

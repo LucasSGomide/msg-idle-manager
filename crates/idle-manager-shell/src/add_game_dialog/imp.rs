@@ -10,7 +10,7 @@ use gtk::prelude::*;
 use gtk::subclass::prelude::*;
 use gtk4 as gtk;
 
-use idle_manager_core::{Preset, PresetCatalogue, account_name};
+use idle_manager_core::{Destinations, Preset, PresetCatalogue, WorkspaceId, account_name};
 
 use super::Confirmed;
 
@@ -41,6 +41,8 @@ pub struct AddGameDialog {
     #[template_child]
     address_entry: TemplateChild<gtk::Entry>,
     #[template_child]
+    workspace_dropdown: TemplateChild<gtk::DropDown>,
+    #[template_child]
     add_button: TemplateChild<gtk::Button>,
     #[template_child]
     cancel_button: TemplateChild<gtk::Button>,
@@ -51,6 +53,9 @@ pub struct AddGameDialog {
     /// The game chosen on stage one, or `None` for the escape hatch. Only
     /// meaningful once `stages` shows its "details" page.
     chosen: RefCell<Option<Preset>>,
+    /// The `Workspace` drop-down's rows, in the order they were loaded — index
+    /// `i` there is `workspace_dropdown`'s row `i` (item 11 task 07).
+    destinations: RefCell<Vec<WorkspaceId>>,
     pub(super) on_confirmed: RefCell<Option<ConfirmHandler>>,
 }
 
@@ -152,6 +157,29 @@ impl AddGameDialog {
 
         show_failures(&self.failure_label, &reading.failures);
         self.show_empty_state(no_games, &reading.source);
+    }
+
+    /// Fills the `Workspace` drop-down from `destinations`, in the order
+    /// given — named workspaces with room, then `Ungrouped` — and selects
+    /// `default`, or the first row if `default` is not among them (never
+    /// expected: the caller works `default` out from the same book, code
+    /// standards rule 1).
+    pub(super) fn load_destinations(&self, destinations: &Destinations, default: &WorkspaceId) {
+        let names = gtk::StringList::new(&[]);
+        let mut ids = Vec::new();
+        let mut selected = 0;
+        for (index, workspace) in destinations.workspaces().iter().enumerate() {
+            names.append(workspace.name());
+            if workspace.id() == default {
+                selected = index;
+            }
+            ids.push(workspace.id().clone());
+        }
+
+        self.workspace_dropdown.set_model(Some(&names));
+        self.workspace_dropdown
+            .set_selected(u32::try_from(selected).unwrap_or(0));
+        self.destinations.replace(ids);
     }
 
     fn show_empty_state(&self, empty: bool, source: &str) {
@@ -260,15 +288,23 @@ impl AddGameDialog {
 
     fn confirm(&self) {
         let name = account_name(&self.name_entry.text()).unwrap_or_default();
+        let workspace = self
+            .destinations
+            .borrow()
+            .get(self.workspace_dropdown.selected() as usize)
+            .cloned()
+            .unwrap_or_else(WorkspaceId::ungrouped);
 
         let confirmed = match self.chosen.borrow().clone() {
             Some(preset) => Confirmed::Preset {
                 preset,
                 account_name: name,
+                workspace,
             },
             None => Confirmed::Custom {
                 name,
                 address: self.address_entry.text().trim().to_owned(),
+                workspace,
             },
         };
 

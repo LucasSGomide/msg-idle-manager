@@ -12,7 +12,7 @@ use gtk::glib;
 use gtk::subclass::prelude::*;
 use gtk4 as gtk;
 
-use idle_manager_core::{Preset, PresetCatalogue};
+use idle_manager_core::{Destinations, Preset, PresetCatalogue, WorkspaceId};
 
 glib::wrapper! {
     /// A two-stage modal over the main window: a list of catalogue games plus a
@@ -32,6 +32,8 @@ pub enum Confirmed {
         preset: Preset,
         /// The account name the user typed.
         account_name: String,
+        /// The workspace chosen to hold the new account (item 11 task 07).
+        workspace: WorkspaceId,
     },
     /// The escape hatch: a game the catalogue has no file for.
     Custom {
@@ -39,6 +41,8 @@ pub enum Confirmed {
         name: String,
         /// The address the user typed.
         address: String,
+        /// The workspace chosen to hold the new account (item 11 task 07).
+        workspace: WorkspaceId,
     },
 }
 
@@ -50,10 +54,20 @@ impl AddGameDialog {
     /// The catalogue is a trait object, so the dialog never learns the entries
     /// are files on disk (architecture rule 3); it is read once here, not held,
     /// because the next open builds a fresh dialog that reads again.
+    ///
+    /// The `Workspace` field lists `destinations`' workspaces in order,
+    /// selecting `default` — the caller works out both from
+    /// [`idle_manager_core::WorkspaceBook::destinations`] and which workspace
+    /// is shown, so the dialog decides nothing about room (`FR.17.5`).
     #[must_use]
-    pub fn new(catalogue: &dyn PresetCatalogue) -> Self {
+    pub fn new(
+        catalogue: &dyn PresetCatalogue,
+        destinations: &Destinations,
+        default: &WorkspaceId,
+    ) -> Self {
         let dialog: Self = glib::Object::new();
         dialog.imp().load_catalogue(catalogue);
+        dialog.imp().load_destinations(destinations, default);
         dialog
     }
 
