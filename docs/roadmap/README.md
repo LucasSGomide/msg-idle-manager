@@ -43,16 +43,14 @@ so the item grew a second half that used the instrument it built, and its budget
 is written as a comparison against that browser rather than a figure chosen for
 itself.
 
-**Next up: 11 or 08, both ready.** Item 10 shipped renaming and drag-to-place,
-and item 11 — Account workspaces, and deleting an account — builds on the order
-and place rules it settled. It groups accounts into named sets that each keep
-their own arrangement, and it adds the first action that removes an account's
-data from disk. Its breakdown is open in eight slices, starting with the
-version 2 session file. Its blockers were closed before breakdown. A
-measurement showed the web engine never releases a deleted account's files, so
-deletion removes the folder without waiting for them. Item 08 adds recovery from a crash nobody
-was awake to see, building on the durable workspace 07 landed. Neither item
-depends on the other.
+Item 11 shipped named workspaces and the first action that removes an
+account's data from disk — an account's folder is deleted through a confirm
+window and a fixed sequence, since a measurement showed the web engine never
+releases a deleted account's files, so deletion removes the folder without
+waiting for them.
+
+**Next up: 08.** Item 08 adds recovery from a crash nobody was awake to see,
+building on the durable workspace 07 landed.
 
 Item 09 shipped the first file the application writes on an account's behalf — a
 per-account `state.toml` holding the zoom chosen per arrangement — and with it

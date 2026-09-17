@@ -695,6 +695,38 @@ planning, and the research note.
   until exit, and must never reuse an account id, because the dead session stays
   alive inside the network process.
 
+## As built
+
+- `webkit6` 0.6.1 has no `_future()` twin for `WebsiteDataManager::clear`, so
+  the deletion sequence wraps its callback in a hand-built `gio::GioFuture` to
+  keep the rest of the sequence `async`.
+- Selection mode's per-row `CheckButton` is purely cosmetic (`can-target:
+  false`); a tick is driven through the same `list_view::activate` path a
+  normal click takes, gated on `is_selecting`. This avoids reconnecting a
+  signal handler on a recycled row, which would need `set_data`/`steal_data`
+  — both `unsafe` and forbidden by code-standards rule 28.
+- `AddGameDialog`'s default workspace ("shown workspace if it has room, else
+  Ungrouped") is computed by the window before the dialog opens, not inside
+  it — the dialog decides nothing about room. `realise_account` had to stop
+  assuming the just-added account lands in the active workspace and instead
+  search every workspace for the one that actually holds it, to resolve zoom
+  against that workspace's own layout.
+- Two bugs surfaced only by headless manual testing, not by `cargo test` or
+  clippy:
+  - A programmatic `dialog.close()` on the success path was silently
+    swallowed by the same `close-request` guard added to block a person
+    closing the window mid-delete. The domain state (file, folder) came out
+    correct but the dialog stayed mapped on screen forever, invisible in a
+    plain screenshot because nothing else painted over it — only caught by
+    querying the X11 window tree and seeing "Delete account?" still listed.
+    Fixed with a `Cell<bool> allow_close` flag set only by a dedicated
+    `close_on_success()` method, checked first in `close-request`.
+  - `ProfileRemovalError.reason` (from task 04) already baked the folder path
+    into its string. Task 08's failed page shows `reason` and `folder` on
+    separate lines, so the path appeared twice. Fixed by making `reason` just
+    the OS error's own text — `ProfileRemoval::folder()` is now the one place
+    a caller reads the path from.
+
 ## Blockers
 
 - None open. The five raised during planning were closed on 2026-09-13:
