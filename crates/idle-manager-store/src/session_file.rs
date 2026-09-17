@@ -1,35 +1,47 @@
 //! `TomlWorkspaceStore`: the [`WorkspaceStore`] port backed by one hand-editable
 //! TOML file under the XDG configuration directory.
 //!
-//! The on-disk shape is [`SessionFile`], its own serde types mapped to and from
-//! the domain [`Workspace`] (architecture rule 7). The file is a contract with
+//! The on-disk shape is [`WorkspaceListFile`] (and, for an old file, the
+//! version 1 [`SessionFileV1`]), its own serde types mapped to and from the
+//! domain [`WorkspaceList`] (architecture rule 7). The file is a contract with
 //! people who already have one on disk: a domain rename must never turn into a
 //! broken file, and the format carries a `version` from its first write so a
 //! later change can tell a file that predates it from one it understands.
 //!
 //! [`WorkspaceStore`]: idle_manager_core::WorkspaceStore
 
+use std::collections::HashSet;
 use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
 
 use idle_manager_core::{
-    Account, Layout, SavedLiveness, SessionId, SlotId, Visibility, Workspace, WorkspaceReadError,
-    WorkspaceStore, WorkspaceWriteError, ZoomLevel,
+    Account, Layout, SavedLiveness, SessionId, SlotId, Visibility, Workspace, WorkspaceId,
+    WorkspaceList, WorkspaceReadError, WorkspaceStore, WorkspaceWriteError, ZoomLevel,
 };
 use serde::{Deserialize, Serialize};
 
 use crate::paths::{self, LocatorSetup};
 
-/// The one format version this build writes and reads. A file carrying any
-/// other number is set aside, not guessed at — this is the first version, so
-/// there is nothing older to migrate and nothing newer this build can know.
-const FORMAT_VERSION: u64 = 1;
+/// The format version this build writes. It still reads version 1, migrating
+/// it to this shape on load (`FR.15.2`).
+const FORMAT_VERSION: u64 = 2;
+
+/// How many accounts a named workspace may hold — the number of places the
+/// largest arrangement has. Derived from [`Layout::Grid`] rather than a bare
+/// `4` (code standards rule 5); a hand-edited file that ignores this is
+/// repaired on read, not rejected.
+const NAMED_WORKSPACE_CAPACITY: usize = Layout::Grid.slot_count();
 
 /// The workspace file's name under the configuration directory.
 const WORKSPACE_FILE: &str = "sessions.toml";
 
-/// The saved workspace could not be read.
+/// The name a version 1 file is copied to, once, the first time it is written
+/// over as version 2 — so a downgraded build can still read its old
+/// arrangement.
+const V1_BACKUP_FILE: &str = "sessions.v1.toml";
+
+/// The saved workspace list could not be read.
 ///
 /// Four cases a caller must tell apart: there is no file yet (a first run, not
 /// an error to the user), the file could not be reached, the file will not
@@ -53,8 +65,9 @@ pub enum SessionFileError {
         #[source]
         source: io::Error,
     },
-    /// The file is not valid TOML, is missing a required key, or holds a value
-    /// the domain cannot represent. The bytes are kept at `kept`.
+    /// The file is not valid TOML, is missing a required key, holds a value
+    /// the domain cannot represent, or names one account id more than once.
+    /// The bytes are kept at `kept`.
     #[error("the workspace file {} is malformed: {reason}", .path.display())]
     Malformed {
         /// The path the file was read from.
@@ -67,7 +80,7 @@ pub enum SessionFileError {
     /// The file carries a `version` this build does not understand. The bytes
     /// are kept at `kept` rather than read as if they were current.
     #[error(
-        "the workspace file {} is version {found}; this build understands version {}",
+        "the workspace file {} is version {found}; this build understands versions 1 and {}",
         .path.display(), FORMAT_VERSION
     )]
     UnknownVersion {
@@ -101,30 +114,13 @@ pub enum SessionWriteError {
         #[source]
         source: io::Error,
     },
-    /// The workspace could not be turned into TOML.
+    /// The workspace list could not be turned into TOML.
     #[error("could not serialise the workspace: {0}")]
     Serialise(#[from] toml::ser::Error),
 }
 
-/// The on-disk shape of the whole workspace.
-///
-/// Its own serde types, deliberately separate from the domain [`Workspace`]
-/// (architecture rule 7). `version` is the first field so it is the first line
-/// written. Unknown keys are rejected, as `PresetFile` rejects them, so a
-/// mistyped key is a reported failure rather than a value silently ignored.
-#[derive(Debug, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-struct SessionFile {
-    /// The format version. Checked before anything else on read.
-    version: u64,
-    /// The layout the window was arranged for.
-    layout: LayoutRecord,
-    /// One table per account, in the order they were added.
-    #[serde(rename = "account", default)]
-    accounts: Vec<SessionEntry>,
-}
-
-/// The on-disk shape of one account.
+/// The on-disk shape of one account, exactly as version 1 wrote it and
+/// version 2 still does, one per `[[workspace.account]]` table.
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct SessionEntry {
@@ -206,13 +202,65 @@ impl From<LivenessRecord> for SavedLiveness {
     }
 }
 
+/// The version 1 shape: one arrangement for the whole window, before
+/// workspaces existed. Kept only to read an old file; version 2 is always
+/// written.
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct SessionFileV1 {
+    /// The format version. Checked before anything else on read.
+    version: u64,
+    /// The layout the window was arranged for.
+    layout: LayoutRecord,
+    /// One table per account, in the order they were added.
+    #[serde(rename = "account", default)]
+    accounts: Vec<SessionEntry>,
+}
+
+/// The version 2 shape: every workspace, which one is shown, and both
+/// minting counters.
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct WorkspaceListFile {
+    /// The format version. Checked before anything else on read.
+    version: u64,
+    /// The workspace shown on screen.
+    active: String,
+    /// The number the next minted account is numbered with.
+    next_account: u64,
+    /// The number the next minted named workspace is numbered with.
+    next_workspace: u64,
+    /// One table per workspace, in sidebar order.
+    #[serde(rename = "workspace", default)]
+    workspaces: Vec<WorkspaceRecord>,
+}
+
+/// The on-disk shape of one workspace.
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct WorkspaceRecord {
+    /// The identifier this workspace was minted with, or `"ungrouped"`.
+    id: String,
+    /// The name shown on the sidebar heading.
+    name: String,
+    /// The layout this workspace was arranged for.
+    layout: LayoutRecord,
+    /// The slot a full-grid addition to this workspace displaces.
+    focused: usize,
+    /// Whether this workspace's sidebar heading is expanded.
+    expanded: bool,
+    /// One table per account, in the order they were added.
+    #[serde(rename = "account", default)]
+    accounts: Vec<SessionEntry>,
+}
+
 /// Just enough of the file to read its `version` before trusting the rest.
 #[derive(Deserialize)]
 struct VersionProbe {
     version: u64,
 }
 
-/// Reads and writes the workspace as one TOML file under the configuration
+/// Reads and writes every workspace as one TOML file under the configuration
 /// directory.
 ///
 /// Built with [`TomlWorkspaceStore::new`] against the real config location, or
@@ -250,7 +298,12 @@ impl TomlWorkspaceStore {
         &self.path
     }
 
-    /// Reads the workspace now, with every failure told apart.
+    /// Where a version 1 file is copied to, beside [`TomlWorkspaceStore::path`].
+    fn v1_backup_path(&self) -> PathBuf {
+        self.path.with_file_name(V1_BACKUP_FILE)
+    }
+
+    /// Reads the workspace list now, with every failure told apart.
     ///
     /// # Errors
     ///
@@ -259,7 +312,7 @@ impl TomlWorkspaceStore {
     /// [`SessionFileError::Malformed`] or [`SessionFileError::UnknownVersion`]
     /// if it will not parse — in both cases the bytes are kept aside at the
     /// path the error carries.
-    pub fn load(&self) -> Result<Workspace, SessionFileError> {
+    pub fn load(&self) -> Result<WorkspaceList, SessionFileError> {
         let text = match fs::read_to_string(&self.path) {
             Ok(text) => text,
             Err(source) if source.kind() == io::ErrorKind::NotFound => {
@@ -278,15 +331,20 @@ impl TomlWorkspaceStore {
         self.parse(&text)
     }
 
-    /// Writes `workspace`, replacing any previously saved one.
+    /// Writes `workspaces`, replacing any previously saved list.
     ///
-    /// The write goes to a temporary file in the target's own directory and is
-    /// then renamed over the target, so a crash mid-write leaves the previous
-    /// file intact and never a half-written one.
+    /// If the file currently on disk is still version 1, it is copied once to
+    /// [`V1_BACKUP_FILE`] beside it before being overwritten — a downgraded
+    /// build can then still read its old arrangement. That copy is best
+    /// effort: a failure is logged and does not block the write it precedes,
+    /// since losing the backup is a smaller loss than losing the save. The
+    /// write itself goes to a temporary file in the target's own directory and
+    /// is then renamed over the target, so a crash mid-write leaves the
+    /// previous file intact and never a half-written one.
     ///
     /// # Errors
     ///
-    /// [`SessionWriteError`] if the directory cannot be prepared, the workspace
+    /// [`SessionWriteError`] if the directory cannot be prepared, the list
     /// cannot be serialised, or the file cannot be written or renamed.
     ///
     /// # Panics
@@ -294,7 +352,7 @@ impl TomlWorkspaceStore {
     /// If the store's path has no parent directory — impossible for a path
     /// built by [`TomlWorkspaceStore::new`] or [`TomlWorkspaceStore::under`],
     /// both of which join a file name onto a directory.
-    pub fn save(&self, workspace: &Workspace) -> Result<(), SessionWriteError> {
+    pub fn save(&self, workspaces: &WorkspaceList) -> Result<(), SessionWriteError> {
         let directory = self
             .path
             .parent()
@@ -304,10 +362,18 @@ impl TomlWorkspaceStore {
             source,
         })?;
 
-        let file = SessionFile {
+        self.snapshot_v1_backup();
+
+        let file = WorkspaceListFile {
             version: FORMAT_VERSION,
-            layout: workspace.layout.into(),
-            accounts: workspace.accounts.iter().map(account_to_entry).collect(),
+            active: workspaces.active.as_str().to_owned(),
+            next_account: workspaces.next_account_number,
+            next_workspace: workspaces.next_workspace_number,
+            workspaces: workspaces
+                .workspaces
+                .iter()
+                .map(workspace_to_record)
+                .collect(),
         };
         let body = toml::to_string(&file)?;
 
@@ -327,40 +393,165 @@ impl TomlWorkspaceStore {
         })
     }
 
-    fn parse(&self, text: &str) -> Result<Workspace, SessionFileError> {
-        let probe: VersionProbe = toml::from_str(text).map_err(|error| self.malformed(&error))?;
-        if probe.version != FORMAT_VERSION {
-            return Err(SessionFileError::UnknownVersion {
-                path: self.path.clone(),
-                kept: self.quarantine(),
-                found: probe.version,
-            });
+    /// Copies the file currently on disk to [`TomlWorkspaceStore::v1_backup_path`]
+    /// if, and only if, it is still version 1 and no backup exists yet.
+    /// Anything short of that — no file yet, an unreadable or malformed one, a
+    /// backup already there — is silently not this function's problem; the
+    /// save that follows handles those cases (or does not need to).
+    fn snapshot_v1_backup(&self) {
+        if self.v1_backup_path().exists() {
+            return;
+        }
+        let Ok(text) = fs::read_to_string(&self.path) else {
+            return;
+        };
+        let Ok(probe) = toml::from_str::<VersionProbe>(&text) else {
+            return;
+        };
+        if probe.version != 1 {
+            return;
         }
 
-        let file: SessionFile = toml::from_str(text).map_err(|error| self.malformed(&error))?;
+        if let Err(error) = fs::copy(&self.path, self.v1_backup_path()) {
+            tracing::warn!(
+                from = %self.path.display(), to = %self.v1_backup_path().display(), %error,
+                "could not keep a copy of the version 1 workspace file"
+            );
+        }
+    }
+
+    fn parse(&self, text: &str) -> Result<WorkspaceList, SessionFileError> {
+        let probe: VersionProbe = toml::from_str(text).map_err(|error| self.malformed(&error))?;
+        match probe.version {
+            1 => self.parse_v1(text),
+            2 => self.parse_v2(text),
+            found => Err(SessionFileError::UnknownVersion {
+                path: self.path.clone(),
+                kept: self.quarantine(),
+                found,
+            }),
+        }
+    }
+
+    /// Reads a version 1 file as one active, expanded Ungrouped workspace: the
+    /// accounts in file order, the file's layout, focus on the first place,
+    /// and the next account number one above the highest restored id
+    /// (`FR.15.2`).
+    fn parse_v1(&self, text: &str) -> Result<WorkspaceList, SessionFileError> {
+        let file: SessionFileV1 = toml::from_str(text).map_err(|error| self.malformed(&error))?;
 
         let accounts = file
             .accounts
             .into_iter()
             .map(entry_to_account)
             .collect::<Result<Vec<_>, _>>()
-            .map_err(|reason| SessionFileError::Malformed {
-                path: self.path.clone(),
-                kept: self.quarantine(),
-                reason,
-            })?;
+            .map_err(|reason| self.malformed_with(reason))?;
 
-        Ok(Workspace {
-            accounts,
-            layout: file.layout.into(),
+        let next_account_number = highest_account_number(&accounts) + 1;
+
+        Ok(WorkspaceList {
+            workspaces: vec![Workspace {
+                id: WorkspaceId::ungrouped(),
+                name: "Ungrouped".to_owned(),
+                focused: SlotId::FIRST,
+                is_expanded: true,
+                accounts,
+                layout: file.layout.into(),
+            }],
+            active: WorkspaceId::ungrouped(),
+            next_account_number,
+            next_workspace_number: 1,
         })
     }
 
+    /// Reads a version 2 file. A named workspace holding more accounts than
+    /// [`NAMED_WORKSPACE_CAPACITY`] keeps the first four and the rest are
+    /// appended to Ungrouped (creating an empty one if the file had none),
+    /// with a `tracing::warn` — a hand edit costs grouping, not the whole
+    /// file. An account id appearing more than once anywhere in the file is
+    /// [`SessionFileError::Malformed`].
+    fn parse_v2(&self, text: &str) -> Result<WorkspaceList, SessionFileError> {
+        let file: WorkspaceListFile =
+            toml::from_str(text).map_err(|error| self.malformed(&error))?;
+
+        let mut workspaces = Vec::with_capacity(file.workspaces.len());
+        let mut overflow: Vec<Account> = Vec::new();
+
+        for record in file.workspaces {
+            let id = WorkspaceId::new(record.id);
+            let mut accounts = record
+                .accounts
+                .into_iter()
+                .map(entry_to_account)
+                .collect::<Result<Vec<_>, _>>()
+                .map_err(|reason| self.malformed_with(reason))?;
+
+            if !id.is_ungrouped() && accounts.len() > NAMED_WORKSPACE_CAPACITY {
+                tracing::warn!(
+                    workspace = %id,
+                    count = accounts.len(),
+                    capacity = NAMED_WORKSPACE_CAPACITY,
+                    "named workspace exceeds capacity; extra accounts moved to Ungrouped"
+                );
+                overflow.extend(accounts.split_off(NAMED_WORKSPACE_CAPACITY));
+            }
+
+            workspaces.push(Workspace {
+                id,
+                name: record.name,
+                focused: SlotId::new(record.focused),
+                is_expanded: record.expanded,
+                accounts,
+                layout: record.layout.into(),
+            });
+        }
+
+        if !overflow.is_empty() {
+            match workspaces
+                .iter_mut()
+                .find(|workspace| workspace.id.is_ungrouped())
+            {
+                Some(ungrouped) => ungrouped.accounts.extend(overflow),
+                None => workspaces.push(Workspace {
+                    accounts: overflow,
+                    ..Workspace::default()
+                }),
+            }
+        }
+
+        self.reject_duplicate_ids(&workspaces)?;
+
+        Ok(WorkspaceList {
+            workspaces,
+            active: WorkspaceId::new(file.active),
+            next_account_number: file.next_account,
+            next_workspace_number: file.next_workspace,
+        })
+    }
+
+    /// Fails with [`SessionFileError::Malformed`] the moment the same account
+    /// id appears in more than one place in the file — ids name a folder on
+    /// disk and must be unique app-wide.
+    fn reject_duplicate_ids(&self, workspaces: &[Workspace]) -> Result<(), SessionFileError> {
+        let mut seen: HashSet<&SessionId> = HashSet::new();
+        for account in workspaces.iter().flat_map(|workspace| &workspace.accounts) {
+            if !seen.insert(&account.id) {
+                return Err(self
+                    .malformed_with(format!("account id {} appears more than once", account.id)));
+            }
+        }
+        Ok(())
+    }
+
     fn malformed(&self, error: &toml::de::Error) -> SessionFileError {
+        self.malformed_with(error.to_string())
+    }
+
+    fn malformed_with(&self, reason: String) -> SessionFileError {
         SessionFileError::Malformed {
             path: self.path.clone(),
             kept: self.quarantine(),
-            reason: error.to_string(),
+            reason,
         }
     }
 
@@ -387,9 +578,9 @@ impl TomlWorkspaceStore {
 }
 
 impl WorkspaceStore for TomlWorkspaceStore {
-    fn read(&self) -> Result<Option<Workspace>, WorkspaceReadError> {
+    fn read(&self) -> Result<Option<WorkspaceList>, WorkspaceReadError> {
         match self.load() {
-            Ok(workspace) => Ok(Some(workspace)),
+            Ok(workspaces) => Ok(Some(workspaces)),
             Err(SessionFileError::Missing { .. }) => Ok(None),
             Err(SessionFileError::Unreachable { path, source }) => {
                 Err(WorkspaceReadError::Inaccessible {
@@ -410,11 +601,22 @@ impl WorkspaceStore for TomlWorkspaceStore {
         }
     }
 
-    fn write(&self, workspace: &Workspace) -> Result<(), WorkspaceWriteError> {
-        self.save(workspace).map_err(|error| WorkspaceWriteError {
+    fn write(&self, workspaces: &WorkspaceList) -> Result<(), WorkspaceWriteError> {
+        self.save(workspaces).map_err(|error| WorkspaceWriteError {
             reason: error.to_string(),
         })
     }
+}
+
+/// The highest account number found among `accounts`' ids, or `0` if none
+/// parse as `session-NNNN`.
+fn highest_account_number(accounts: &[Account]) -> u64 {
+    accounts
+        .iter()
+        .filter_map(|account| account.id.as_str().strip_prefix("session-"))
+        .filter_map(|suffix| suffix.parse::<u64>().ok())
+        .max()
+        .unwrap_or(0)
 }
 
 /// Maps one on-disk entry to a domain [`Account`], failing with a one-line
@@ -468,5 +670,17 @@ fn account_to_entry(account: &Account) -> SessionEntry {
         keep_awake: account.is_kept_awake,
         zoom: account.zoom.multiplier(),
         user_agent: account.browser_identity.clone(),
+    }
+}
+
+/// Maps one domain [`Workspace`] to its on-disk record.
+fn workspace_to_record(workspace: &Workspace) -> WorkspaceRecord {
+    WorkspaceRecord {
+        id: workspace.id.as_str().to_owned(),
+        name: workspace.name.clone(),
+        layout: workspace.layout.into(),
+        focused: workspace.focused.index(),
+        expanded: workspace.is_expanded,
+        accounts: workspace.accounts.iter().map(account_to_entry).collect(),
     }
 }

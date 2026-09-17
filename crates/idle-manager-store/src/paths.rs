@@ -9,7 +9,10 @@ use std::io;
 use std::path::{Path, PathBuf};
 
 use directories::ProjectDirs;
-use idle_manager_core::{ProfileDirectories, ProfileError, ProfileLocator, SessionId};
+use idle_manager_core::{
+    ProfileDirectories, ProfileError, ProfileLocator, ProfileRemoval, ProfileRemovalError,
+    SessionId,
+};
 
 /// The application name used to derive the XDG data location.
 const APP_NAME: &str = "idle-manager";
@@ -127,6 +130,65 @@ impl ProfileLocator for XdgProfileLocator {
         ensure_writable_dir(&cache)?;
 
         Ok(ProfileDirectories { data, cache })
+    }
+}
+
+/// Removes one account's whole profile folder under
+/// `<XDG data>/idle-manager/profiles/<id>/`.
+///
+/// Deliberately does not wait for the browser engine to release the account's
+/// files: measured on this machine, the engine never closes a deleted
+/// session's cookie and HSTS databases while the application runs, so
+/// removing the folder anyway is the only path that ever finishes (roadmap
+/// item 11, Technical References).
+#[derive(Debug, Clone)]
+pub struct XdgProfileRemoval {
+    profiles_root: PathBuf,
+}
+
+impl XdgProfileRemoval {
+    /// Reads the XDG data directory from the environment and roots profiles
+    /// under it, exactly as [`XdgProfileLocator::new`] does.
+    ///
+    /// # Errors
+    ///
+    /// [`LocatorSetup::NoHome`] if no home directory can be determined.
+    pub fn new() -> Result<Self, LocatorSetup> {
+        Ok(Self {
+            profiles_root: xdg_profiles_root()?,
+        })
+    }
+
+    /// Roots profiles under an explicit data directory, for tests that must
+    /// not touch the real XDG location.
+    #[must_use]
+    pub fn under(data_root: impl AsRef<Path>) -> Self {
+        Self {
+            profiles_root: profiles_root(data_root.as_ref()),
+        }
+    }
+}
+
+impl ProfileRemoval for XdgProfileRemoval {
+    fn remove(&self, id: &SessionId) -> Result<(), ProfileRemovalError> {
+        let dir = account_profile_dir(&self.profiles_root, id);
+        match fs::remove_dir_all(&dir) {
+            Ok(()) => Ok(()),
+            // Already gone counts as success, so a retry after a partial
+            // removal can still finish (`FR.21.11`).
+            Err(source) if source.kind() == io::ErrorKind::NotFound => Ok(()),
+            // The reason alone, no path prefix: `ProfileRemoval::folder` is
+            // the one place a caller reads the path from, shown on its own
+            // line beside this reason (item 11 task 08's dialog) — baking it
+            // in here would repeat it.
+            Err(source) => Err(ProfileRemovalError {
+                reason: source.to_string(),
+            }),
+        }
+    }
+
+    fn folder(&self, id: &SessionId) -> PathBuf {
+        account_profile_dir(&self.profiles_root, id)
     }
 }
 
