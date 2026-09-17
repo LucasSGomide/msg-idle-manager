@@ -10,7 +10,7 @@
 
 use crate::layout::{Layout, SlotId};
 use crate::preset::ZoomLevel;
-use crate::session::{SessionId, Visibility};
+use crate::session::{SessionId, Visibility, WorkspaceId};
 
 /// Whether a saved account was running or had been parked.
 ///
@@ -61,20 +61,74 @@ pub struct Account {
     pub zoom: ZoomLevel,
 }
 
-/// Every account in the order it sits in, plus the layout the window was
-/// arranged for.
+/// One workspace's whole arrangement as one value: its identity, its
+/// accounts in the order they sit in, and the layout and focused place the
+/// window was arranged for.
 ///
 /// The value [`SessionBook::workspace`] produces and [`SessionBook::restore`]
-/// consumes. Reading one back off a book restored from it reproduces it field
-/// for field, with a starting or queued account reported as
-/// [`SavedLiveness::Running`].
+/// consumes for one workspace at a time — [`crate::WorkspaceBook`] is what
+/// carries a whole [`WorkspaceList`] of these. Reading one back off a book
+/// restored from it reproduces it field for field, with a starting or queued
+/// account reported as [`SavedLiveness::Running`]. `id`, `name` and
+/// `is_expanded` pass through [`SessionBook::restore`] and
+/// [`SessionBook::workspace`] rather than being carried by the book itself —
+/// a `SessionBook` is the same shape whichever workspace it belongs to.
 ///
 /// [`SessionBook::workspace`]: crate::SessionBook::workspace
 /// [`SessionBook::restore`]: crate::SessionBook::restore
 #[derive(Debug, Clone, PartialEq)]
 pub struct Workspace {
+    /// The identifier this workspace was minted with, or
+    /// [`WorkspaceId::ungrouped`] for the built-in one.
+    pub id: WorkspaceId,
+    /// The name shown on the workspace's sidebar heading.
+    pub name: String,
+    /// The place a full-grid addition to this workspace displaces, and the
+    /// place it returns to when this workspace becomes the one shown
+    /// (`FR.15.1`).
+    pub focused: SlotId,
+    /// Whether this workspace's sidebar heading is expanded. Carried here,
+    /// not invented in the shell, because it must survive a relaunch
+    /// (`FR.16.2`) and this is the only value the store sees.
+    pub is_expanded: bool,
     /// The accounts, in the order they sit in.
     pub accounts: Vec<Account>,
     /// The layout the window was arranged for.
     pub layout: Layout,
+}
+
+impl Default for Workspace {
+    /// An empty, expanded Ungrouped workspace arranged for the single-slot
+    /// layout — what a fresh install's one workspace looks like, and a handy
+    /// base for a test that only cares about a few fields.
+    fn default() -> Self {
+        Self {
+            id: WorkspaceId::ungrouped(),
+            name: "Ungrouped".to_owned(),
+            focused: SlotId::FIRST,
+            is_expanded: true,
+            accounts: Vec::new(),
+            layout: Layout::default(),
+        }
+    }
+}
+
+/// Every workspace, in sidebar order, plus which one is shown and both
+/// minting counters — the value saved and restored as a whole.
+///
+/// [`crate::WorkspaceBook::restore`] consumes one of these and
+/// [`crate::WorkspaceBook::saved`] produces one; nothing here is serialised —
+/// that is `store`'s job (architecture rules 1, 7).
+#[derive(Debug, Clone, PartialEq)]
+pub struct WorkspaceList {
+    /// Every workspace, in the order the sidebar shows them.
+    pub workspaces: Vec<Workspace>,
+    /// The workspace shown on screen.
+    pub active: WorkspaceId,
+    /// The number the next account minted, whichever workspace it joins, is
+    /// numbered with. Never the highest existing id — that would let a
+    /// deleted newest account's number be handed to a new one (`FR.21.7`).
+    pub next_account_number: u64,
+    /// The number the next named workspace minted is numbered with.
+    pub next_workspace_number: u64,
 }

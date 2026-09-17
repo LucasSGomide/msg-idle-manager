@@ -12,16 +12,21 @@ mod ports;
 mod preset;
 mod session;
 mod workspace;
+mod workspace_book;
 
 pub use layout::{Layout, MoveOutcome, Outcome, Placement, SlotId, arrange};
 pub use memory::{BudgetVerdict, MemoryReading};
 pub use ports::{
     MemoryProbe, MemoryProbeError, PresetCatalogue, PresetCatalogueReading, PresetFailure,
-    ProfileDirectories, ProfileError, ProfileLocator, WorkspaceReadError, WorkspaceStore,
-    WorkspaceWriteError, ZoomMemory, ZoomMemoryError,
+    ProfileDirectories, ProfileError, ProfileLocator, ProfileRemoval, ProfileRemovalError,
+    WorkspaceReadError, WorkspaceStore, WorkspaceWriteError, ZoomMemory, ZoomMemoryError,
 };
 pub use preset::{InvalidZoom, Preset, PresetId, ZoomLevel};
 pub use session::{
-    Liveness, RememberedZoom, Session, SessionBook, SessionId, Visibility, account_name,
+    Liveness, RememberedZoom, Session, SessionBook, SessionId, Visibility, WorkspaceId,
+    account_name, workspace_name,
 };
-pub use workspace::{Account, SavedLiveness, Workspace};
+pub use workspace::{Account, SavedLiveness, Workspace, WorkspaceList};
+pub use workspace_book::{
+    DestinationWorkspace, Destinations, Switch, WorkspaceBook, WorkspaceRefusal, WorkspaceView,
+};
