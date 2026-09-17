@@ -48,6 +48,12 @@ pub struct Row {
     /// menu's checkbox reads the raw flag, the indicator label reads this.
     #[property(get, set)]
     keep_awake_mark: RefCell<String>,
+    /// Whether this row is the dim "No accounts" leaf under an empty
+    /// workspace rather than a real account (roadmap item 11). The factory
+    /// reads this to hide the dot, the keep-awake mark and the ⋯ menu, and to
+    /// keep the row from being activated or ticked.
+    #[property(get, set)]
+    is_placeholder: Cell<bool>,
 }
 
 impl std::fmt::Debug for Row {
