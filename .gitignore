@@ -6,3 +6,6 @@
 # planning docs and never committed — it names live profile paths and is a
 # scratch record, deleted once the diagnosis lands.
 /docs/handover.md
+
+# Windows release zips; shared into the Windows VM as drive Z: (docs/windows-vm.md).
+/dist

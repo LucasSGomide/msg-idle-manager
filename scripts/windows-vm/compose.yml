@@ -1,0 +1,48 @@
+# The Windows 11 VM that roadmap item 12 is developed and verified against.
+#
+# dockur/windows runs a full Windows VM under QEMU/KVM inside a container. It is
+# not a Windows container: those need a Windows host. It needs Docker Engine,
+# not Docker Desktop, because Docker Desktop on Linux gives containers no
+# /dev/kvm. See docs/windows-vm.md for setup, daily use and what the VM cannot
+# prove.
+#
+#   docker compose -f scripts/windows-vm/compose.yml up -d
+#
+# The VM has no GPU, so Windows draws in software. Functional checks are valid
+# in it; GPU and idle-processor figures are not.
+
+name: idle-manager-windows-vm
+
+services:
+  windows:
+    image: dockurr/windows
+    container_name: idle-manager-windows
+    environment:
+      # Windows 11 Enterprise. The installer's generic key is for trial use and
+      # does not activate Windows; licensing is the person running it's call.
+      VERSION: "11e"
+      RAM_SIZE: "8G"
+      CPU_CORES: "4"
+      DISK_SIZE: "64G"
+      USERNAME: "Docker"
+      PASSWORD: "admin"
+    devices:
+      - /dev/kvm
+      - /dev/net/tun
+    cap_add:
+      - NET_ADMIN
+    ports:
+      # Bound to loopback: the VM's desktop and RDP are for this machine only.
+      - 127.0.0.1:8006:8006
+      - 127.0.0.1:3389:3389/tcp
+      - 127.0.0.1:3389:3389/udp
+    volumes:
+      # The VM's disk: tens of GiB, kept out of the repository.
+      - ${HOME}/.local/share/idle-manager-windows-vm/storage:/storage
+      # The repository's dist/ folder. It appears inside Windows as drive Z:
+      # and as "Shared" on the desktop, and is where `make windows-package`
+      # writes the release zip.
+      - ../../dist:/shared
+    # Started by hand, never on host boot: it holds 8 GiB while it runs.
+    restart: "no"
+    stop_grace_period: 2m
