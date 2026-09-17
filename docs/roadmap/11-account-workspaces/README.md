@@ -1,6 +1,6 @@
 # 11 — Account workspaces, and deleting an account
 
-**Depends on:** 06, 07, 10 · **Status:** done · **Estimate:** 13
+**Depends on:** 06, 07, 10 · **Status:** done · **Estimate:** 13 · **Merged:** 2026-09-17
 
 ## Context
 
