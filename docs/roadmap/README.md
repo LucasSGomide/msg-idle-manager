@@ -43,14 +43,16 @@ so the item grew a second half that used the instrument it built, and its budget
 is written as a comparison against that browser rather than a figure chosen for
 itself.
 
-**Next up: 10 or 08, both ready.** Item 10 — Renaming and rearranging accounts —
-lets a wrong name be corrected without deleting the account and logging in again,
-and lets an account be dragged to the place it belongs, with the sidebar list
-reordered to read like the window. It is the first half of the Rearranging
-Accounts and Account Workspaces requirements; workspaces are still to be planned
-and will build on the order and place rules 10 settles. Item 08 adds recovery
-from a crash nobody was awake to see, building on the durable workspace 07
-landed. Neither depends on the other.
+**Next up: 11 or 08, both ready.** Item 10 shipped renaming and drag-to-place,
+and item 11 — Account workspaces, and deleting an account — builds on the order
+and place rules it settled. It groups accounts into named sets that each keep
+their own arrangement, and it adds the first action that removes an account's
+data from disk. Its breakdown is open in eight slices, starting with the
+version 2 session file. Its blockers were closed before breakdown. A
+measurement showed the web engine never releases a deleted account's files, so
+deletion removes the folder without waiting for them. Item 08 adds recovery from a crash nobody
+was awake to see, building on the durable workspace 07 landed. Neither item
+depends on the other.
 
 Item 09 shipped the first file the application writes on an account's behalf — a
 per-account `state.toml` holding the zoom chosen per arrangement — and with it
@@ -101,3 +103,4 @@ _(none)_
 | [07](07-workspace-restore/README.md) | Restoring the workspace on launch | 8 | 03, 04, 06 | done |
 | [09](09-interactive-zoom/README.md) | Interactive zoom, remembered per arrangement | 5 | 03, 06 | done |
 | [10](10-rearranging-accounts/README.md) | Renaming and rearranging accounts | 8 | 03, 07 | done |
+| [11](11-account-workspaces/README.md) | Account workspaces, and deleting an account | 13 | 06, 07, 10 | done |

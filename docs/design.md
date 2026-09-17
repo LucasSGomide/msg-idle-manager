@@ -96,9 +96,13 @@ citations, so append rather than reorder.
    the name giving way to it. Then dropping the status word and the standalone
    action button (rules 1, 2) shrank the edge and the check ran the other way:
    240 to 150, settled by eye with a three-letter name still rendering in full
-   beside the dot. The next item that changes a trailing fact owes the same
-   check: settle the width by eye, with a short name on screen, rather than let
-   the name silently absorb — or keep paying for — a fact's cost.
+   beside the dot. Roadmap item 11 turned the list into a two-level tree —
+   indenting every account row under its workspace's heading — and moved it
+   150 to 200, so an indented short name still rendered in full beside the dot
+   with the tree's own indent taken into account. The next item that changes a
+   trailing fact, or another level of indent, owes the same check: settle the
+   width by eye, with a short name on screen, rather than let the name
+   silently absorb — or keep paying for — a fact's cost.
 
 7. **Set an escape-hatch option apart from the real options in a chooser with a
    hairline above it and dimmed text, never a separate control.** The add-game
@@ -191,3 +195,16 @@ citations, so append rather than reorder.
     minutes never has to re-find it. The verdict itself is the core's
     (`MemoryReading::budget_verdict`); the footer toggles one CSS class from the
     answer and compares nothing.
+
+13. **Give a sidebar tree heading no dot, no bold and no mark of which
+    workspace is shown — let the accounts nested beneath it carry every status
+    signal, exactly as they would in a flat list.** A heading names a group,
+    not a running thing: it holds no liveness, no visibility, nothing rule 1's
+    key vocabulary describes, so giving it a dot would either invent a
+    seventh, meaningless state or borrow one of the six that already belongs to
+    an account. Whether the workspace under a heading is the one on screen is
+    already answered by its accounts' own dots — a row keyed `current` or
+    `visible` only ever appears under the shown workspace's heading — so a
+    second marker on the heading itself would repeat that answer, not add one.
+    An expander arrow is the heading's only affordance, expanding or collapsing
+    and never switching (roadmap item 11).
