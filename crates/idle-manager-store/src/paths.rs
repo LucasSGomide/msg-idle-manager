@@ -62,6 +62,31 @@ pub fn workspace_file() -> Result<PathBuf, LocatorSetup> {
     Ok(dirs.config_dir().join("sessions.toml"))
 }
 
+/// The single `WebView2` user-data folder every account's engine profile
+/// shares on Windows: `<data root>/idle-manager/webview2/`.
+///
+/// One environment, one folder (`FR.1.3`, `FR.2.4`, roadmap item 12): every
+/// account's view is built against the same shared environment, so they share
+/// one browser process and one GPU process, and isolation instead comes from
+/// each account's own `with_profile_name` inside this one folder — unlike
+/// [`XdgProfileLocator`]'s per-account `data`/`cache` split, there is exactly
+/// one of these for the whole application. `cfg(windows)` because Linux's
+/// `WebKitGTK` backend has no equivalent (`FR.1.4`).
+///
+/// # Errors
+///
+/// [`LocatorSetup::NoHome`] if no home directory can be determined.
+// `cfg(any(windows, test))`, not `cfg(windows)` alone, so the path shape has a
+// test that actually runs: `directories::ProjectDirs`'s join logic is the same
+// on every platform, only the root it resolves differs, so this is genuinely
+// exercised by a Linux `cargo test` (architecture rule 14) even though nothing
+// on Linux calls it for real.
+#[cfg(any(windows, test))]
+pub fn engine_data_root() -> Result<PathBuf, LocatorSetup> {
+    let dirs = ProjectDirs::from("", "", APP_NAME).ok_or(LocatorSetup::NoHome)?;
+    Ok(dirs.data_dir().join("webview2"))
+}
+
 /// The directory profiles are rooted under for `data_root`:
 /// `<data_root>/profiles/`.
 pub(crate) fn profiles_root(data_root: &Path) -> PathBuf {
@@ -250,5 +275,12 @@ mod tests {
                 false,
             ),
         );
+    }
+
+    #[test]
+    fn the_engine_data_root_ends_in_idle_manager_webview2() {
+        let root = engine_data_root().expect("resolve the engine data root");
+
+        assert!(root.ends_with("idle-manager/webview2"));
     }
 }
