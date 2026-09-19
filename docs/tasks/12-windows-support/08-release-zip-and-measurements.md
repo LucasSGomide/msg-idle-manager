@@ -115,15 +115,15 @@ and the measurement must be of the real thing.
 - [x] `(integration)` `make windows-package` on Linux produces
       `dist/idle-manager-<version>-windows-x64.zip` containing
       `idle-manager.exe`, `gtk-4-1.dll` and `gschemas.compiled`
-- [ ] `(manual)` in the Windows VM, unzipping the file from `Z:` to
+- [x] `(manual)` in the Windows VM, unzipping the file from `Z:` to
       `C:\idle-manager` and double-clicking `idle-manager.exe` opens the window
       with icons drawn and no console window
-- [ ] `(manual)` in the Windows VM, adding a game from a shipped preset in the
+- [x] `(manual)` in the Windows VM, adding a game from a shipped preset in the
       unzipped release starts that game in a place
-- [ ] `(manual)` in the Windows VM, the footer figure for four live accounts is
+- [x] `(manual)` in the Windows VM, the footer figure for four live accounts is
       no higher than Edge's private working set with the same four games as tabs,
       and both are recorded in `docs/memory-budget.md`
-- [ ] `(manual)` on Linux, `make memory-report` with four accounts falls within
+- [x] `(manual)` on Linux, `make memory-report` with four accounts falls within
       the noise of the figures already in `docs/memory-budget.md`, recorded as
       "Linux after item 12"
 

@@ -96,16 +96,16 @@ account survives.
 - [x] `(integration)` the existing store `ProfileRemoval` tests still pass,
       including a folder already gone counting as removed
 - [x] `(integration)` `make windows-check` and `make verify` pass
-- [ ] `(manual)` in the Windows VM, deleting one of two logged-in accounts of the same
+- [x] `(manual)` in the Windows VM, deleting one of two logged-in accounts of the same
       game removes it from the sidebar and grid, removes its profile folder
       inside the engine folder and its `profiles/<id>/` folder, and the other
       account is still logged in after a relaunch
-- [ ] `(manual)` in the Windows VM, the log names which deletion path ran (engine call
+- [x] `(manual)` in the Windows VM, the log names which deletion path ran (engine call
       or fallback) and the runtime version
-- [ ] `(manual)` in the Windows VM, with the account's `profiles/<id>/` folder made
+- [x] `(manual)` in the Windows VM, with the account's `profiles/<id>/` folder made
       read-only, deletion shows the error page with `Retry` and `Close`. After
       the folder is made writable again, `Retry` completes the deletion
-- [ ] `(manual)` on Linux, item 11's delete-account test-script steps still pass
+- [x] `(manual)` on Linux, item 11's delete-account test-script steps still pass
 
 ## References
 

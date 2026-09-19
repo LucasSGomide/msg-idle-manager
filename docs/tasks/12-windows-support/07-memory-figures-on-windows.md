@@ -84,7 +84,7 @@ conflicting with them.
       Linux metrics integration tests pass unchanged
 - [x] `(integration)` `make arch-check` still passes with `windows` in the
       metrics crate only
-- [ ] `(manual)` in the Windows VM, with four live accounts, the footer's figure is
+- [x] `(manual)` in the Windows VM, with four live accounts, the footer's figure is
       within 5% of the sum of Task Manager's "Memory (private working set)"
       over `idle-manager.exe` and its `msedgewebview2.exe` children
 

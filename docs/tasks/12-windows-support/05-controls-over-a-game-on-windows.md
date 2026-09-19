@@ -93,22 +93,22 @@ it run alongside the slices working on the engine and on memory figures.
 ## Acceptance criteria
 
 - [x] `(integration)` `make windows-check` and `make verify` pass
-- [ ] `(manual)` on Linux, the grip, the zoom readout, the loading cover and the
+- [x] `(manual)` on Linux, the grip, the zoom readout, the loading cover and the
       drop highlight look and behave exactly as before
-- [ ] `(manual)` in the Windows VM, hovering a live game shows the grip in a strip
+- [x] `(manual)` in the Windows VM, hovering a live game shows the grip in a strip
       above it at the right end, and dragging it to another place swaps the two
       accounts
-- [ ] `(manual)` in the Windows VM, during that drag every live game disappears and the
+- [x] `(manual)` in the Windows VM, during that drag every live game disappears and the
       drop highlight and slot lines show; the games reappear in their new
       places on drop and in their old places on `Esc`
-- [ ] `(manual)` in the Windows VM, a game's in-page clock keeps advancing across a
+- [x] `(manual)` in the Windows VM, a game's in-page clock keeps advancing across a
       10-second drag
-- [ ] `(manual)` in the Windows VM, `Ctrl`+`+` shows the percentage low and centred
+- [x] `(manual)` in the Windows VM, `Ctrl`+`+` shows the percentage low and centred
       over that game, it stays above the page, keyboard focus stays in the
       game, and it fades after the same delay as on Linux
-- [ ] `(manual)` in the Windows VM, starting a parked account shows its name cover
+- [x] `(manual)` in the Windows VM, starting a parked account shows its name cover
       until the page paints, then the game
-- [ ] `(manual)` in the Windows VM, a parked, queued or stopped place shows the plain
+- [x] `(manual)` in the Windows VM, a parked, queued or stopped place shows the plain
       panel with no strip, and an empty place shows nothing new
 
 ## References

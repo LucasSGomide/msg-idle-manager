@@ -95,7 +95,7 @@ later slice builds on it, so it runs alone.
 - [x] `(manual)` on Linux, parking then starting an account, killing its
       `WebKitWebProcess`, and deleting a throwaway account each behave as they
       did before this slice
-- [ ] `(manual)` on Linux, a keep-awake account keeps advancing while the window
+- [x] `(manual)` on Linux, a keep-awake account keeps advancing while the window
       is minimised (item 04's existing test-script step, re-run)
 
 ## References

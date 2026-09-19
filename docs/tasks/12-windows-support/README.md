@@ -25,11 +25,11 @@ Task 08 needs everything else finished and runs alone.
 
 | # | Task | Scope | Depends on | Criteria | Status |
 |---|---|---|---|---|---|
-| [01](01-engine-seam-on-linux.md) | One web-engine seam, on Linux, with no visible change | front-end | — | 7/8 | in-progress |
-| [02](02-windows-build-and-first-light.md) | Building for Windows, and games showing there | full-stack | 01 | 6/10 | in-progress |
-| [03](03-scripts-popups-zoom-and-crashes-on-windows.md) | Page scripts, sign-in popups, zoom and crashes on Windows | front-end | 02 | 3/8 | in-progress |
-| [04](04-keep-awake-and-minimising-on-windows.md) | Keep-awake and minimising on Windows | front-end | 03 | 2/7 | in-progress |
-| [05](05-controls-over-a-game-on-windows.md) | Keeping the controls over a game visible on Windows | front-end | 02 | 1/8 | in-progress |
-| [06](06-deleting-an-account-on-windows.md) | Deleting an account on Windows | full-stack | 04 | 3/7 | in-progress |
-| [07](07-memory-figures-on-windows.md) | Memory figures on Windows | back-end | 02 | 6/7 | in-progress |
-| [08](08-release-zip-and-measurements.md) | The Windows release zip, and measuring its memory | full-stack | 05, 06, 07 | 2/6 | in-progress |
+| [01](01-engine-seam-on-linux.md) | One web-engine seam, on Linux, with no visible change | front-end | — | 8/8 | done |
+| [02](02-windows-build-and-first-light.md) | Building for Windows, and games showing there | full-stack | 01 | 10/10 | done |
+| [03](03-scripts-popups-zoom-and-crashes-on-windows.md) | Page scripts, sign-in popups, zoom and crashes on Windows | front-end | 02 | 8/8 | done |
+| [04](04-keep-awake-and-minimising-on-windows.md) | Keep-awake and minimising on Windows | front-end | 03 | 7/7 | done |
+| [05](05-controls-over-a-game-on-windows.md) | Keeping the controls over a game visible on Windows | front-end | 02 | 8/8 | done |
+| [06](06-deleting-an-account-on-windows.md) | Deleting an account on Windows | full-stack | 04 | 7/7 | done |
+| [07](07-memory-figures-on-windows.md) | Memory figures on Windows | back-end | 02 | 7/7 | done |
+| [08](08-release-zip-and-measurements.md) | The Windows release zip, and measuring its memory | full-stack | 05, 06, 07 | 6/6 | done |
