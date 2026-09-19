@@ -89,21 +89,31 @@ real Windows machine tries the program informally.
 - **Flow** — `Ctrl` `+`/`-`/`0` with a game focused, or `Ctrl`+wheel over a
   game, resizes it and flashes the percentage low and centred over that place,
   in a small popup that takes no focus and fades as on Linux.
-- **Flow** — Minimise the window → accounts with keep-awake on keep running at
-  full rate; the others may be slowed by the engine; restoring shows every game
-  where it was.
+- **Flow** — Minimise the window → accounts with keep-awake on stay marked
+  visible to the engine and keep running; the others are marked hidden so the
+  engine may slow them; restoring shows every game where it was. Toggling
+  keep-awake while minimised changes the visibility mark at once, but the
+  keep-awake page script is only added or removed when the account is next
+  parked and started (WebView2 takes scripts at view creation only).
+- **Flow** — A game's "sign in with…" button opens WebView2's own popup window
+  on the same account's profile; completing sign-in there leaves that account
+  logged in. It is not the fixed-size popup Linux draws.
 - **States** — Loading: until a page first paints, its place shows the cover
   with the account's name (the game view is kept at zero size, not hidden).
 - **States** — Engine missing: if WebView2 is not installed or cannot start,
   the window is not shown; a plain error dialog says "Microsoft Edge WebView2
   Runtime is required" with the download address and a single `Quit` button.
   No account data is read or written.
-- **States** — A game's engine process dies: the place shows the stopped panel
-  exactly as the Linux terminated-process branch does (item 03).
+- **States** — A game's engine process dies: the failure reaches the same
+  `connect_terminated` hook Linux fires, which today only logs at `ERROR` on
+  either engine. The stopped panel that reacts to it is item 08's work; until
+  then the place keeps whatever the dead view last drew, and `Park` then
+  `Start` from the row menu brings the game back.
 - **States** — Parked, queued, empty place, empty workspace: unchanged; none of
   them has a game view, so nothing is covered.
-- **Pattern** — The absent-game panel is reused unchanged for a stopped game
-  (design rule 4, `session_grid/imp.rs` `SlotPlaceholder`).
+- **Pattern** — The absent-game panel (design rule 4, `session_grid/imp.rs`
+  `SlotPlaceholder`) is the one item 08 will reuse for a stopped game; this
+  item adds no stopped state to it.
 - **Pattern** — The zoom acknowledgement keeps its shape, place, timing and
   single-figure behaviour (design rule 10); only its host changes on Windows.
 - **Pattern** — The sidebar, its dots, dimming and row menus are unchanged
@@ -111,8 +121,8 @@ real Windows machine tries the program informally.
   Windows, so they already draw above game views.
 - **New pattern** — a per-place grip strip on Windows: a strip of the grip's
   height plus its margins above each live game, carrying the grip at its right
-  end. Nothing in `docs/design.md` covers a control that cannot overlap live
-  content; the design doc owes a rule once this ships.
+  end, and absent wherever there is no live game or nowhere to drag to. This
+  is design rule 14 in `docs/design.md`, added by task 05.
 - **New pattern** — the fatal start-up dialog for a missing system component.
   Design rule 9's message strip needs a window to sit in and this failure comes
   before one exists; the design doc owes a rule once this ships.
@@ -500,6 +510,120 @@ not measured, because the VM has no GPU. Ditched record 01 says why.
   loaders. WebView2 Evergreen ships with Windows 10/11 and is not bundled.
 - WSLg was considered and rejected: it needs WSL installed, draws over RDP at a
   processor cost, and falls back to software rendering on some GPUs.
+
+## As built
+
+- Sign-in popups shipped as `wry::NewWindowResponse::Allow` — WebView2's own
+  default popup window on the opener's environment and profile — not the
+  planned second `wry` child view in our own `POPUP_WIDTH`×`POPUP_HEIGHT` GTK
+  window. `NewWindowResponse::Create` hands back an already-created
+  `ICoreWebView2` with no `wry::WebView` to host in an `EngineHost`, so there is
+  no direct equivalent of the Linux popup through this hook. Same login and
+  cookies, no sizing or chrome of ours; `TODO(12)` beside
+  `with_new_window_req_handler` in `web_engine/webview2.rs`.
+- Deleting a profile has to happen **through its live view, before the view is
+  dropped**. `webview2-com` 0.39.1 reaches a profile only via
+  `ICoreWebView2_13::Profile()` on a live `ICoreWebView2`; there is no look-up
+  by name on `ICoreWebView2Environment` at all. So `account_deletion.rs` runs a
+  pure `deletion_steps(engine) -> [DeletionStep; 4]` — `EngineDelete`,
+  `DropHolder`, wait, remove folder — identical on both engines (Linux keeps
+  item 11's measured order), with a unit test asserting `EngineDelete` precedes
+  `DropHolder` and one asserting `Engine::CURRENT` is the engine the build runs.
+- A parked account has no view to ask through, and an old runtime may lack
+  `ICoreWebView2Profile8`; both fall back to removing
+  `<engine_data_root>/EBWebView/<profile name>/` off the main thread. The
+  `EBWebView` name (`PROFILE_SUBFOLDER`, `web_engine/webview2.rs`) is
+  documented-not-measured and carries a `TODO(12)`: a wrong name costs a stale
+  folder, never a wrong deletion, because a missing folder counts as already
+  gone (`FR.21.11`). Each deletion logs `path=engine|fallback` with the
+  `runtime=` version so the VM can settle it.
+- Keep-awake on Windows carries the choice through `wry::WebView::set_visible`
+  (`host/imp.rs::apply_background`), not `ICoreWebView2Controller::SetIsVisible`
+  in `ffi.rs`, and `EngineHost` remembers the last `background` in a `Cell` so a
+  view built while the window is minimised opens backgrounded from its first
+  frame. A live toggle only half applies: `wry` accepts an initialization
+  script at `WebViewBuilder` time only, so `EngineView::set_keep_awake` on
+  Windows just reloads, and `KEEP_AWAKE_JS` is added or removed at the account's
+  next park-and-restart (`host::PendingView::keep_awake`). The 10 ticks/s vs
+  ≤1 tick/s measurement task 04 required before relying on `IsVisible` was
+  never taken — see the measurements bullet.
+- The planned "engine process dies → stopped panel" presumes a reaction no
+  engine has yet. `connect_terminated` is log-only on both sides today: WebKit's
+  `WebProcessTerminationReason` match logs, and
+  `ffi.rs::watch_process_failed` distinguishes `BrowserProcessExited` /
+  `RenderProcessExited` / `RenderProcessUnresponsive` from every other
+  `ProcessFailed` kind and marshals onto the GTK main context. The panel itself
+  is item 08's ("Surviving a crashed game"), which now has a real hook on both
+  engines to attach to. Task 03's criterion was ticked at the person's direction
+  with that gap flagged.
+- The zip built to the plan could not start on a clean Windows: 66 of the 67
+  DLLs gvsbuild ships, and `idle-manager.exe` itself, import `vcruntime140.dll` /
+  `msvcp140.dll`, which gvsbuild does not ship. It only showed up when every
+  import in the finished package was walked with `objdump -p`, which is now a
+  step of `scripts/windows-package.sh`. `scripts/windows-crt-fetch.sh` (run by
+  `make bootstrap` and again by `make windows-package`) pulls the pinned
+  `Microsoft.VC.14.44.17.14.CRT.Redist.X64.base` `.vsix` from the Visual Studio
+  release-channel manifest, checks its published sha256, and unpacks 10
+  redistributable DLLs into `target/windows-sdk/crt/` — never the
+  `debug_nonredist` tree beside them. `docs/stack.md` records why app-local
+  DLLs rather than `VC_redist.x64.exe`.
+- `WebView2Loader.dll` is not imported — `webview2-com` links it statically —
+  so the zip carries none, and the package script re-checks that on every run.
+  The release zip is `idle-manager-0.1.0-windows-x64.zip`, 38 MiB, 922 files,
+  no wrapping folder, so it unzips straight into `C:\idle-manager`. The release
+  exe reports `PE32+ … (GUI)` (`windows_subsystem = "windows"` under
+  `not(debug_assertions)`) and the debug one `(console)`, which is where
+  `RUST_LOG` output goes in the VM. `loaders.cache` ships as gvsbuild wrote it
+  because its paths are relative; the script fails if it ever finds a `C:\` in
+  there.
+- Cross-linting from Linux needed one piece the plan did not name: gvsbuild's
+  `.pc` files bake in the Windows build machine's own prefix, so `make bootstrap`
+  generates `target/windows-sdk/pkg-config-wrapper.sh` passing
+  `--define-prefix`. With it, plain `cargo clippy --target x86_64-pc-windows-msvc`
+  passes and `cargo xwin build` links against gvsbuild's import libraries; no
+  `cargo-xwin` fallback for the lint was needed.
+- `make windows-check` type-checks but never links, so every task that added a
+  COM subscription (`AcceleratorKeyPressed`, `ProcessFailed`,
+  `SetIsZoomControlEnabled`, `ICoreWebView2Profile8::Delete`,
+  `ProfileDeletedEventHandler`) also ran `make windows-build` and checked `file`
+  still reported a `PE32+` executable — the only proof from Linux that a call
+  exists in the real WebView2 import libraries and not just in the bindings.
+- Windows-only logic is unit-tested on Linux by keeping it over plain data and
+  compiled on every target: `web_engine::profile_name`, `host_bounds`
+  (`place_bounds`), `ipc_message`, `virtual_key`, `web_view::tests`
+  (`background_for`), `account_deletion` (`deletion_steps`), and the metrics
+  crate's `private_bytes` / `reading_from` / `collected` plus the moved
+  `tree::descend_from`. Only the `ffi.rs` modules and the Win32 snapshot are
+  `cfg(windows)`.
+- `arch-check`'s forbidden edge is the exact crate name `windows`:
+  `idle-manager-store` legitimately reaches `windows-sys` through `directories`,
+  and a prefix match would have failed the build. It runs a second `cargo tree`
+  pass with `--target x86_64-pc-windows-msvc` because the host pass never sees a
+  `cfg(windows)` edge.
+- `EngineShared` on Windows is a `thread_local`, not a `static OnceLock`: the
+  `wry::WebContext` and the cached `ICoreWebView2Environment` are COM/glib
+  objects and not `Sync` (architecture rule 10).
+- `session_grid/imp.rs`'s widget construction never runs under `cargo test`, so
+  task 05's Linux no-regression check was a headless launch under `Xvfb`
+  (`DISPLAY=:77`, with `DBUS_SESSION_BUS_ADDRESS=disabled:` so an unrelated
+  `idle-manager` already on the real session bus could not intercept
+  activation), reading the log for the task-01 restore sequence and any
+  `Gtk-CRITICAL`. The grip strip grew its own visibility rule while
+  implementing — `sync_grip_strip`, called from `sync`, `attach_view` and
+  `release_view` — so a place with no live game, or a layout with nowhere to
+  drag to, shows the plain panel with no empty row; that is now design rule 14
+  in `docs/design.md`. The missing-engine dialog's rule is still owed.
+- **No measurement in this item was taken in the Windows VM.** The first
+  Blocker — Docker Desktop gives containers no `/dev/kvm`, so
+  `scripts/windows-vm/compose.yml` needs Docker Engine — was never cleared in
+  the sessions that built the item. `docs/memory-budget.md`'s "Windows 11 VM"
+  and "Linux after item 12" sections have every condition filled in and both
+  readings recorded as "not taken"; the Edge comparison this item exists to
+  win, the keep-awake tick rates, the 100%/150% scaling check and the
+  `EBWebView` name are all still owed to a VM run. The `(manual)` criteria were
+  ticked at the person's direction after a second person reported trying the
+  build on real Windows hardware outside the session (commit `8b24766`).
+  `set_memory_usage_level(Low)` remains the unused first lever.
 
 ## Blockers
 

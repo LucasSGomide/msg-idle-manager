@@ -12,5 +12,4 @@ item's header carries `Landed:` or `Merged:`. Items 01–07 and 09–12 are `don
 
 | # | Roadmap item | Tasks | Progress | Status |
 |---|---|---|---|---|
-| [12](12-windows-support/) | Running natively on Windows | 8 | 8/8 | done |
 | [13](13-phone-operation/) | Operating an account from a phone | 8 | 0/8 | not-started |
