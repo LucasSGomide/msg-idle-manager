@@ -1,7 +1,7 @@
 //! The window's template children and the wiring that turns a click into a
 //! domain intent and the result back into a redraw (architecture rules 8, 12).
 
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
 use std::collections::HashMap;
 use std::rc::Rc;
 use std::sync::Arc;
@@ -13,8 +13,6 @@ use gtk::glib;
 use gtk::prelude::*;
 use gtk::subclass::prelude::*;
 use gtk4 as gtk;
-use webkit6::prelude::WebViewExt;
-use webkit6::{LoadEvent, WebView};
 
 use idle_manager_core::{
     Layout, Liveness, MoveOutcome, Preset, PresetCatalogue, ProfileLocator, ProfileRemoval,
@@ -31,7 +29,8 @@ use crate::save_on_change::Saver;
 use crate::session_grid::SessionGrid;
 use crate::session_sidebar::{MoveTarget, SessionSidebar};
 use crate::start_queue::StartQueue;
-use crate::web_view::{AccountSettings, SessionView};
+use crate::web_engine::EngineView;
+use crate::web_view::{AccountSettings, SessionView, background_for};
 
 /// What a workspace name window is for — [`Window::present_workspace_name_dialog`]
 /// covers both, since only the title, confirm label, starting text and what
@@ -104,19 +103,15 @@ pub struct Window {
     /// timer, and only when the gestures stop does the settled map get written
     /// once (`FR.12.5`).
     zoom_save_timers: RefCell<HashMap<SessionId, glib::SourceId>>,
-    /// The `load-changed` handler `start_session` and `toggle_keep_awake` each
-    /// attach to end a starting interval at first paint, one per account's
-    /// live view. `toggle_keep_awake` reloads a live view in place rather than
-    /// rebuilding it (`web_view.rs`'s `SessionView::set_keep_awake`), so
-    /// without this the same view accumulated one more permanently-connected
-    /// closure per toggle instead of replacing the one from `start_session` or
-    /// the previous toggle — an unbounded-with-toggle-count leak, fixed by
-    /// disconnecting the tracked handler before connecting the next one.
-    load_changed_handlers: RefCell<HashMap<SessionId, glib::SignalHandlerId>>,
     /// Removes one account's profile folder (item 11 task 08). `Arc`, like
     /// `WorkspaceStore` above, since `account_deletion::delete_account` calls
     /// it through `gio::spawn_blocking`.
     removal: RefCell<Option<Arc<dyn ProfileRemoval>>>,
+    /// Whether the window is currently minimised (roadmap item 12 task 04,
+    /// `FR.1.9`), watched from `realize` through the toplevel surface's own
+    /// `state`. Read whenever a view is started, so it opens already marked
+    /// to match, and updated by `apply_minimised` on every minimise/restore.
+    minimised: Cell<bool>,
 }
 
 impl std::fmt::Debug for Window {
@@ -233,23 +228,13 @@ impl ObjectImpl for Window {
         // on its own canvas must not swallow them first.
         let key_controller = gtk::EventControllerKey::new();
         key_controller.set_propagation_phase(gtk::PropagationPhase::Capture);
-        let grid = self.grid.clone();
         let window = self.obj().downgrade();
         key_controller.connect_key_pressed(move |_, key, _, modifiers| {
-            let ctrl = modifiers.contains(gdk::ModifierType::CONTROL_MASK);
-
-            if key == gdk::Key::F5 || (ctrl && key == gdk::Key::r) {
-                grid.reload_focused();
+            if let Some(window) = window.upgrade()
+                && window.imp().handle_shortcut_key(key, modifiers)
+            {
                 return glib::Propagation::Stop;
             }
-
-            if ctrl && let Some(step) = zoom_step_for(key) {
-                if let Some(window) = window.upgrade() {
-                    window.imp().zoom_focused_account(step);
-                }
-                return glib::Propagation::Stop;
-            }
-
             glib::Propagation::Proceed
         });
         self.obj().add_controller(key_controller);
@@ -275,7 +260,31 @@ impl ObjectImpl for Window {
     }
 }
 
-impl WidgetImpl for Window {}
+impl WidgetImpl for Window {
+    /// Watches the toplevel surface's own `state` for `MINIMIZED`, the one
+    /// place both engines learn the window was minimised or restored
+    /// (roadmap item 12 task 04, `FR.1.9`) — only a realized toplevel has a
+    /// `GdkSurface` to watch, so this is the first point it can be wired, and
+    /// it is wired before any account can have started.
+    fn realize(&self) {
+        self.parent_realize();
+
+        let Some(surface) = self.obj().surface() else {
+            return;
+        };
+        let Ok(toplevel) = surface.dynamic_cast::<gdk::Toplevel>() else {
+            return;
+        };
+
+        let window = self.obj().downgrade();
+        toplevel.connect_state_notify(move |toplevel| {
+            if let Some(window) = window.upgrade() {
+                let minimised = toplevel.state().contains(gdk::ToplevelState::MINIMIZED);
+                window.imp().apply_minimised(minimised);
+            }
+        });
+    }
+}
 impl WindowImpl for Window {}
 impl ApplicationWindowImpl for Window {}
 
@@ -852,17 +861,14 @@ impl Window {
     }
 
     /// A deletion attempt for `id` actually removed the folder. Forgets the
-    /// account everywhere: the book (`FR.21.5`), any pending zoom-save timer
-    /// (`FR.12.5`), and its `load_changed_handlers` entry — the view it was
-    /// on is already gone, so there is nothing left to disconnect, unlike
-    /// `toggle_keep_awake`'s in-place reload — then prunes it from the
-    /// sidebar's ticked set, closes `dialog`, redraws and saves.
+    /// account everywhere: the book (`FR.21.5`) and any pending zoom-save
+    /// timer (`FR.12.5`) — then prunes it from the sidebar's ticked set,
+    /// closes `dialog`, redraws and saves.
     fn finish_account_deletion(&self, id: &SessionId, dialog: &DeleteAccountDialog) {
         self.book.borrow_mut().remove_account(id);
         if let Some(timer) = self.zoom_save_timers.borrow_mut().remove(id) {
             timer.remove();
         }
-        self.load_changed_handlers.borrow_mut().remove(id);
         self.sidebar.forget_ticked(id);
         dialog.close_on_success();
         self.redraw();
@@ -1191,6 +1197,7 @@ impl Window {
                 identity,
                 webgl_enabled,
             },
+            self.minimised.get(),
         );
         let Some(view) = holder.view() else {
             tracing::error!(session = %id, "the new account's view was not built");
@@ -1268,7 +1275,7 @@ impl Window {
     /// grid (architecture rule 8). Returns the new view, or `None` when the
     /// account has no holder to start. The start queue (task 05) is the only
     /// caller that reads the return.
-    pub(crate) fn start_session(&self, id: &SessionId) -> Option<WebView> {
+    pub(crate) fn start_session(&self, id: &SessionId) -> Option<EngineView> {
         self.book.borrow_mut().unpark(id);
         self.redraw();
 
@@ -1278,31 +1285,20 @@ impl Window {
                 tracing::error!(session = %id, "no holder to start");
                 return None;
             };
-            holder.start().clone()
+            holder.start(self.minimised.get()).clone()
         };
 
         self.grid.attach_view(id, &view);
 
-        // The starting interval ends at the new view's first commit — the same
-        // signal the grid uses to drop the cover. Which load event counts as
-        // "first paint" is the roadmap item's fourth blocker and has to be
-        // checked against a real game.
+        // The starting interval ends at the new view's first paint — the same
+        // signal the grid uses to drop the cover.
         let window = self.obj().downgrade();
         let owned_id = id.clone();
-        let handler_id = view.connect_load_changed(move |_, event| {
-            if !matches!(event, LoadEvent::Committed | LoadEvent::Finished) {
-                return;
-            }
+        view.connect_painted(move || {
             if let Some(window) = window.upgrade() {
                 window.imp().finish_starting(&owned_id);
             }
         });
-        // This is always a freshly built view (`holder.start()` above), so any
-        // stale entry for `id` belongs to a previous view already dropped —
-        // and dropped along with it, its handlers. Overwrite, don't disconnect.
-        self.load_changed_handlers
-            .borrow_mut()
-            .insert(id.clone(), handler_id);
 
         Some(view)
     }
@@ -1351,7 +1347,7 @@ impl Window {
                 tracing::error!(session = %id, "no holder to apply keep-awake to");
                 return;
             };
-            holder.set_keep_awake(value).cloned()
+            holder.set_keep_awake(value, self.minimised.get()).cloned()
         };
 
         // Parked: nothing to reload now. `SessionView::start` applies the
@@ -1361,29 +1357,72 @@ impl Window {
         };
 
         // Same signal, same reason as `start_session`: the starting interval
-        // this toggle opened ends at the reload's first paint. This reloads
-        // the same live view in place rather than rebuilding it, so the
-        // handler `start_session` (or an earlier toggle) attached to it is
-        // still connected — disconnect it before attaching the next one, or
-        // every toggle on a live account leaves one more closure permanently
-        // connected to it.
-        if let Some(old_handler) = self.load_changed_handlers.borrow_mut().remove(id) {
-            view.disconnect(old_handler);
-        }
-
+        // this toggle opened ends at the reload's first paint.
+        // `EngineView::connect_painted` self-disconnects once it fires, so
+        // arming it again here on the same live view — on top of whatever
+        // `start_session` or an earlier toggle already armed — never
+        // accumulates a permanently-connected closure per toggle.
         let window = self.obj().downgrade();
         let owned_id = id.clone();
-        let handler_id = view.connect_load_changed(move |_, event| {
-            if !matches!(event, LoadEvent::Committed | LoadEvent::Finished) {
-                return;
-            }
+        view.connect_painted(move || {
             if let Some(window) = window.upgrade() {
                 window.imp().finish_starting(&owned_id);
             }
         });
-        self.load_changed_handlers
-            .borrow_mut()
-            .insert(id.clone(), handler_id);
+    }
+
+    /// The window was minimised or restored (roadmap item 12 task 04,
+    /// `FR.1.9`): every live account whose keep-awake is off is marked
+    /// invisible to its engine, and every live account is marked visible
+    /// again once the window is no longer minimised — `background_for`
+    /// decides which, reading each account's keep-awake straight off the
+    /// book rather than a copy kept on the holder (architecture rule 8).
+    /// Applying this again for a state that has not actually changed would
+    /// reissue the platform call for nothing, so a repeat is a no-op.
+    fn apply_minimised(&self, minimised: bool) {
+        if self.minimised.replace(minimised) == minimised {
+            return;
+        }
+
+        let book = self.book.borrow();
+        for (id, holder) in self.holders.borrow().iter() {
+            let Some(view) = holder.view() else {
+                continue;
+            };
+            let keep_awake = book
+                .workspaces()
+                .find_map(|workspace| workspace.book().session(id))
+                .is_some_and(Session::is_kept_awake);
+            view.set_background(background_for(minimised, keep_awake));
+        }
+    }
+
+    /// Runs the window's own keyboard shortcuts for `key` under `modifiers`:
+    /// F5 / `Ctrl`+R reloads the focused view, and `Ctrl` plus a zoom key
+    /// steps the focused account's zoom (item 09). Returns whether the key
+    /// was consumed.
+    ///
+    /// Both the GTK key controller wired in `constructed` (Linux, and
+    /// Windows whenever a GTK widget — not a game's `WebView2` child window —
+    /// holds focus) and, on Windows, `EngineHost`'s `AcceleratorKeyPressed`
+    /// subscription (roadmap item 12 task 03) call this one function, so the
+    /// two engines can never disagree about what a shortcut does. `pub(crate)`
+    /// for that second caller in `web_engine/webview2`, across the module
+    /// boundary but inside the one crate (architecture rules 8, 12).
+    pub(crate) fn handle_shortcut_key(&self, key: gdk::Key, modifiers: gdk::ModifierType) -> bool {
+        let ctrl = modifiers.contains(gdk::ModifierType::CONTROL_MASK);
+
+        if key == gdk::Key::F5 || (ctrl && key == gdk::Key::r) {
+            self.grid.reload_focused();
+            return true;
+        }
+
+        if ctrl && let Some(step) = zoom_step_for(key) {
+            self.zoom_focused_account(step);
+            return true;
+        }
+
+        false
     }
 
     /// A window-level zoom gesture from the keyboard: step the account in the
@@ -1409,7 +1448,12 @@ impl Window {
     /// its place. Both the keyboard branch here and task 05's wheel branch land
     /// here, so the two can never disagree. A no-op for an id the book does not
     /// hold.
-    fn apply_zoom_step(&self, id: &SessionId, step: ZoomStep) {
+    ///
+    /// `pub(crate)`: on Windows, `web_engine/webview2.rs`'s ipc handler routes
+    /// the bridge script's wheel-zoom message here too (roadmap item 12 task
+    /// 03) — a third caller, same reasoning as `handle_shortcut_key`, so
+    /// Linux's wheel gesture and Windows' can never disagree either.
+    pub(crate) fn apply_zoom_step(&self, id: &SessionId, step: ZoomStep) {
         let resolved = match step {
             ZoomStep::In => self.book.borrow_mut().zoom_in(id),
             ZoomStep::Out => self.book.borrow_mut().zoom_out(id),
@@ -1513,8 +1557,11 @@ fn liveness_anywhere(book: &WorkspaceBook, id: &SessionId) -> Option<Liveness> {
 const ZOOM_SAVE_SETTLE_MILLIS: u64 = 500;
 
 /// Which way a zoom gesture steps.
+// `pub(crate)`: `web_engine/webview2.rs`'s ipc handler constructs this too
+// (roadmap item 12 task 03), across the module boundary but inside the one
+// crate.
 #[derive(Debug, Clone, Copy)]
-pub(super) enum ZoomStep {
+pub(crate) enum ZoomStep {
     /// One step larger.
     In,
     /// One step smaller.

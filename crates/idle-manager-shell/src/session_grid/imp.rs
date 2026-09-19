@@ -18,14 +18,14 @@ use gtk::CompositeTemplate;
 use gtk::gdk;
 use gtk::glib;
 use gtk::graphene;
+use gtk::prelude::*;
 use gtk::subclass::prelude::*;
 use gtk4 as gtk;
 
 use idle_manager_core::{Layout, Liveness, SessionId, SlotId, Visibility, WorkspaceBook};
-use webkit6::prelude::*;
-use webkit6::{LoadEvent, WebView};
 
 use crate::slot_placeholder::SlotPlaceholder;
+use crate::web_engine::EngineView;
 
 /// A handler run when the user clicks a slot to focus it.
 type SlotFocusHandler = Box<dyn Fn(SlotId)>;
@@ -60,6 +60,13 @@ const DROP_HIGHLIGHT_ALPHA: f32 = 0.18;
 /// double-remove a source that already fired.
 struct Readout {
     label: gtk::Label,
+    /// The readout's own native surface on Windows, where a `WebView2` child
+    /// window always draws above a plain overlay layer (roadmap item 12 task
+    /// 05, design rule 14). `label` is its child; showing and hiding the
+    /// figure is `popup()`/`popdown()` on this instead of `label`'s own
+    /// visibility. Absent on Linux, where the overlay layer still wins.
+    #[cfg(windows)]
+    popover: gtk::Popover,
     timer: RefCell<Option<glib::SourceId>>,
 }
 
@@ -67,6 +74,20 @@ struct Readout {
 struct SlotEntry {
     id: SessionId,
     overlay: gtk::Overlay,
+    /// The widget actually parented to the grid: `overlay` itself on Linux,
+    /// or, on Windows, the vertical box wrapping the `.grip-strip` row above
+    /// it and `overlay` below (design rule 14, [`mount_grip`]). Every place
+    /// that used to parent, unparent or allocate `overlay` directly now goes
+    /// through this instead, so a Windows slot's strip moves and sizes with
+    /// its place. The two are the same widget on Linux — `mount_grip`
+    /// upcasts `overlay` unchanged — so nothing there actually changes.
+    mount: gtk::Widget,
+    /// The engine view currently in the overlay, or `None` while the account
+    /// is parked or restored with no view built yet. Kept here, not read back
+    /// off the overlay's child, so [`SessionGrid::reload_focused`] can reload
+    /// it without downcasting a raw widget to an engine-specific type — the
+    /// grid stays engine-neutral (architecture rule 6).
+    view: RefCell<Option<EngineView>>,
     /// The name cover drawn under the view until the page paints.
     cover: gtk::Box,
     /// The cover's name label, kept so [`SessionGrid::sync`] can refresh it
@@ -84,6 +105,12 @@ struct SlotEntry {
     /// forced hidden by [`SessionGrid::sync`] for an off-grid entry or in the
     /// `Single` layout, where there is nowhere to drop an account.
     grip: gtk::Image,
+    /// The `.grip-strip` row above this place on Windows, shown only while
+    /// the place actually holds a live game there is somewhere to move
+    /// ([`sync_grip_strip`], design rules 4 and 14). Absent on Linux, where
+    /// the grip is an overlay layer over the place with no row of its own.
+    #[cfg(windows)]
+    strip: gtk::Box,
     placement: Visibility,
 }
 
@@ -211,7 +238,9 @@ impl ObjectImpl for SessionGrid {
             if let Some(timer) = entry.readout.timer.borrow_mut().take() {
                 timer.remove();
             }
-            entry.overlay.unparent();
+            #[cfg(windows)]
+            entry.readout.popover.unparent();
+            entry.mount.unparent();
         }
     }
 }
@@ -235,7 +264,7 @@ impl SessionGrid {
     /// Registers a brand-new account with its first running view already in
     /// its slot. The cover carries the name until the page paints; the
     /// placeholder is built hidden.
-    pub(super) fn add_session(&self, id: &SessionId, display_name: &str, view: &WebView) {
+    pub(super) fn add_session(&self, id: &SessionId, display_name: &str, view: &EngineView) {
         self.register_slot(id, display_name, Some(view));
     }
 
@@ -247,7 +276,7 @@ impl SessionGrid {
         self.register_slot(id, display_name, None);
     }
 
-    fn register_slot(&self, id: &SessionId, display_name: &str, view: Option<&WebView>) {
+    fn register_slot(&self, id: &SessionId, display_name: &str, view: Option<&EngineView>) {
         let overlay = gtk::Overlay::new();
 
         let (cover, cover_label) = build_cover(display_name);
@@ -258,12 +287,13 @@ impl SessionGrid {
         placeholder.set_button_label("Start");
         overlay.add_overlay(&placeholder);
 
-        let readout = build_readout();
+        let readout = build_readout(&overlay);
+        #[cfg(not(windows))]
         overlay.add_overlay(&readout.label);
 
         let grip_handle = build_grip();
-        overlay.add_overlay(&grip_handle);
         self.wire_grip(&overlay, &grip_handle, id, display_name);
+        let mount = mount_grip(&overlay, &grip_handle);
 
         // The wheel-zoom controller goes on the overlay, not the view: the
         // overlay lives for the account's whole life while the view is
@@ -329,7 +359,7 @@ impl SessionGrid {
 
         match view {
             Some(view) => {
-                overlay.set_child(Some(view));
+                overlay.set_child(Some(&view.widget()));
                 hide_cover_once_painted(view, &cover);
                 placeholder.set_state_text("Parked");
                 placeholder.set_visible(false);
@@ -342,11 +372,15 @@ impl SessionGrid {
             }
         }
 
-        overlay.set_parent(&*self.obj());
+        mount.widget.set_parent(&*self.obj());
 
         self.slots.borrow_mut().push(SlotEntry {
             id: id.clone(),
             overlay,
+            mount: mount.widget,
+            #[cfg(windows)]
+            strip: mount.strip,
+            view: RefCell::new(view.cloned()),
             cover,
             cover_label,
             placeholder,
@@ -410,11 +444,25 @@ impl SessionGrid {
         // keeps the grip's own state authoritative.
         let chip_text = name.to_owned();
         let begin_handle = handle.clone();
+        #[cfg(windows)]
+        let begin_owner = self.obj().downgrade();
         source.connect_drag_begin(move |_source, drag| {
             let chip = gtk::Label::new(Some(&chip_text));
             chip.add_css_class("drag-chip");
             gtk::DragIcon::for_drag(drag).set_child(Some(&chip));
             begin_handle.set_visible(false);
+
+            // Every live game, not just this one, shrinks to nothing for the
+            // drag's duration — the drop highlight and slot lines are GTK
+            // overlay drawing, and a `WebView2` child window would draw over
+            // them the same way it would over a grip or a cover (design rule
+            // 14, roadmap item 12 task 05). `connect_drag_end` below is what
+            // restores them, once the swap or fill this drag might end in has
+            // already re-seated the slots.
+            #[cfg(windows)]
+            if let Some(owner) = begin_owner.upgrade() {
+                owner.imp().collapse_live_views();
+            }
         });
         // Restores the grip once the drag ends — dropped, cancelled, or
         // Escaped — if the pointer is still over this place; a plain
@@ -435,11 +483,47 @@ impl SessionGrid {
             if end_hover.contains_pointer() && owner.imp().layout.get() != Layout::Single {
                 end_handle.set_visible(true);
             }
+
+            // Reads each host's allocation fresh, so a game whose slot moved
+            // in a swap or fill restores into its new place, not its old one
+            // (`EngineHost::restore`'s own doc comment).
+            #[cfg(windows)]
+            owner.imp().restore_live_views();
         });
 
         claim.group_with(&source);
         handle.add_controller(claim);
         handle.add_controller(source);
+    }
+
+    /// Shrinks every live account's hosted view to nothing (design rule 14,
+    /// roadmap item 12 task 05). Windows only: on Linux the grid's own
+    /// overlay already draws above the page, so a drag's drop highlight and
+    /// slot lines need no help winning the airspace.
+    #[cfg(windows)]
+    fn collapse_live_views(&self) {
+        use crate::web_engine::EngineHost;
+        for entry in self.slots.borrow().iter() {
+            if let Some(view) = entry.view.borrow().as_ref()
+                && let Ok(host) = view.widget().downcast::<EngineHost>()
+            {
+                host.collapse();
+            }
+        }
+    }
+
+    /// Reverses [`SessionGrid::collapse_live_views`] once a drag ends,
+    /// dropped or cancelled.
+    #[cfg(windows)]
+    fn restore_live_views(&self) {
+        use crate::web_engine::EngineHost;
+        for entry in self.slots.borrow().iter() {
+            if let Some(view) = entry.view.borrow().as_ref()
+                && let Ok(host) = view.widget().downcast::<EngineHost>()
+            {
+                host.restore();
+            }
+        }
     }
 
     /// Whether `id` is the account sitting in the focused slot. False for an
@@ -463,11 +547,7 @@ impl SessionGrid {
         let Some(entry) = slots.iter().find(|entry| entry.placement == focused) else {
             return;
         };
-        if let Some(view) = entry
-            .overlay
-            .child()
-            .and_then(|child| child.downcast::<WebView>().ok())
-        {
+        if let Some(view) = entry.view.borrow().as_ref() {
             tracing::debug!(session = %entry.id, "reloading the focused view");
             view.reload();
         }
@@ -482,12 +562,14 @@ impl SessionGrid {
         let Some(entry) = slots.iter().find(|entry| &entry.id == id) else {
             return;
         };
+        entry.view.borrow_mut().take();
         entry.overlay.set_child(None::<&gtk::Widget>);
         entry.cover.set_visible(false);
         entry.placeholder.set_state_text("Parked");
         entry.placeholder.set_button_label("Start");
         entry.placeholder.set_button_sensitive(true);
         entry.placeholder.set_visible(true);
+        sync_grip_strip(entry, self.layout.get());
         tracing::debug!(session = %id, "parked: showing the slot placeholder");
     }
 
@@ -496,21 +578,22 @@ impl SessionGrid {
     /// disabled, and covers the blank loading view until the page paints. The
     /// `SlotEntry` and its placement are unchanged. A no-op for an account the
     /// grid has no entry for.
-    pub(super) fn attach_view(&self, id: &SessionId, view: &WebView) {
+    pub(super) fn attach_view(&self, id: &SessionId, view: &EngineView) {
         let slots = self.slots.borrow();
         let Some(entry) = slots.iter().find(|entry| &entry.id == id) else {
             return;
         };
-        entry.overlay.set_child(Some(view));
+        entry.overlay.set_child(Some(&view.widget()));
+        *entry.view.borrow_mut() = Some(view.clone());
         entry.cover.set_visible(false);
         entry.placeholder.set_state_text("Starting");
         entry.placeholder.set_button_sensitive(false);
+        collapse_view_until_painted(view);
+        sync_grip_strip(entry, self.layout.get());
 
         let placeholder = entry.placeholder.clone();
-        view.connect_load_changed(move |_, event| {
-            if matches!(event, LoadEvent::Committed | LoadEvent::Finished) {
-                placeholder.set_visible(false);
-            }
+        view.connect_painted(move || {
+            placeholder.set_visible(false);
         });
         tracing::debug!(session = %id, "starting: view attached behind the placeholder");
         self.obj().queue_allocate();
@@ -533,7 +616,9 @@ impl SessionGrid {
         if let Some(timer) = entry.readout.timer.borrow_mut().take() {
             timer.remove();
         }
-        entry.overlay.unparent();
+        #[cfg(windows)]
+        entry.readout.popover.unparent();
+        entry.mount.unparent();
         self.obj().queue_allocate();
     }
 
@@ -552,7 +637,7 @@ impl SessionGrid {
             timer.remove();
         }
         readout.label.set_text(figure);
-        readout.label.set_visible(true);
+        show_readout(&readout, &entry.overlay);
 
         let armed = Rc::downgrade(&readout);
         let timer = glib::timeout_add_local_once(
@@ -560,7 +645,7 @@ impl SessionGrid {
             move || {
                 if let Some(readout) = armed.upgrade() {
                     readout.timer.borrow_mut().take();
-                    readout.label.set_visible(false);
+                    hide_readout(&readout);
                 }
             },
         );
@@ -597,6 +682,9 @@ impl SessionGrid {
             if single || entry.placement == Visibility::OffGrid {
                 entry.grip.set_visible(false);
             }
+            // The row the grip lives in on Windows follows the same rule one
+            // step further: no live game in this place, no strip above it.
+            sync_grip_strip(entry, self.layout.get());
         }
 
         let obj = self.obj();
@@ -639,7 +727,7 @@ impl SessionGrid {
                     )
                 }
             };
-            entry.overlay.size_allocate(&allocation, -1);
+            entry.mount.size_allocate(&allocation, -1);
         }
     }
 
@@ -852,49 +940,192 @@ fn apply_placeholder(placeholder: &SlotPlaceholder, panel: Option<PlaceholderPan
     placeholder.set_visible(true);
 }
 
-/// Hides `cover` the first time `view` commits a page — the name shows on the
+/// Hides `cover` the first time `view` paints — the name shows on the
 /// window's own background until then, and the live page covers it after.
-fn hide_cover_once_painted(view: &WebView, cover: &gtk::Box) {
+/// Also collapses `view` until then on Windows ([`collapse_view_until_painted`]).
+fn hide_cover_once_painted(view: &EngineView, cover: &gtk::Box) {
+    collapse_view_until_painted(view);
+
     let cover = cover.clone();
-    view.connect_load_changed(move |_, event| {
-        if matches!(event, LoadEvent::Committed | LoadEvent::Finished) {
-            cover.set_visible(false);
-        }
+    view.connect_painted(move || {
+        cover.set_visible(false);
     });
+}
+
+/// Shrinks `view`'s hosted native window to nothing until its page first
+/// paints, so whatever GTK draws over that place in the meantime — the name
+/// cover ([`hide_cover_once_painted`]), the "Starting" placeholder
+/// ([`SessionGrid::attach_view`]) — is not hidden underneath a `WebView2`
+/// child window that would otherwise always win the airspace (design rule
+/// 14, roadmap item 12 task 05). A no-op on Linux, where the grid's own
+/// overlay already draws above the page, and where `EngineView::widget()`
+/// is not an [`crate::web_engine::EngineHost`] to downcast to at all.
+#[cfg_attr(not(windows), allow(unused_variables))]
+fn collapse_view_until_painted(view: &EngineView) {
+    #[cfg(windows)]
+    {
+        use crate::web_engine::EngineHost;
+        let Ok(host) = view.widget().downcast::<EngineHost>() else {
+            return;
+        };
+        host.collapse();
+        let restore_host = host.clone();
+        view.connect_painted(move || {
+            restore_host.restore();
+        });
+    }
 }
 
 /// The transient zoom figure for one place: a short label on its own opaque
 /// ground, centred horizontally and low in the place so it never covers what
 /// the reader is adjusting (item 09 wireframe). Hidden until a gesture.
-fn build_readout() -> Rc<Readout> {
+///
+/// On Windows the label is the child of its own [`gtk::Popover`], parented to
+/// `overlay`, instead of another overlay layer — a native `WebView2` child
+/// window would otherwise always draw over it (design rule 14). The popover
+/// takes no focus and ignores clicks (`can_focus(false)`, `can_target(false)`)
+/// to stay true to design rule 10's "acknowledgement only, never an action,"
+/// and `has_arrow(false)`/`autohide(false)` because it is a transient figure,
+/// not a menu. [`show_readout`] and [`hide_readout`] are what actually show
+/// and hide it; the label's own visibility only matters on Linux.
+#[cfg_attr(not(windows), allow(unused_variables))]
+fn build_readout(overlay: &gtk::Overlay) -> Rc<Readout> {
     let label = gtk::Label::new(None);
     label.add_css_class("zoom-readout");
     label.set_halign(gtk::Align::Center);
     label.set_valign(gtk::Align::End);
-    label.set_margin_bottom(24);
-    label.set_visible(false);
+
+    #[cfg(windows)]
+    let popover = {
+        let popover = gtk::Popover::new();
+        popover.set_autohide(false);
+        popover.set_has_arrow(false);
+        popover.set_can_focus(false);
+        popover.set_can_target(false);
+        popover.set_child(Some(&label));
+        popover.set_parent(overlay);
+        popover
+    };
+    #[cfg(not(windows))]
+    {
+        label.set_margin_bottom(24);
+        label.set_visible(false);
+    }
 
     Rc::new(Readout {
         label,
+        #[cfg(windows)]
+        popover,
         timer: RefCell::new(None),
     })
 }
 
-/// The drag grip for a place's top-right corner (item 10 task 04's new
-/// pattern): the overlay child itself, not wrapped in a positioning box —
-/// wrapping it would need `can-target = false` on the wrapper or it would
-/// take every click in that corner away from the game underneath
-/// (`FR.14.4`). Hidden until the pointer hovers the place.
+/// Shows `readout`'s current figure over `overlay`'s place: on Windows, a
+/// fresh `pointing_to` at the overlay's current bottom centre (`24px` up,
+/// matching the Linux label's own `margin_bottom`) and `popup()`, so it
+/// tracks a resized place the way the Linux label already does through plain
+/// layout; a plain overlay-layer show on Linux, unchanged.
+#[cfg_attr(not(windows), allow(unused_variables))]
+fn show_readout(readout: &Readout, overlay: &gtk::Overlay) {
+    #[cfg(windows)]
+    {
+        let point = gdk::Rectangle::new(overlay.width() / 2, (overlay.height() - 24).max(0), 1, 1);
+        readout.popover.set_pointing_to(Some(&point));
+        readout.popover.popup();
+    }
+    readout.label.set_visible(true);
+}
+
+/// Reverses [`show_readout`]: `popdown()` on Windows, hiding the label either
+/// way.
+fn hide_readout(readout: &Readout) {
+    #[cfg(windows)]
+    readout.popover.popdown();
+    readout.label.set_visible(false);
+}
+
+/// The drag grip for a place (item 10 task 04's new pattern, moved to its own
+/// strip above the place on Windows by [`mount_grip`] — design rule 14).
+/// Hidden until the pointer hovers the place.
 fn build_grip() -> gtk::Image {
     let grip = gtk::Image::from_icon_name("list-drag-handle-symbolic");
     grip.add_css_class("slot-grip");
     grip.set_halign(gtk::Align::End);
     grip.set_valign(gtk::Align::Start);
-    grip.set_margin_top(6);
-    grip.set_margin_end(6);
     grip.set_visible(false);
     grip.set_cursor(gdk::Cursor::from_name("grab", None).as_ref());
+    #[cfg(windows)]
+    grip.set_hexpand(true);
+    #[cfg(not(windows))]
+    {
+        grip.set_margin_top(6);
+        grip.set_margin_end(6);
+    }
     grip
+}
+
+/// Mounts `grip` where it belongs and returns the widget `register_slot`
+/// parents to the grid (design rule 14, roadmap item 12 task 05, code
+/// standards rule 6): on Linux, unchanged — `grip` becomes another overlay
+/// layer over `overlay`, and `overlay` itself is what gets parented, exactly
+/// as before this task. On Windows — where a `WebView2` child window would
+/// always draw over an overlaid grip — `grip` instead goes at the trailing
+/// end of a `.grip-strip` row (its old per-widget margins now the strip's own
+/// padding, in CSS), stacked above `overlay` in a new vertical box, and that
+/// box is what gets parented instead.
+fn mount_grip(overlay: &gtk::Overlay, grip: &gtk::Image) -> SlotMount {
+    #[cfg(windows)]
+    {
+        let strip = gtk::Box::new(gtk::Orientation::Horizontal, 0);
+        strip.add_css_class("grip-strip");
+        strip.append(grip);
+        // Built hidden: a place is off-grid until the first `sync`, and an
+        // empty row above a place nothing can be dragged out of is exactly
+        // what `sync_grip_strip` exists to keep off the screen.
+        strip.set_visible(false);
+
+        let column = gtk::Box::new(gtk::Orientation::Vertical, 0);
+        overlay.set_vexpand(true);
+        column.append(&strip);
+        column.append(overlay);
+        SlotMount {
+            widget: column.upcast(),
+            strip,
+        }
+    }
+    #[cfg(not(windows))]
+    {
+        overlay.add_overlay(grip);
+        SlotMount {
+            widget: overlay.clone().upcast(),
+        }
+    }
+}
+
+/// What [`mount_grip`] built for one place: `widget` is what `register_slot`
+/// parents to the grid, and `strip` — Windows only — is the `.grip-strip` row
+/// whose visibility follows the place's own state ([`sync_grip_strip`]).
+struct SlotMount {
+    widget: gtk::Widget,
+    #[cfg(windows)]
+    strip: gtk::Box,
+}
+
+/// Shows `entry`'s grip strip only where its grip could ever appear: the
+/// place holds a live game, sits on the grid, and `layout` has somewhere else
+/// to drop it. A parked, queued or off-grid place shows the plain panel with
+/// no empty row above it, exactly as on Linux (design rules 4 and 14) — the
+/// grip's own hover rule still decides whether the row has anything in it.
+/// A no-op on Linux, where the grip is an overlay layer and there is no row
+/// to show or hide ([`mount_grip`]).
+#[cfg_attr(not(windows), allow(unused_variables))]
+fn sync_grip_strip(entry: &SlotEntry, layout: Layout) {
+    #[cfg(windows)]
+    entry.strip.set_visible(
+        layout != Layout::Single
+            && entry.placement != Visibility::OffGrid
+            && entry.view.borrow().is_some(),
+    );
 }
 
 /// Installs `session-grid.css` on the default display once. The provider is

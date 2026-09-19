@@ -18,11 +18,10 @@ use std::time::Duration;
 use gtk::glib;
 use gtk::subclass::prelude::*;
 use gtk4 as gtk;
-use webkit6::prelude::*;
-use webkit6::{LoadEvent, WebView};
 
 use idle_manager_core::SessionId;
 
+use crate::web_engine::EngineView;
 use crate::window::Window;
 
 /// How long the queue waits for one account's page to report itself loaded
@@ -91,16 +90,16 @@ impl StartQueue {
         self.arm_next(&view);
     }
 
-    /// Advances on `view`'s load-finished signal or on
-    /// [`LOAD_SETTLE_TIMEOUT_SECS`], whichever comes first. A one-shot guard
-    /// makes sure only the first of the two moves the queue on.
-    fn arm_next(&self, view: &WebView) {
+    /// Advances on `view`'s first paint or on [`LOAD_SETTLE_TIMEOUT_SECS`],
+    /// whichever comes first. A one-shot guard makes sure only the first of
+    /// the two moves the queue on.
+    fn arm_next(&self, view: &EngineView) {
         let fired = Rc::new(Cell::new(false));
 
         let on_settled = self.0.downgrade_handler();
         let guard = Rc::clone(&fired);
-        view.connect_load_changed(move |_, event| {
-            if !matches!(event, LoadEvent::Finished) || guard.replace(true) {
+        view.connect_painted(move || {
+            if guard.replace(true) {
                 return;
             }
             on_settled.run();
