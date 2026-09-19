@@ -15,6 +15,8 @@ use std::path::{Path, PathBuf};
 
 use idle_manager_core::{MemoryProbe, MemoryProbeError, MemoryReading};
 
+use crate::tree::{self, ProcessEntry};
+
 /// Where the process table lives on a running system. Overridden in tests with
 /// [`ProcPssProbe::under`], which is the whole reason the walk takes a root
 /// rather than hard-coding this.
@@ -173,7 +175,7 @@ impl ProcPssProbe {
     /// read and held no `Pss:` line.
     pub fn read_tree(&self) -> Result<ProcessTreeReading, ProcPssError> {
         let table = self.read_process_table()?;
-        let order = descend_from(self.own_pid, &table);
+        let order = tree::descend_from(self.own_pid, &table);
 
         let mut read = Vec::with_capacity(order.len());
         for pid in order {
@@ -297,12 +299,6 @@ impl MemoryProbe for ProcPssProbe {
     }
 }
 
-/// One process table row: its command name and its parent.
-struct ProcessEntry {
-    command: String,
-    parent: u32,
-}
-
 impl ProcessEntry {
     fn parse(status: &str) -> Option<Self> {
         let mut command = None;
@@ -319,27 +315,6 @@ impl ProcessEntry {
             parent: parent?,
         })
     }
-}
-
-/// The given pid and every descendant of it, breadth first, from a parent map.
-fn descend_from(root: u32, table: &HashMap<u32, ProcessEntry>) -> Vec<u32> {
-    let mut children: HashMap<u32, Vec<u32>> = HashMap::new();
-    for (&pid, entry) in table {
-        children.entry(entry.parent).or_default().push(pid);
-    }
-    for kids in children.values_mut() {
-        kids.sort_unstable();
-    }
-
-    let mut order = Vec::new();
-    let mut queue = std::collections::VecDeque::from([root]);
-    while let Some(pid) = queue.pop_front() {
-        order.push(pid);
-        for &child in children.get(&pid).map(Vec::as_slice).unwrap_or_default() {
-            queue.push_back(child);
-        }
-    }
-    order
 }
 
 /// Sums every `Pss:` line's kibibyte figure, or `None` when there is no such

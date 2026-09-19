@@ -6,5 +6,6 @@
 //! pages once per process.
 
 mod proc_pss;
+mod tree;
 
 pub use proc_pss::{ProcPssError, ProcPssProbe, ProcessKind, ProcessMemory, ProcessTreeReading};
