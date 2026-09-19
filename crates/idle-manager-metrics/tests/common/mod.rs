@@ -66,6 +66,37 @@ impl FakeProc {
         self
     }
 
+    /// Adds a zombie: exited but not yet reaped, so its `status` is still
+    /// there — `State: Z` — while the kernel refuses its `smaps_rollup` with
+    /// `ESRCH` and serves its `smaps` as an empty file. Captured against a live
+    /// one (`xdg-terminal-ex`, pid 306036, 2026-09-19); the refused rollup is
+    /// modelled as absent, which the probe treats the same way.
+    pub(crate) fn process_zombie(&self, pid: u32, command: &str, parent: u32) -> &Self {
+        self.write(
+            pid,
+            "status",
+            &format!("Name:\t{command}\nState:\tZ (zombie)\nPPid:\t{parent}\n"),
+        );
+        self.write(pid, "smaps", "");
+        self
+    }
+
+    /// Adds a process whose `smaps` is there but cannot be read for a reason
+    /// other than being absent. It is made a directory so the read fails with
+    /// `EISDIR` whoever runs the tests; a mode-000 file would still read as
+    /// root.
+    pub(crate) fn process_with_unreadable_smaps(
+        &self,
+        pid: u32,
+        command: &str,
+        parent: u32,
+    ) -> &Self {
+        self.write_status(pid, command, parent);
+        fs::create_dir_all(self.root.join(pid.to_string()).join("smaps"))
+            .expect("create the directory standing in for smaps");
+        self
+    }
+
     /// Adds a process with the given raw `smaps_rollup` contents.
     pub(crate) fn process_with_rollup(
         &self,
