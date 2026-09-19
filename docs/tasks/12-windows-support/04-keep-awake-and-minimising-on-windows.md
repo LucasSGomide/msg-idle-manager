@@ -76,9 +76,9 @@ approach, and it needs its own before-and-after measurement.
 
 ## Acceptance criteria
 
-- [ ] `(unit)` `background_for` returns `true` only for minimised with
+- [x] `(unit)` `background_for` returns `true` only for minimised with
       keep-awake off, and `false` for the other three combinations
-- [ ] `(integration)` `make windows-check` and `make verify` pass
+- [x] `(integration)` `make windows-check` and `make verify` pass
 - [ ] `(manual)` in the Windows VM, with the tick page in a keep-awake account and the
       window minimised for 60 s, the log shows about 10 ticks per second
       throughout

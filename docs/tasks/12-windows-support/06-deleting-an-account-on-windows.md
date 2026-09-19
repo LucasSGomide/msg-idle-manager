@@ -47,23 +47,40 @@ account survives.
 
 ## Technical details
 
-- **Architecture** — `EngineProfile::delete(done)` on Windows closes the
-  account's live view if one exists and gets the environment's
-  `ICoreWebView2Profile` for the account's profile name. Through `ffi.rs` it
-  calls `ICoreWebView2Profile8::Delete` and completes `done` on the profile's
-  `Deleted` event, on the GTK main context (architecture rule 10). On Linux,
-  `delete` wraps the existing clear-website-data step, so
-  `account_deletion.rs` calls one engine-neutral operation.
+- **Architecture** — `EngineProfile::delete(view)` on Windows reaches the
+  account's `ICoreWebView2Profile` **through its live view**, not through the
+  environment. Through `ffi.rs` it calls `ICoreWebView2Profile8::Delete` and
+  completes on the profile's `Deleted` event, on the GTK main context
+  (architecture rule 10). On Linux, `delete` wraps the existing
+  clear-website-data step, so `account_deletion.rs` calls one engine-neutral
+  operation.
+
+  **Corrected while implementing:** this bullet first said the environment
+  hands out an `ICoreWebView2Profile` for a profile name. It does not —
+  `webview2-com` 0.39.1 exposes exactly one way to reach a profile,
+  `ICoreWebView2_13::Profile()` on a live `ICoreWebView2`, and there is no
+  look-up by name on `ICoreWebView2Environment` at all. So the view is
+  **not** closed first: the engine is asked while the view is still alive,
+  and the engine closes the profile's own views itself as part of `Delete`.
+  That is why `deletion_steps` puts `EngineDelete` before `DropHolder` on both
+  engines, and an account that is already parked has no view to ask through,
+  which is one of the two cases the fallback below covers.
 - **Architecture** — `account_deletion.rs` becomes engine-neutral. The order is
   engine `delete`, then drop of the view, holder and profile, then item 11's
   quarter-second wait, then the existing `ProfileRemoval::remove` of
   `profiles/<id>/`. Linux keeps item 11's measured order exactly.
-- **Architecture** — fallback. If `cast::<ICoreWebView2Profile8>()` fails on the
-  installed runtime, `delete` waits for the view's controller to close and then
-  removes `<engine_data_root>/EBWebView/<profile name>/` (verify the exact
-  folder name on the machine and record it). It reports a filesystem error
-  through the same `done` result. The path taken is logged at `info` with the
-  runtime version.
+- **Architecture** — fallback, for either of two cases: the runtime refuses
+  one of the three COM steps (`ICoreWebView2_13`, `ICoreWebView2Profile8`, the
+  `Deleted` subscription), or the account is parked and has no view to ask
+  through at all. `delete` then removes
+  `<engine_data_root>/EBWebView/<profile name>/` itself, off the main thread,
+  and reports a filesystem error through the same result. A folder already
+  gone counts as deleted (`FR.21.11`). The path taken is logged at `info` with
+  the runtime version (`wry::webview_version`). **The `EBWebView` folder name
+  is still documented-not-measured** — no Windows runtime was available to
+  confirm it — so `PROFILE_SUBFOLDER` in `web_engine/webview2.rs` carries a
+  `TODO(12)` and the manual VM step is what settles it. A wrong name there
+  costs a stale folder, never a wrong deletion.
 - **Architecture** — a failed engine deletion maps to item 11's existing error
   state with its `Retry` and `Close`. `Retry` runs the whole sequence again, and
   a profile already gone counts as deleted (Session Management `FR.21.11`).
@@ -74,11 +91,11 @@ account survives.
 
 ## Acceptance criteria
 
-- [ ] `(unit)` `deletion_steps` lists engine delete, drop, wait, then folder
+- [x] `(unit)` `deletion_steps` lists engine delete, drop, wait, then folder
       removal for both engines, and the Linux list equals item 11's order
-- [ ] `(integration)` the existing store `ProfileRemoval` tests still pass,
+- [x] `(integration)` the existing store `ProfileRemoval` tests still pass,
       including a folder already gone counting as removed
-- [ ] `(integration)` `make windows-check` and `make verify` pass
+- [x] `(integration)` `make windows-check` and `make verify` pass
 - [ ] `(manual)` in the Windows VM, deleting one of two logged-in accounts of the same
       game removes it from the sidebar and grid, removes its profile folder
       inside the engine folder and its `profiles/<id>/` folder, and the other

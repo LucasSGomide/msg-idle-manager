@@ -120,18 +120,18 @@ virtual machine that runs inside a container on the Linux development machine.
 
 ## Acceptance criteria
 
-- [ ] `(integration)` `make windows-check` exits 0 on the Linux dev machine
-- [ ] `(integration)` `cargo tree -p idle-manager-shell --target
+- [x] `(integration)` `make windows-check` exits 0 on the Linux dev machine
+- [x] `(integration)` `cargo tree -p idle-manager-shell --target
       x86_64-unknown-linux-gnu -e normal` lists no `wry`, `webview2-com` or
       `gdk4-win32`
-- [ ] `(integration)` `make arch-check` fails when `wry` is temporarily added to
+- [x] `(integration)` `make arch-check` fails when `wry` is temporarily added to
       `idle-manager-store`'s Windows dependencies, and passes once it is removed
-- [ ] `(unit)` the profile-name check accepts every identifier the session
+- [x] `(unit)` the profile-name check accepts every identifier the session
       book mints and rejects a 65-character name and a name containing `/`
-- [ ] `(unit)` `place_bounds` adds the surface transform to the widget origin
+- [x] `(unit)` `place_bounds` adds the surface transform to the widget origin
       and keeps the widget's size, and an origin outside the window stays
       outside
-- [ ] `(integration)` `make windows-build` produces
+- [x] `(integration)` `make windows-build` produces
       `dist/idle-manager-dev/idle-manager.exe` on the Linux dev machine, and
       `engine_data_root()` ends in `idle-manager/webview2`
 - [ ] `(manual)` in the Windows VM, launching with two saved accounts of the same game

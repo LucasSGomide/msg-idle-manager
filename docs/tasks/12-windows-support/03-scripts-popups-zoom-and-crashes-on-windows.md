@@ -89,13 +89,13 @@ slice.
 
 ## Acceptance criteria
 
-- [ ] `(unit)` the ipc message parser maps `{"handler":"zoomStep","body":-1}`
+- [x] `(unit)` the ipc message parser maps `{"handler":"zoomStep","body":-1}`
       to a zoom-out step, a `pageConsole` message to a console entry, and
       malformed JSON to a logged rejection with no panic
-- [ ] `(unit)` the virtual-key mapping turns `VK_OEM_PLUS`, `VK_ADD`,
+- [x] `(unit)` the virtual-key mapping turns `VK_OEM_PLUS`, `VK_ADD`,
       `VK_OEM_MINUS`, `VK_SUBTRACT`, `0` and `VK_NUMPAD0` with `Ctrl` into the
       keyvals the window's zoom shortcuts match
-- [ ] `(integration)` `make windows-check` and `make verify` pass
+- [x] `(integration)` `make windows-check` and `make verify` pass
 - [ ] `(manual)` in the Windows VM, a page's `console.log("x")` appears in the
       application's debug log under the account's session field
 - [ ] `(manual)` in the Windows VM, `Ctrl`+`+` twice then `Ctrl`+`0` with a game

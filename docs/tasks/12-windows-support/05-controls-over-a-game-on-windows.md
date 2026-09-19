@@ -92,7 +92,7 @@ it run alongside the slices working on the engine and on memory figures.
 
 ## Acceptance criteria
 
-- [ ] `(integration)` `make windows-check` and `make verify` pass
+- [x] `(integration)` `make windows-check` and `make verify` pass
 - [ ] `(manual)` on Linux, the grip, the zoom readout, the loading cover and the
       drop highlight look and behave exactly as before
 - [ ] `(manual)` in the Windows VM, hovering a live game shows the grip in a strip
@@ -121,7 +121,7 @@ it run alongside the slices working on the engine and on memory figures.
   `FR.1.8`
 - [`docs/architecture.md`](../../architecture.md) — rules 8, 10, 12
 - [`docs/code-standards.md`](../../code-standards.md) — rules 6, 18
-- [`docs/design.md`](../../design.md) — rules 4, 10
+- [`docs/design.md`](../../design.md) — rules 4, 10, 14 (added by this task)
 
 ## Implement with
 

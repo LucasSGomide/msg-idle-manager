@@ -83,7 +83,7 @@ failure are shown inside a chooser without a modal of their own.
 
 | # | Item | Est | Depends on | Status |
 |---|---|---|---|---|
-| [12](12-windows-support/README.md) | Running natively on Windows | 13 | 05, 11 | not-started |
+| [12](12-windows-support/README.md) | Running natively on Windows | 13 | 05, 11 | in-progress |
 | [08](08-crash-recovery/README.md) | Surviving a crashed game | 5 | 03 | not-started |
 
 ## Blocked
