@@ -147,6 +147,8 @@ impl ObjectImpl for Window {
         self.grid.set_vexpand(true);
         self.content.append(&self.grid);
 
+        arm_debug_minimise(&self.obj());
+
         let window = self.obj().downgrade();
         self.grid.connect_slot_focused(move |slot| {
             if let Some(window) = window.upgrade() {
@@ -1603,4 +1605,33 @@ fn describe_read_error(error: &WorkspaceReadError) -> String {
             )
         }
     }
+}
+
+/// Setting this in the environment to a number of seconds makes the window
+/// minimise itself that long after it is built (roadmap item 13 task 02's
+/// minimised-snapshot measurement). A headless X server has no window manager
+/// to iconify through, and a hand-run test cannot time a minimise against the
+/// frame dump, so the window does it to itself. Off unless set; a value that
+/// is not a number is ignored with a warning.
+const DEBUG_MINIMISE_ENV: &str = "IDLE_MANAGER_MINIMISE_AFTER_SECS";
+
+/// Arms [`DEBUG_MINIMISE_ENV`]'s timer when the variable is set.
+fn arm_debug_minimise(window: &super::Window) {
+    let Some(raw) = std::env::var_os(DEBUG_MINIMISE_ENV) else {
+        return;
+    };
+    let Some(secs) = raw.to_str().and_then(|value| value.parse::<u64>().ok()) else {
+        tracing::warn!(
+            variable = DEBUG_MINIMISE_ENV,
+            "not a number of seconds; ignored"
+        );
+        return;
+    };
+    let weak = window.downgrade();
+    glib::timeout_add_local_once(Duration::from_secs(secs), move || {
+        if let Some(window) = weak.upgrade() {
+            tracing::info!(after_secs = secs, "debug switch: minimising the window");
+            window.minimize();
+        }
+    });
 }
