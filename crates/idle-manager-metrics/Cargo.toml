@@ -10,6 +10,16 @@ idle-manager-core.workspace = true
 thiserror.workspace = true
 tracing.workspace = true
 
+# No PSS on Windows (task 02): `process_tree.rs` walks the process tree with
+# `CreateToolhelp32Snapshot` and reads each process with `K32GetProcessMemoryInfo`.
+[target.'cfg(windows)'.dependencies]
+windows = { workspace = true, features = [
+    "Win32_Foundation",
+    "Win32_System_Diagnostics_ToolHelp",
+    "Win32_System_ProcessStatus",
+    "Win32_System_Threading",
+] }
+
 [dev-dependencies]
 rstest.workspace = true
 

@@ -23,9 +23,20 @@ gtk4 = { version = "0.11", features = ["v4_10"] }
 webkit6 = "0.6"
 glib-build-tools = "0.22"
 
+# Windows only (roadmap item 12): the WebView2 engine seam. `wry` must never
+# compile on Linux — it pulls in the GTK 3 `webkit2gtk`, which clashes with
+# `webkit6` — so every crate below is taken under
+# `[target.'cfg(windows)'.dependencies]`, never as an ordinary dependency.
+wry = "0.57"
+webview2-com = "0.39"
+gdk4-win32 = { version = "0.11", features = ["win32"] }
+raw-window-handle = "0.6"
+windows = "0.62"
+
 anyhow = "1.0"
 directories = "6.0"
 serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
 thiserror = "2.0"
 toml = "1.1"
 tracing = "0.1"
