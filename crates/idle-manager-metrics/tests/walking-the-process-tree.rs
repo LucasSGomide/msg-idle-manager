@@ -2,6 +2,11 @@
 //! pid — sandboxes and all — reads each process's proportional set size from
 //! `smaps_rollup` or a `smaps` fallback, counts only what it actually read, and
 //! keeps a refusal distinct from a malformed read.
+//!
+//! `ProcPssProbe` reads `/proc`, so this whole file is Linux-only, the same
+//! way `idle-manager-store`'s `#[cfg(unix)]`-gated tests are (roadmap item 12
+//! task 07).
+#![cfg(target_os = "linux")]
 
 mod common;
 
