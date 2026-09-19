@@ -71,20 +71,20 @@ conflicting with them.
 
 ## Acceptance criteria
 
-- [ ] `(unit)` `tree::descend_from` keeps every existing case from
+- [x] `(unit)` `tree::descend_from` keeps every existing case from
       `proc_pss.rs` passing after the move
-- [ ] `(unit)` `private_bytes` returns `PrivateWorkingSetSize` when it is
+- [x] `(unit)` `private_bytes` returns `PrivateWorkingSetSize` when it is
       non-zero and `PrivateUsage` when it is zero
-- [ ] `(unit)` `reading_from` puts the application's own figure and the sum of
+- [x] `(unit)` `reading_from` puts the application's own figure and the sum of
       its descendants into the same `MemoryReading` fields `ProcPssProbe` fills,
       with the process count including the application itself
-- [ ] `(unit)` a descendant list with one process missing (exited mid-walk)
+- [x] `(unit)` a descendant list with one process missing (exited mid-walk)
       yields a reading from the rest, not an error
-- [ ] `(integration)` `make windows-check` and `make verify` pass, and the
+- [x] `(integration)` `make windows-check` and `make verify` pass, and the
       Linux metrics integration tests pass unchanged
-- [ ] `(integration)` `make arch-check` still passes with `windows` in the
+- [x] `(integration)` `make arch-check` still passes with `windows` in the
       metrics crate only
-- [ ] `(manual)` in the Windows VM, with four live accounts, the footer's figure is
+- [x] `(manual)` in the Windows VM, with four live accounts, the footer's figure is
       within 5% of the sum of Task Manager's "Memory (private working set)"
       over `idle-manager.exe` and its `msedgewebview2.exe` children
 

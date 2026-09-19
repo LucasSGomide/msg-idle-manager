@@ -12,12 +12,43 @@ glib.workspace = true
 gtk4.workspace = true
 thiserror.workspace = true
 tracing.workspace = true
+# Parses `webview2-bridge.js`'s `window.ipc.postMessage(JSON.stringify(...))`
+# payloads (task 03) — `wry`'s `with_ipc_handler` hands the shell a raw
+# string, unlike WebKit's own structured message object. Not windows-gated,
+# even though nothing on Linux builds the parser for real: the parser is
+# `cfg(any(windows, test))`, same as `web_engine/profile_name.rs`, so it needs
+# `serde_json` available for a Linux `cargo test` too (architecture rule 14).
+serde.workspace = true
+serde_json.workspace = true
+
+# `webkit6` exists only on Linux (`docs/tasks/12-windows-support`'s task 01).
+[target.'cfg(target_os = "linux")'.dependencies]
 # v2_42: the feature-list API (`Settings::all_features`,
 # `Settings::set_feature_enabled`) that keep-awake (item 04) needs was added in
 # libwebkit2gtk 2.42; the workspace-wide dependency does not enable it because
 # no other crate needs it. `docs/stack.md`'s floor is 2.40, so this bumps the
 # shell's own floor above the workspace's until stack.md's is raised to match.
 webkit6 = { workspace = true, features = ["v2_42"] }
+
+# The WebView2 engine seam (task 02). `wry` must never build on Linux — it
+# pulls in the GTK 3 `webkit2gtk`, which clashes with `webkit6` above.
+[target.'cfg(windows)'.dependencies]
+wry.workspace = true
+webview2-com.workspace = true
+gdk4-win32.workspace = true
+raw-window-handle.workspace = true
+# `Win32_Foundation`: `HWND`/`BOOL`/`HANDLE`, the FFI surface every call below
+# crosses. `Win32_UI_WindowsAndMessaging`: the virtual-key and modifier
+# constants `ffi.rs` maps `AcceleratorKeyPressed` through to a GDK keyval.
+# `Win32_System_Com`: `ICoreWebView2*` COM interfaces. `Win32_UI_Input_KeyboardAndMouse`:
+# `GetKeyState`/`VK_CONTROL`, since `AcceleratorKeyPressedEventArgs` carries no
+# modifier state of its own (task 03).
+windows = { workspace = true, features = [
+    "Win32_Foundation",
+    "Win32_System_Com",
+    "Win32_UI_Input_KeyboardAndMouse",
+    "Win32_UI_WindowsAndMessaging",
+] }
 
 [build-dependencies]
 glib-build-tools.workspace = true

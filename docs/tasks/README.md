@@ -8,8 +8,8 @@ this task's `test-script.md` section written and run.
 
 A folder lives from breakdown until the item's branch lands — through review and
 merge, not just until the boxes are ticked. It is retired only once the roadmap
-item's header carries `Landed:` or `Merged:`. Items 01–07 and 09–11 are `done`.
+item's header carries `Landed:` or `Merged:`. Items 01–07 and 09–12 are `done`.
 
 | # | Roadmap item | Tasks | Progress | Status |
 |---|---|---|---|---|
-| [12](12-windows-support/) | Running natively on Windows | 8 | 0/8 | not-started |
+| [12](12-windows-support/) | Running natively on Windows | 8 | 8/8 | done |

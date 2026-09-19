@@ -208,3 +208,30 @@ citations, so append rather than reorder.
     second marker on the heading itself would repeat that answer, not add one.
     An expander arrow is the heading's only affordance, expanding or collapsing
     and never switching (roadmap item 11).
+
+14. **A control that must reach the user over a native child window a
+    platform's own engine draws — not GTK — gets its own row of chrome next
+    to the content instead of an overlay layer on top of it; a transient
+    figure that must still win that airspace gets its own native surface
+    instead.** Every earlier overlay rule in this file (4, 6, 9, 10) assumes
+    GTK draws the whole stack, so its own z-order settles who wins. On
+    Windows a game's page is a `WebView2` child window the platform's own
+    compositor always draws above anything GTK overlays in the same area,
+    so an overlaid grip or readout would simply not be seen
+    (`session_grid/imp.rs` `mount_grip`, `build_readout`, roadmap item 12
+    task 05). The drag grip moves into a thin `.grip-strip` row above the
+    place, using the window's own background because it is now a real part
+    of the chrome, not a control floating over live content. Being chrome,
+    that row exists only where the control it carries could: a place with no
+    live game — parked, queued or waiting to start — shows the plain panel
+    of rule 4 with no row above it, and so does a place in a layout with
+    nowhere to drag an account to (`session_grid/imp.rs`
+    `sync_grip_strip`). The zoom
+    readout moves into a `gtk::Popover` — its own native surface, so it still
+    draws above the page — kept `can_focus(false)` and `can_target(false)`
+    so it stays true to rule 10's "acknowledgement only, never an action."
+    Both keep every other rule's shape, place and timing unchanged; only
+    *how* they reach the screen differs. Linux needs none of this — its
+    overlay keeps working exactly as rules 4, 6, 9 and 10 already describe —
+    so this rule only ever adds a platform branch, never replaces the
+    overlay itself.

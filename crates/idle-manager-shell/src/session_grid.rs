@@ -10,7 +10,8 @@ use gtk::subclass::prelude::*;
 use gtk4 as gtk;
 
 use idle_manager_core::{SessionId, SlotId, WorkspaceBook};
-use webkit6::WebView;
+
+use crate::web_engine::EngineView;
 
 glib::wrapper! {
     /// A container widget: every child is an account's web view, allocated the
@@ -63,7 +64,7 @@ impl SessionGrid {
     /// Adds `view` as the slot content for `session`, showing `display_name`
     /// centred until the page paints. The view is placed off-grid until the
     /// next [`SessionGrid::sync`].
-    pub fn add_session(&self, session: &SessionId, display_name: &str, view: &WebView) {
+    pub fn add_session(&self, session: &SessionId, display_name: &str, view: &EngineView) {
         self.imp().add_session(session, display_name, view);
     }
 
@@ -100,7 +101,7 @@ impl SessionGrid {
     /// Puts a restarted account's new view back into the slot it still holds,
     /// behind the placeholder panel, which stays up reading `Starting` until
     /// the page paints. A no-op if the grid has no entry for `session`.
-    pub fn attach_view(&self, session: &SessionId, view: &WebView) {
+    pub fn attach_view(&self, session: &SessionId, view: &EngineView) {
         self.imp().attach_view(session, view);
     }
 

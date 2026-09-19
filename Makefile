@@ -22,10 +22,26 @@ CARGO ?= cargo
 PACKAGE := idle-manager
 RUST_LOG ?= idle_manager=debug,idle_manager_core=debug,idle_manager_shell=debug
 
+# Roadmap item 12: cross-compiling and cross-linting the Windows build from
+# Linux. The version is pinned here, not in the fetch script, so bumping it is
+# a one-line, one-commit change (`docs/stack.md`'s version-policy rule).
+GVSBUILD_VERSION := 2026.8.0
+WINDOWS_TARGET := x86_64-pc-windows-msvc
+WINDOWS_SDK_DIR := target/windows-sdk/gtk
+WINDOWS_PKG_CONFIG := target/windows-sdk/pkg-config-wrapper.sh
+# The Visual C++ runtime the release zip carries beside the program (task 08).
+# gvsbuild's DLLs and ours all import it and none of them ship it, so without
+# this a clean Windows install cannot start the program at all. Pinned by
+# package id, the same way the GTK build above is pinned by version; the
+# manifest keeps older ids, so bumping this stays a one-line change.
+WINDOWS_CRT_PACKAGE := Microsoft.VC.14.44.17.14.CRT.Redist.X64.base
+WINDOWS_CRT_DIR := target/windows-sdk/crt
+
 .DEFAULT_GOAL := help
 
 .PHONY: help bootstrap system-check dev run watch build release check fmt fmt-check lint \
-        test doc audit arch-check verify clean memory-report
+        test doc audit arch-check windows-check windows-build windows-package verify clean \
+        memory-report
 
 help:  ## list every target
 	@grep -hE '^[a-zA-Z0-9_-]+:.*##' $(MAKEFILE_LIST) | sort | awk 'BEGIN { FS = ":.*## " } { printf "  \033[36m%-14s\033[0m %s\n", $$1, $$2 }'
@@ -35,9 +51,12 @@ help:  ## list every target
 bootstrap:  ## install the pinned toolchain and the cargo tools, then check the C libraries
 	@command -v rustup >/dev/null || { echo "install rustup first: https://rustup.rs"; exit 1; }
 	rustup show active-toolchain
-	$(CARGO) install --locked cargo-nextest cargo-deny cargo-watch
+	rustup target add $(WINDOWS_TARGET)
+	$(CARGO) install --locked cargo-nextest cargo-deny cargo-watch cargo-xwin
 	$(CARGO) fetch
 	@./scripts/system-check.sh
+	GVSBUILD_VERSION=$(GVSBUILD_VERSION) WINDOWS_SDK_DIR=$(WINDOWS_SDK_DIR) ./scripts/windows-sdk-fetch.sh
+	WINDOWS_CRT_DIR=$(WINDOWS_CRT_DIR) WINDOWS_CRT_PACKAGE=$(WINDOWS_CRT_PACKAGE) ./scripts/windows-crt-fetch.sh
 
 system-check:  ## report the C libraries cargo cannot install for you
 	@./scripts/system-check.sh
@@ -93,7 +112,38 @@ arch-check:  ## fail if a crate depends on a layer it must not
 doc: system-check  ## build the API docs and open them
 	$(CARGO) doc --workspace --no-deps --open
 
-verify: fmt-check lint test audit arch-check roadmap-check  ## everything CI runs
+verify: fmt-check lint test audit arch-check windows-check roadmap-check  ## everything CI runs
+
+# --- windows (roadmap item 12) -----------------------------------------------
+
+# `pkg-config` trusts the prefix baked into each `.pc` file at gvsbuild's own
+# build time (`C:/gtk-build/...`), which is meaningless here — `--define-prefix`
+# makes it compute the prefix from the `.pc` file's own location instead. The
+# `pkg-config` crate reads `PKG_CONFIG` as a full override naming the binary to
+# run, so a tiny wrapper script is the way to inject that one flag (measured
+# working 2026-09-17; task 02's own "Unverified" bullet on the roadmap item).
+$(WINDOWS_PKG_CONFIG):
+	@mkdir -p $(dir $@)
+	@printf '#!/bin/sh\nexec pkg-config --define-prefix "$$@"\n' > $@
+	@chmod +x $@
+
+windows-check: system-check $(WINDOWS_PKG_CONFIG)  ## type-check and lint the Windows build from Linux
+	PKG_CONFIG_ALLOW_CROSS=1 PKG_CONFIG_PATH=$(abspath $(WINDOWS_SDK_DIR))/lib/pkgconfig PKG_CONFIG=$(abspath $(WINDOWS_PKG_CONFIG)) \
+		$(CARGO) clippy --workspace --all-targets --target $(WINDOWS_TARGET) -- --deny warnings
+
+# PROFILE=release for an optimised build, e.g. `make windows-build PROFILE=release`.
+windows-build: $(WINDOWS_PKG_CONFIG)  ## cross-compile idle-manager.exe into dist/idle-manager-dev/
+	PKG_CONFIG_ALLOW_CROSS=1 PKG_CONFIG_PATH=$(abspath $(WINDOWS_SDK_DIR))/lib/pkgconfig PKG_CONFIG=$(abspath $(WINDOWS_PKG_CONFIG)) \
+		$(CARGO) xwin build --locked --target $(WINDOWS_TARGET) -p $(PACKAGE) $(if $(filter release,$(PROFILE)),--release)
+	@mkdir -p dist/idle-manager-dev
+	cp target/$(WINDOWS_TARGET)/$(if $(filter release,$(PROFILE)),release,debug)/idle-manager.exe dist/idle-manager-dev/
+	cp $(WINDOWS_SDK_DIR)/bin/*.dll dist/idle-manager-dev/
+
+windows-package: $(WINDOWS_PKG_CONFIG)  ## build the release exe and zip it with GTK's runtime parts for handing out
+	$(MAKE) windows-build PROFILE=release
+	WINDOWS_CRT_DIR=$(WINDOWS_CRT_DIR) WINDOWS_CRT_PACKAGE=$(WINDOWS_CRT_PACKAGE) ./scripts/windows-crt-fetch.sh
+	WINDOWS_SDK_DIR=$(WINDOWS_SDK_DIR) WINDOWS_TARGET=$(WINDOWS_TARGET) PACKAGE=$(PACKAGE) \
+		WINDOWS_CRT_DIR=$(WINDOWS_CRT_DIR) CARGO=$(CARGO) ./scripts/windows-package.sh
 
 # --- diagnosis --------------------------------------------------------------
 

@@ -3,7 +3,22 @@
 
 [advisories]
 yanked = "deny"
-ignore = []
+ignore = [
+  # RUSTSEC-2024-0370 (`proc-macro-error` unmaintained). Reached only through
+  # `wry`'s own optional Linux backend (`gtk 0.18` / `webkit2gtk` /
+  # `glib-macros 0.18`), which this project never activates: `wry` is a
+  # Windows-only dependency (`[target.'cfg(windows)'.dependencies]` in
+  # `idle-manager-shell`), and `docs/tasks/12-windows-support/02-…`'s own
+  # `cargo tree -p idle-manager-shell --target x86_64-unknown-linux-gnu`
+  # criterion proves it never resolves into a Linux build. `cargo-deny`
+  # audits the whole lock file regardless of which target activates which
+  # edge — `[graph] targets` restricts by target triple, not by which crate's
+  # *own* `cfg` gate reached a dependency, so it cannot narrow this one away
+  # (tried 2026-09-17: still pulled in `webkit2gtk`, which shares the
+  # `x86_64-unknown-linux-gnu` we do need for our real, `webkit6`-based
+  # dependencies). No upgrade exists (the advisory's own "Solution" line).
+  "RUSTSEC-2024-0370",
+]
 
 [licenses]
 confidence-threshold = 0.9

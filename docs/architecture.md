@@ -26,8 +26,9 @@ One binary, five crates, one direction of dependency.
              ▼                ▼                 ▼                │
   ┌────────────────────┐ ┌──────────────┐ ┌──────────────────┐   │
   │ idle-manager-shell │ │ …-store      │ │ …-metrics        │   │
-  │ GTK 4, WebKitGTK   │ │ XDG, presets │ │ /proc PSS        │   │
-  │ widgets, web views │ │ session file │ │ sampling         │   │
+  │ GTK 4, WebKitGTK   │ │ XDG, presets │ │ /proc PSS on     │   │
+  │ or WebView2        │ │ session file │ │ Linux, process   │   │
+  │ widgets, web views │ │              │ │ tree on Windows  │   │
   └─────────┬──────────┘ └──────┬───────┘ └────────┬─────────┘   │
             └───────────────────┴──────────────────┴─────────────┘
                                  ▼
@@ -142,13 +143,17 @@ idle-manager/
 │       ├── resources/
 │       │   ├── idle-manager.gresource.xml
 │       │   ├── ui/session-grid.ui   one file per widget, kebab-case
-│       │   └── js/keep-awake.js     the document-start user script
+│       │   ├── js/keep-awake.js     the document-start user script
+│       │   └── js/webview2-bridge.js  Windows only: the window.ipc shim
 │       └── src/
 │           ├── lib.rs
 │           ├── window.rs            + window/imp.rs
 │           ├── session_grid.rs      + session_grid/imp.rs
 │           ├── session_sidebar.rs   + session_sidebar/imp.rs
-│           └── web_view.rs          network session and web view lifecycle
+│           ├── web_view.rs          account settings and view lifecycle
+│           └── web_engine.rs        the engine seam (roadmap item 12):
+│                                     web_engine/webkit.rs on Linux,
+│                                     web_engine/webview2.rs on Windows
 ├── presets/                         hand-editable game presets, kebab-case TOML
 ├── scripts/                         repo tooling, called from the Makefile
 └── docs/                            the planning tree, per project.yml
@@ -160,7 +165,8 @@ idle-manager/
 | --- | --- |
 | A rule about session state, layout or retries | `idle-manager-core` |
 | Anything read from or written to disk | `idle-manager-store` |
-| Anything read from `/proc` | `idle-manager-metrics` |
+| Anything read from `/proc`, or Windows' process tree | `idle-manager-metrics` |
 | A widget, a web view, a signal handler | `idle-manager-shell` |
+| Anything naming `WebKitGTK` or `WebView2` directly | `idle-manager-shell/src/web_engine/` (roadmap item 12) |
 | Knowing which adapter is used | `crates/idle-manager/src/main.rs` |
 | A game's starting URL, user agent or zoom | `presets/<game>.toml` |

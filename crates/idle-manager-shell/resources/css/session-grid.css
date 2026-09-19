@@ -33,3 +33,14 @@
   color: #ffffff;
   font-weight: bold;
 }
+
+/* The Windows-only grip strip above a live game (roadmap item 12 task 05,
+ * design rule 14): a native `WebView2` child window always draws over
+ * anything GTK overlays on top of it, so the grip moves to its own row above
+ * the place instead. The window's own background, not the grip's opaque
+ * ground above, because this is a real part of the chrome now, not a control
+ * floating over live content. */
+.grip-strip {
+  padding: 6px;
+  background-color: @window_bg_color;
+}

@@ -344,3 +344,64 @@ same-game-same-moment comparison, so this does not settle whether disabling
 WebGL saves anything measurable for a game that does not need it; it is
 recorded here because it is the only paired measurement taken, not because it
 proves the feature's premise.
+
+## Windows 11 VM (item 12 task 08)
+
+The comparison this project exists to win, on the other platform: four live
+accounts against the same four games open as tabs in Microsoft Edge, both read
+the same way. Recorded here whatever the answer, per task 08.
+
+**Conditions** — fixed by `scripts/windows-vm/compose.yml` and this repository,
+so they are recorded now; the figures below are not.
+
+- **Machine:** the `dockurr/windows` VM from
+  [`docs/windows-vm.md`](windows-vm.md) — Windows 11 Enterprise, 4 cores,
+  8 GiB RAM, 64 GiB disk, under QEMU/KVM.
+- **Rendering:** software. The VM has no GPU, which is why hardware
+  acceleration and idle-processor figures are deliberately not measured here
+  ([ditched 01](ditched/01-windows-gpu-and-cpu-measurements.md)).
+- **GTK:** the gvsbuild release pinned in the `Makefile` (`GVSBUILD_VERSION`,
+  2026.8.0 at the time of writing), shipped inside the release zip
+  `make windows-package` builds.
+- **Engine:** the WebView2 runtime Windows itself ships; its version is what
+  the application logs on a deletion (`path=…, runtime=…`) and is to be
+  recorded with the readings.
+- **Build profile:** release — the zip is the artefact under test, not a dev
+  build (`make windows-package` builds `PROFILE=release`).
+- **Measure:** the sidebar footer's own figure for the application, against
+  Task Manager's "Memory (private working set)" summed over `idle-manager.exe`
+  and its `msedgewebview2.exe` children; the same private-working-set measure
+  summed over Edge's processes for the tabs.
+- **Sampling:** four accounts idle for ten minutes, then three footer readings
+  a couple of minutes apart — the interval stated, unlike the item 05 samples
+  above, whose unrecorded window is a gap this section exists not to repeat.
+
+**Readings: not taken.** No Windows machine or VM was available in the session
+that built the package (Docker Desktop gives containers no `/dev/kvm`; the
+setup needs Docker Engine — `docs/windows-vm.md`). The package, the Windows
+memory probe (task 07) and the footer it feeds are all in place and cross-
+compile, so the measurement is runnable as written; nothing here should be read
+as a claim about what it will show. Task 08's `(manual)` criteria stay unticked
+until the three readings and Edge's are actually recorded in this section.
+
+If the Windows figure comes out above Edge's, the first remedy is already
+chosen and not yet needed: ask the engine to use less memory for off-grid
+accounts (`ICoreWebView2Controller` memory-usage level, through
+`web_engine/webview2/ffi.rs`), then re-measure and record both rows.
+
+## Linux after item 12
+
+`make memory-report` under the same conditions as the item 05 section above,
+to show the Windows work cost the Linux program nothing.
+
+**Reading: not taken.** This one needs four accounts of real games live for
+long enough to settle, by hand, on the Linux desktop — the same shape of run
+as the original, and not something the headless smoke test used for item 12's
+other slices can stand in for. The claim it would check is narrow and worth
+stating plainly: on Linux, item 12 moved every `WebKitGTK` call behind one
+module (task 01) and added no allocation, no cache and no new process to that
+path; `EngineView::set_background` is a hard no-op there, and the deletion
+order is unchanged from item 11's measured one
+(`account_deletion::deletion_steps`, task 06). The expectation is therefore "no
+change within the noise of the figures above" — which is exactly why it still
+has to be measured rather than asserted.

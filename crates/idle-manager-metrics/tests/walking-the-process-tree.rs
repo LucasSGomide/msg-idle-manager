@@ -4,6 +4,11 @@
 //! keeps a refusal distinct from a malformed read, and lets a descendant it
 //! cannot read — gone, a zombie, refused, malformed — cost the figure one
 //! process rather than the whole sample. Only the own process failing fails it.
+//!
+//! `ProcPssProbe` reads `/proc`, so this whole file is Linux-only, the same
+//! way `idle-manager-store`'s `#[cfg(unix)]`-gated tests are (roadmap item 12
+//! task 07).
+#![cfg(target_os = "linux")]
 
 mod common;
 

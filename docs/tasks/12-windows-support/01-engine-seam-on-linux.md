@@ -79,23 +79,23 @@ later slice builds on it, so it runs alone.
 
 ## Acceptance criteria
 
-- [ ] `(integration)` `rg -l 'webkit6' crates/idle-manager-shell/src` lists only
+- [x] `(integration)` `rg -l 'webkit6' crates/idle-manager-shell/src` lists only
       `web_engine/webkit.rs`
-- [ ] `(integration)` `make verify` passes with no test removed or ignored
+- [x] `(integration)` `make verify` passes with no test removed or ignored
       compared with `main`
-- [ ] `(unit)` the existing `start_queue.rs` next-up tests pass unchanged against
+- [x] `(unit)` the existing `start_queue.rs` next-up tests pass unchanged against
       the engine-neutral queue
-- [ ] `(integration)` `cargo tree -p idle-manager-shell --target
+- [x] `(integration)` `cargo tree -p idle-manager-shell --target
       x86_64-unknown-linux-gnu` still lists `webkit6` 0.6 with `v2_42`
-- [ ] `(manual)` on Linux, launch restores the saved workspace one account at a
+- [x] `(manual)` on Linux, launch restores the saved workspace one account at a
       time, and each place shows the loading cover with the account's name until
       its page paints
-- [ ] `(manual)` on Linux, `Ctrl`+`+` and `Ctrl`+wheel over a focused game each
+- [x] `(manual)` on Linux, `Ctrl`+`+` and `Ctrl`+wheel over a focused game each
       step the zoom and flash the percentage, as before
-- [ ] `(manual)` on Linux, parking then starting an account, killing its
+- [x] `(manual)` on Linux, parking then starting an account, killing its
       `WebKitWebProcess`, and deleting a throwaway account each behave as they
       did before this slice
-- [ ] `(manual)` on Linux, a keep-awake account keeps advancing while the window
+- [x] `(manual)` on Linux, a keep-awake account keeps advancing while the window
       is minimised (item 04's existing test-script step, re-run)
 
 ## References

@@ -128,7 +128,12 @@ Naming is in [`naming.md`](naming.md); crate boundaries are in
 
 28. **Write no `unsafe`.** If glib's `wrapper!` or `object_subclass` expansions
     trip `unsafe_code`, scope an `#[allow(unsafe_code)]` to that `imp` module
-    with a comment — never relax the workspace lint for everyone.
+    with a comment — never relax the workspace lint for everyone. A second
+    case: COM calls, `WindowHandle::borrow_raw` and the Win32 memory calls
+    roadmap item 12's Windows engine needs are `unsafe` by definition — exactly
+    one module per crate, `web_engine/webview2/ffi.rs` in the shell and
+    `process_tree/ffi.rs` in metrics, carries the scoped allow, with a
+    `// SAFETY:` line on every `unsafe` block and only safe functions exposed.
 
 29. **Make `make verify` pass before opening the work for review.** It is
     `fmt-check`, `lint`, `test`, `audit`, `arch-check` and `roadmap-check`, which

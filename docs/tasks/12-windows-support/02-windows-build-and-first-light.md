@@ -120,29 +120,29 @@ virtual machine that runs inside a container on the Linux development machine.
 
 ## Acceptance criteria
 
-- [ ] `(integration)` `make windows-check` exits 0 on the Linux dev machine
-- [ ] `(integration)` `cargo tree -p idle-manager-shell --target
+- [x] `(integration)` `make windows-check` exits 0 on the Linux dev machine
+- [x] `(integration)` `cargo tree -p idle-manager-shell --target
       x86_64-unknown-linux-gnu -e normal` lists no `wry`, `webview2-com` or
       `gdk4-win32`
-- [ ] `(integration)` `make arch-check` fails when `wry` is temporarily added to
+- [x] `(integration)` `make arch-check` fails when `wry` is temporarily added to
       `idle-manager-store`'s Windows dependencies, and passes once it is removed
-- [ ] `(unit)` the profile-name check accepts every identifier the session
+- [x] `(unit)` the profile-name check accepts every identifier the session
       book mints and rejects a 65-character name and a name containing `/`
-- [ ] `(unit)` `place_bounds` adds the surface transform to the widget origin
+- [x] `(unit)` `place_bounds` adds the surface transform to the widget origin
       and keeps the widget's size, and an origin outside the window stays
       outside
-- [ ] `(integration)` `make windows-build` produces
+- [x] `(integration)` `make windows-build` produces
       `dist/idle-manager-dev/idle-manager.exe` on the Linux dev machine, and
       `engine_data_root()` ends in `idle-manager/webview2`
-- [ ] `(manual)` in the Windows VM, launching with two saved accounts of the same game
+- [x] `(manual)` in the Windows VM, launching with two saved accounts of the same game
       restores both, and a login in one does not log the other in
-- [ ] `(manual)` in the Windows VM, with four live accounts, Task Manager shows one
+- [x] `(manual)` in the Windows VM, with four live accounts, Task Manager shows one
       WebView2 browser process under `idle-manager.exe`, not one per account
-- [ ] `(manual)` in the Windows VM at 100% and 150% display scaling (set in
+- [x] `(manual)` in the Windows VM at 100% and 150% display scaling (set in
       Windows' display settings over RDP), switching
       between one, two and four places, resizing and moving the window keeps
       every game exactly inside its place
-- [ ] `(manual)` in the Windows VM with `WEBVIEW2_BROWSER_EXECUTABLE_FOLDER`
+- [x] `(manual)` in the Windows VM with `WEBVIEW2_BROWSER_EXECUTABLE_FOLDER`
       set to an empty folder, launch shows only the missing-runtime dialog,
       `Quit` exits, and the data folder's modification times are unchanged
 

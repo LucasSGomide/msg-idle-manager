@@ -76,21 +76,21 @@ approach, and it needs its own before-and-after measurement.
 
 ## Acceptance criteria
 
-- [ ] `(unit)` `background_for` returns `true` only for minimised with
+- [x] `(unit)` `background_for` returns `true` only for minimised with
       keep-awake off, and `false` for the other three combinations
-- [ ] `(integration)` `make windows-check` and `make verify` pass
-- [ ] `(manual)` in the Windows VM, with the tick page in a keep-awake account and the
+- [x] `(integration)` `make windows-check` and `make verify` pass
+- [x] `(manual)` in the Windows VM, with the tick page in a keep-awake account and the
       window minimised for 60 s, the log shows about 10 ticks per second
       throughout
-- [ ] `(manual)` in the Windows VM, with the tick page in an account whose keep-awake
+- [x] `(manual)` in the Windows VM, with the tick page in an account whose keep-awake
       is off and the window minimised for 60 s, the log shows the throttled
       rate (at most 1 tick per second)
-- [ ] `(manual)` in the Windows VM, turning keep-awake on for the throttled account
+- [x] `(manual)` in the Windows VM, turning keep-awake on for the throttled account
       while minimised brings its log back to about 10 ticks per second within
       a few seconds of the reload
-- [ ] `(manual)` in the Windows VM, restoring the window shows every game where it was,
+- [x] `(manual)` in the Windows VM, restoring the window shows every game where it was,
       drawing normally, with no reload
-- [ ] `(manual)` on Linux, item 04's keep-awake test-script steps still pass
+- [x] `(manual)` on Linux, item 04's keep-awake test-script steps still pass
 
 ## References
 

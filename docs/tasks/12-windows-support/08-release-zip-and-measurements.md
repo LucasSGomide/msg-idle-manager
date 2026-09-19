@@ -61,10 +61,27 @@ and the measurement must be of the real thing.
   - `lib/gdk-pixbuf-2.0/` as gvsbuild ships it;
   - `WebView2Loader.dll`, only if the executable imports it. Check with
     `x86_64-w64-mingw32-objdump -p` or `llvm-objdump --private-headers` and
-    record the answer.
+    record the answer. **Answered while implementing: it does not** — the
+    loader is linked statically, so the zip carries none. The package script
+    re-checks it on every run and says which way it went.
 
   The version is read from `Cargo.toml` with `cargo metadata` (naming rule 1).
   `dist/` is already gitignored.
+- **Architecture — added while implementing: the Visual C++ runtime.** The
+  plan above was incomplete, and the zip built from it could not start on a
+  clean Windows. 66 of the 67 DLLs gvsbuild ships, and the program itself,
+  import `vcruntime140.dll` / `msvcp140.dll`, and gvsbuild ships neither — the
+  missing piece only shows up when every import in the finished package is
+  walked, which is now a step of the package script rather than a thing to
+  remember. `scripts/windows-crt-fetch.sh` (run by `make bootstrap` and again
+  by `make windows-package`) downloads the pinned `WINDOWS_CRT_PACKAGE` from
+  the Visual Studio release channel's manifest, checks its published `sha256`,
+  and unpacks the redistributable DLLs — never the `debug_nonredist` tree
+  beside them, which Microsoft's terms do not allow redistributing — into
+  `target/windows-sdk/crt/`. `windows-package.sh` copies them beside the
+  program and fails if the three the package cannot start without are not
+  there. See `docs/stack.md` for why app-local rather than an installer, and
+  why the `.vsix` rather than `VC_redist.x64.exe`.
 - **Architecture** — `crates/idle-manager/src/main.rs` adds
   `#![cfg_attr(all(windows, not(debug_assertions)), windows_subsystem =
   "windows")]`, so a release build opens no console window. Debug builds keep
@@ -94,19 +111,19 @@ and the measurement must be of the real thing.
 
 ## Acceptance criteria
 
-- [ ] `(integration)` `make verify` passes on Linux, including `windows-check`
-- [ ] `(integration)` `make windows-package` on Linux produces
+- [x] `(integration)` `make verify` passes on Linux, including `windows-check`
+- [x] `(integration)` `make windows-package` on Linux produces
       `dist/idle-manager-<version>-windows-x64.zip` containing
       `idle-manager.exe`, `gtk-4-1.dll` and `gschemas.compiled`
-- [ ] `(manual)` in the Windows VM, unzipping the file from `Z:` to
+- [x] `(manual)` in the Windows VM, unzipping the file from `Z:` to
       `C:\idle-manager` and double-clicking `idle-manager.exe` opens the window
       with icons drawn and no console window
-- [ ] `(manual)` in the Windows VM, adding a game from a shipped preset in the
+- [x] `(manual)` in the Windows VM, adding a game from a shipped preset in the
       unzipped release starts that game in a place
-- [ ] `(manual)` in the Windows VM, the footer figure for four live accounts is
+- [x] `(manual)` in the Windows VM, the footer figure for four live accounts is
       no higher than Edge's private working set with the same four games as tabs,
       and both are recorded in `docs/memory-budget.md`
-- [ ] `(manual)` on Linux, `make memory-report` with four accounts falls within
+- [x] `(manual)` on Linux, `make memory-report` with four accounts falls within
       the noise of the figures already in `docs/memory-budget.md`, recorded as
       "Linux after item 12"
 

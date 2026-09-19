@@ -9,9 +9,15 @@ deliberate act: change it here, change it in the manifest, run `make verify`.
 
 ## Target
 
-Linux desktop, GTK 4 on both X11 and Wayland. Nothing else is supported, and
-nothing in the code should pretend otherwise — the memory accounting reads
-`/proc` and the web engine is WebKitGTK.
+Linux desktop, GTK 4 on both X11 and Wayland, and 64-bit Windows 10 and 11
+(roadmap item 12). Which system a build targets is chosen at compile time,
+never at runtime, and each system's code carries no trace of the other: the
+web engine is `WebKitGTK` on Linux and Microsoft Edge `WebView2` on Windows,
+and the memory accounting reads `/proc` on Linux and walks the process tree
+through `CreateToolhelp32Snapshot` on Windows. The Windows build is developed
+and verified from Linux, cross-compiled with `cargo xwin` and checked against
+the Windows 11 VM in [`docs/windows-vm.md`](windows-vm.md); nobody on the
+project owns a Windows computer.
 
 ## Language and toolchain
 
@@ -25,9 +31,14 @@ nothing in the code should pretend otherwise — the memory accounting reads
 
 | Crate | Version | Role |
 | --- | --- | --- |
-| `gtk4` | 0.11 | Windows, the grid, the sidebar |
-| `webkit6` | 0.6 | One `WebKitWebView` and one `WebKitNetworkSession` per game session |
+| `gtk4` | 0.11 | Windows, the grid, the sidebar, on both systems |
+| `webkit6` | 0.6 | Linux only: one `WebKitWebView` and one `WebKitNetworkSession` per game session |
 | `glib` / `gio` | 0.22 | Main context, async, GObject plumbing |
+| `wry` | 0.57 | Windows only: builds a `WebView2` view as a native child window |
+| `webview2-com` | 0.39 | Windows only: the COM calls `wry` does not wrap (`ProcessFailed`, `AcceleratorKeyPressed`, profile deletion) |
+| `gdk4-win32` | 0.11, `win32` feature | Windows only: the toplevel's `HWND`, for `wry::WebViewBuilder::build_as_child` |
+| `raw-window-handle` | 0.6 | Windows only: the handle type `wry` takes a window as |
+| `windows` | 0.62 | Windows only: the Win32 calls `webview2-com` and `idle-manager-metrics`'s process-tree walk need directly |
 
 These four move together: `webkit6` 0.6 is built against `gtk4` 0.11 and
 `glib`/`gio` 0.22, so all four are bumped in one commit or not at all.
@@ -36,6 +47,13 @@ These four move together: `webkit6` 0.6 is built against `gtk4` 0.11 and
 `webkit6` 0.6 names `gtk::Accessible` unconditionally, `gtk4` 0.11 gates that
 type behind `v4_10`, and nothing in `webkit6` turns the feature on — without it
 the workspace does not compile. It fixes the floors below.
+
+The five Windows-only crates are declared in the workspace root but taken only
+under `crates/idle-manager-shell/Cargo.toml`'s
+`[target.'cfg(windows)'.dependencies]` (`wry` must never build on Linux — it
+pulls in the GTK 3 `webkit2gtk`, which clashes with `webkit6`); `windows` is
+also taken the same way in `idle-manager-metrics`, for its Windows-only memory
+probe.
 
 ## Libraries
 
@@ -59,6 +77,8 @@ the workspace does not compile. It fixes the floors below.
 | `cargo-watch` | Rebuild and rerun on save | `make watch` |
 | `rstest` | Table-driven cases without a macro of our own | dev-dependency |
 | `insta` | Snapshots of the on-disk file format | dev-dependency, `store` |
+| `cargo-xwin` | Supplies the MSVC CRT and Windows SDK import libraries for the cross build | `make windows-build` |
+| `jq`, `zip`, `unzip`, `curl` | Read the Visual Studio manifest and assemble the release zip | `make windows-package` |
 
 ## System packages
 
@@ -86,6 +106,44 @@ are too old, and every target that compiles the workspace runs it first. A
 library that is present but below its floor is the case worth checking for: it
 passes an existence test and then fails deep inside a build script.
 
+**Cross-compiling and cross-linting Windows from Linux.** `make windows-check`
+and `make windows-build` type-check, lint and cross-compile against
+`x86_64-pc-windows-msvc`, but linking still needs the Windows import libraries
+`pkg-config` would normally resolve against a system install. `make bootstrap`
+downloads and unpacks the pinned `GTK4_Gvsbuild_<version>_x64.zip` release into
+`target/windows-sdk/gtk/` and generates a small `pkg-config --define-prefix`
+wrapper script (`target/windows-sdk/pkg-config-wrapper.sh`) — the `.pc` files
+gvsbuild ships bake in the Windows build machine's own path, and
+`--define-prefix` is what makes `pkg-config` compute the real prefix from each
+file's own location instead. `PKG_CONFIG_ALLOW_CROSS`, `PKG_CONFIG_PATH` and
+`PKG_CONFIG` (pointed at the wrapper) are set by the two `make` targets, never
+needed by hand.
+
+**The Visual C++ runtime the release zip carries.** Every DLL gvsbuild builds
+— 66 of the 67 in the package — and the program itself import
+`vcruntime140.dll` and `msvcp140.dll`, and gvsbuild ships neither, so a clean
+Windows install answers a double-click with "VCRUNTIME140.dll was not found".
+`make bootstrap` therefore also downloads the pinned
+`WINDOWS_CRT_PACKAGE` (`Microsoft.VC.14.44.17.14.CRT.Redist.X64.base`,
+Makefile) from the Visual Studio release channel's own manifest into
+`target/windows-sdk/crt/`, and `make windows-package` puts those DLLs beside
+the program in the zip. Three deliberate choices in that:
+
+- **App-local, never installed.** The DLLs sit next to `idle-manager.exe`
+  rather than in the system directory, which is the deployment Microsoft's
+  redistribution terms allow without an installer — and the only one that
+  keeps item 12 task 08's promise of no installer and no administrator
+  rights.
+- **The `.vsix` from the manifest, not `VC_redist.x64.exe`.** A `.vsix` is a
+  plain zip, so `unzip` is the only tool needed; the redistributable installer
+  is self-extracting and would put `7z` or `cabextract` on every developer
+  machine. The manifest also publishes each payload's `sha256`, which
+  `scripts/windows-crt-fetch.sh` checks before unpacking a binary that will be
+  handed to someone else.
+- **Pinned by package id**, the same way the GTK build is pinned by version.
+  The manifest keeps older ids (14.29 through 14.44 at the time of writing),
+  so bumping it stays a one-line, one-commit change.
+
 ## Bootstrap
 
 ```
@@ -95,7 +153,15 @@ make dev                                                         # run it
 ```
 
 `make bootstrap` reads `rust-toolchain.toml`, so the pinned compiler is what gets
-installed. `make verify` is the full gate and is what CI should run.
+installed. It also adds the `x86_64-pc-windows-msvc` rustup target, installs
+`cargo-xwin`, and runs the gvsbuild download above — the first run downloads
+about 300 MiB, and every run after that is a no-op. `make verify` is the full
+gate and is what CI should run; it includes `windows-check`.
+
+The Windows loop, once a change needs trying on the Windows 11 VM: `make
+windows-package` (roadmap item 12 task 08) writes
+`dist/idle-manager-<version>-windows-x64.zip`, then run it in the VM per
+[`docs/windows-vm.md`](windows-vm.md).
 
 ## Version policy
 

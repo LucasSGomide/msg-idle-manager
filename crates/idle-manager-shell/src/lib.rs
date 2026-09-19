@@ -1,5 +1,6 @@
-//! The GTK 4 and `WebKitGTK` adapter: windows, the session grid, the sidebar, and
-//! the web views that host each game.
+//! The GTK 4 adapter: windows, the session grid, the sidebar, and the web
+//! views that host each game, drawn by whichever engine `web_engine` selects
+//! at compile time (`WebKitGTK` on Linux).
 //!
 //! Everything that touches a widget lives here and runs on the GTK main
 //! context. The shell reads domain state and emits intents back to it; it never
@@ -23,33 +24,17 @@ mod session_grid;
 mod session_sidebar;
 mod slot_placeholder;
 mod start_queue;
+mod web_engine;
 mod web_view;
 mod window;
 
-use std::cell::OnceCell;
-
 use gtk::gio;
 use gtk::glib;
+#[cfg(windows)]
+use gtk::prelude::*;
 use gtk4 as gtk;
 
 pub use window::{Window, WindowPorts};
-
-thread_local! {
-    /// The one web context every account's view is built against, carrying the
-    /// memory-pressure settings (`FR.19.4`). A `thread_local` rather than a
-    /// `static OnceLock` because `WebContext` is a glib object and not `Sync`
-    /// (architecture rule 10); it lives on the GTK main context, set once by
-    /// [`configure_web_engine`] before the first view.
-    static SHARED_WEB_CONTEXT: OnceCell<webkit6::WebContext> = const { OnceCell::new() };
-}
-
-/// The shared web context [`configure_web_engine`] built, or `None` if it has
-/// not run yet. `web_view.rs` builds every account's view against this so a
-/// loaded page runs under the memory-pressure settings rather than a default
-/// context created behind the application's back (`FR.19.4`).
-pub(crate) fn shared_web_context() -> Option<webkit6::WebContext> {
-    SHARED_WEB_CONTEXT.with(|cell| cell.get().cloned())
-}
 
 /// The compiled-in UI resource bundle could not be registered.
 #[derive(Debug, thiserror::Error)]
@@ -78,132 +63,72 @@ pub fn register_resources() -> Result<(), ResourceError> {
     Ok(())
 }
 
-/// The memory limit the engine watches its rendering processes against, in
-/// mebibytes (`FR.19.4`, code standards rule 5).
-// `0` is not "no limit": WebKitGTK's `set_memory_limit` guards its argument
-// with `g_return_if_fail(memoryLimit)` — passing `0` logs a GLib critical and
-// leaves the engine's own default in place, documented as "the system's RAM
-// size with a maximum of 3GB" (confirmed against WebKit's
-// `WebKitMemoryPressureSettings.cpp`). That default was silently governing
-// every rendering process instead of a number chosen for this application.
-//
-// The limit is only the base the two fractions below multiply, and what sits
-// past the *strict* fraction is not a one-off trim: on every poll a process
-// above it runs WebKit's critical release — it deletes all compiled
-// JavaScript, destroys decoded image data and collects (WTF
-// `MemoryPressureHandler::measurementTimerFired`, WebCore
-// `releaseCriticalMemory`). A game held there recompiles its code and
-// re-decodes its sprites every poll, forever. The earlier 1024 MiB put strict
-// at 512 MiB, and four Huntera accounts in play measured 557-589 MiB private
-// each (2026-09-12) — every one sat past it permanently, the JIT workers
-// burst every 30 s in step with the poll, and the four rendering processes
-// held the machine at roughly 6.6 of its 8 cores. 3072 MiB puts strict at
-// 1536 MiB, twice the largest rendering process on record (751 MiB), so only
-// a runaway process pays the critical release, and conservative at ~1 GiB,
-// whose release is only style and font caches. It equals the engine's own
-// default ("the system's RAM size with a maximum of 3GB"), now chosen rather
-// than inherited (code standards rule 18).
-const WEB_PROCESS_MEMORY_LIMIT_MIB: u32 = 3072;
-/// A rendering process's measured working set while its game is actually
-/// played — the largest figure on record, one account at 751 MiB
-/// (docs/roadmap/05-memory-accounting/README.md). The strict threshold must
-/// sit above it or the engine discards the game's compiled code on every poll
-/// (see [`WEB_PROCESS_MEMORY_LIMIT_MIB`]'s comment).
-#[cfg(test)]
-const PLAYED_GAME_WORKING_SET_MIB: u32 = 751;
-/// The fraction of the limit at which the engine starts shedding caches it
-/// would otherwise keep (`FR.19.4`). The type's own default, kept: past it the
-/// engine drops only style, font and selector caches — no compiled code, no
-/// decoded images — so crossing it is cheap.
-const CONSERVATIVE_PRESSURE_THRESHOLD: f64 = 0.33;
-/// The fraction of the limit at which the engine collects harder and drops
-/// more (`FR.19.4`) — the expensive release, repeated every poll while the
-/// process stays above it. The type's own default, against the 3072 MiB limit.
-const STRICT_PRESSURE_THRESHOLD: f64 = 0.5;
-/// The kill threshold, held explicitly at `0.0` — disabled. Past a kill
-/// threshold the engine ends the rendering process, discarding whatever the
-/// game has not sent to its own server, which is exactly the loss `UN.9`
-/// exists to prevent; a runaway account is reported by the footer and left to
-/// the user (`FR.19.5`, `FR.20.2`, code standards rule 18). This is a
-/// deliberate product decision, not a placeholder — never raise it above
-/// `0.0` without item 08's crash recovery landing first (see task 06's
-/// context in
-/// docs/tasks/05-memory-accounting/06-telling-the-engine-it-has-a-limit.md).
-const KILL_PRESSURE_THRESHOLD: f64 = 0.0;
-/// How often the engine samples a rendering process's footprint, in seconds
-/// (`FR.19.4`, code standards rule 5). Kept at the type's own default and set
-/// equal to `scripts/memory-report.sh`'s own `DEFAULT_SOAK_INTERVAL_SECS`, so
-/// the engine's internal sampling cadence and this project's external
-/// measurement cadence agree — a before-and-after soak comparison (task 06's
-/// own acceptance criterion) is then comparing samples taken on the same
-/// clock.
-const WEB_PROCESS_MEMORY_POLL_INTERVAL_SECS: f64 = 30.0;
+/// Applies the engine-wide settings the whole application shares. Call once,
+/// after GTK is initialised and before the first web view is built.
+///
+/// A thin entry point onto [`web_engine::EngineShared::configure`] — kept
+/// here as the crate's one public start-up call so `main.rs` never has to
+/// know which engine, or which of its types, backs a session's view
+/// (architecture rules 3, 6).
+#[cfg(target_os = "linux")]
+pub fn configure_web_engine() {
+    web_engine::EngineShared::configure();
+}
 
 /// Applies the engine-wide settings the whole application shares. Call once,
 /// after GTK is initialised and before the first web view is built.
 ///
-/// Builds the one [`webkit6::WebContext`] every account's view is constructed
-/// against and sets on it:
-///
-/// - [`webkit6::CacheModel::DocumentViewer`], the lowest of the three cache
-///   models, so a parked account's memory returns to the operating system
-///   rather than staying with the engine (`FR.5.3`);
-/// - the [`webkit6::MemoryPressureSettings`], a construct-only property, so the
-///   engine sheds caches and collects harder as a rendering process approaches
-///   its limit — which is why the context can no longer be
-///   `WebContext::default()` and has to be built (`FR.19.4`).
-///
-/// The same settings are handed to the one networking process through the
-/// static [`webkit6::NetworkSession::set_memory_pressure_settings`] (`FR.1.3`).
-pub fn configure_web_engine() {
-    let mut pressure = webkit6::MemoryPressureSettings::new();
-    pressure.set_memory_limit(WEB_PROCESS_MEMORY_LIMIT_MIB);
-    pressure.set_conservative_threshold(CONSERVATIVE_PRESSURE_THRESHOLD);
-    pressure.set_strict_threshold(STRICT_PRESSURE_THRESHOLD);
-    pressure.set_kill_threshold(KILL_PRESSURE_THRESHOLD);
-    pressure.set_poll_interval(WEB_PROCESS_MEMORY_POLL_INTERVAL_SECS);
+/// `engine_data_root` roots the one `WebView2` environment every account's
+/// view shares — `main.rs` resolves it through `idle-manager-store`'s
+/// `engine_data_root`, since only the composition root may know that
+/// (architecture rule 3); `None` when it could not be resolved logs a
+/// warning and falls back to the engine's own default location.
+#[cfg(windows)]
+pub fn configure_web_engine(engine_data_root: Option<std::path::PathBuf>) {
+    web_engine::EngineShared::configure(engine_data_root);
+}
 
-    // Engine-wide, set once, before any session is built (`FR.1.3`).
-    let mut for_network = pressure.clone();
-    webkit6::NetworkSession::set_memory_pressure_settings(&mut for_network);
-    tracing::debug!(
-        limit_mib = WEB_PROCESS_MEMORY_LIMIT_MIB,
-        conservative = CONSERVATIVE_PRESSURE_THRESHOLD,
-        strict = STRICT_PRESSURE_THRESHOLD,
-        kill = KILL_PRESSURE_THRESHOLD,
-        "memory-pressure settings applied to the networking process"
-    );
+/// Asks the `WebView2` loader which runtime version is installed, without
+/// building a view. `main.rs` calls this before opening any store (`FR.1.10`)
+/// and shows [`show_missing_engine`] on failure.
+///
+/// # Errors
+///
+/// One line naming why no runtime answered — most often that the `WebView2`
+/// Runtime is not installed at all.
+#[cfg(windows)]
+pub fn runtime_version() -> Result<String, String> {
+    wry::webview_version().map_err(|error| error.to_string())
+}
 
-    let context = webkit6::WebContext::builder()
-        .memory_pressure_settings(&pressure)
+/// Shows the lone start-up dialog for a missing `WebView2` runtime: a
+/// heading, `reason` on its own line, the download address, and one `Quit`
+/// button that ends the application. No account data is read or written
+/// before or after it (`FR.1.10`).
+///
+/// Called instead of building the main window, before any store is opened —
+/// there is no window yet for `docs/design.md` rule 9's message strip to sit
+/// in, which is why this is a dialog of its own rather than that strip (the
+/// new pattern roadmap item 12's front-end section flags).
+#[cfg(windows)]
+pub fn show_missing_engine(app: &gtk::Application, reason: &str) {
+    let dialog = gtk::AlertDialog::builder()
+        .message("Microsoft Edge WebView2 Runtime is required")
+        .detail(format!(
+            "{reason}\n\nInstall it from https://developer.microsoft.com/microsoft-edge/webview2/"
+        ))
+        .buttons(["Quit"])
         .build();
-    context.set_cache_model(webkit6::CacheModel::DocumentViewer);
 
-    SHARED_WEB_CONTEXT.with(|cell| {
-        if cell.set(context).is_err() {
-            tracing::warn!("configure_web_engine ran twice; keeping the first web context");
-        }
+    let app = app.clone();
+    dialog.choose(None::<&gtk::Window>, None::<&gio::Cancellable>, move |_| {
+        app.quit();
     });
-
-    web_view::log_engine_features();
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    /// Past the strict threshold the engine deletes a page's compiled code and
-    /// decoded images on every poll; a game in play must never sit there.
-    #[test]
-    fn the_strict_pressure_threshold_sits_above_a_played_games_working_set() {
-        let strict_mib = f64::from(WEB_PROCESS_MEMORY_LIMIT_MIB) * STRICT_PRESSURE_THRESHOLD;
-
-        assert!(
-            strict_mib >= 2.0 * f64::from(PLAYED_GAME_WORKING_SET_MIB),
-            "strict threshold {strict_mib} MiB must be at least twice the \
-             {PLAYED_GAME_WORKING_SET_MIB} MiB a played game's rendering process uses"
-        );
-    }
 
     #[test]
     fn the_window_template_is_readable_from_the_registered_bundle() {

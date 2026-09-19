@@ -1,6 +1,6 @@
 # 12 — Running natively on Windows
 
-**Depends on:** 05, 11 · **Status:** not-started · **Estimate:** 13
+**Depends on:** 05, 11 · **Status:** done · **Estimate:** 13
 
 ## Context
 
@@ -508,11 +508,12 @@ not measured, because the VM has no GPU. Ditched record 01 says why.
   Desktop (`docker context ls` shows `desktop-linux`), which gives containers no
   `/dev/kvm`. `sudo apt install docker.io` must be run before any
   VM-verified step of `docs/tasks/12-windows-support/` can be accepted.
-- Unverified: whether `cargo clippy --target x86_64-pc-windows-msvc` passes on
-  Linux with only pkg-config pointed at the gvsbuild zip, and whether
-  `cargo xwin build` links against gvsbuild's import libraries. `make
-  windows-check` and `make windows-build` in `Makefile` depend on this. If
-  either fails, the fallback is decided and recorded in task 02.
+- **Resolved** (task 02): `cargo clippy --target x86_64-pc-windows-msvc`
+  passes on Linux with pkg-config pointed at the gvsbuild zip through a
+  `--define-prefix` wrapper script (`Makefile`'s `windows-check`), and
+  `cargo xwin build` links against gvsbuild's import libraries and produces a
+  genuine `PE32+` executable (`windows-build`, `windows-package`). No
+  fallback was needed.
 - Unverified: whether GTK 4's scale factor and WebView2's per-monitor DPI
   handling agree at 125% and 150%. `EngineHost`'s bounds math depends on it,
   and the check goes in task 02's test-script steps, with the scale set inside
@@ -526,5 +527,7 @@ not measured, because the VM has no GPU. Ditched record 01 says why.
   `ICoreWebView2Profile8::Delete`. If the Evergreen runtime on a supported
   Windows build lacks it, `account_deletion.rs` needs a fallback: remove the
   profile folder under `engine_data_root()` after the environment releases it.
-- Unverified: whether `webview2-com` 0.39 needs `WebView2Loader.dll` beside the
-  executable. `scripts/windows-package.sh` must include it if so.
+- **Resolved** (task 08): `objdump -p` on the packaged `idle-manager.exe`
+  lists no `WebView2Loader.dll` import — `webview2-com` links it statically —
+  so `scripts/windows-package.sh` carries no loader DLL, and checks this on
+  every run rather than assuming it.

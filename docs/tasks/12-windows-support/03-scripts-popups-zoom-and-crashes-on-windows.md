@@ -89,24 +89,24 @@ slice.
 
 ## Acceptance criteria
 
-- [ ] `(unit)` the ipc message parser maps `{"handler":"zoomStep","body":-1}`
+- [x] `(unit)` the ipc message parser maps `{"handler":"zoomStep","body":-1}`
       to a zoom-out step, a `pageConsole` message to a console entry, and
       malformed JSON to a logged rejection with no panic
-- [ ] `(unit)` the virtual-key mapping turns `VK_OEM_PLUS`, `VK_ADD`,
+- [x] `(unit)` the virtual-key mapping turns `VK_OEM_PLUS`, `VK_ADD`,
       `VK_OEM_MINUS`, `VK_SUBTRACT`, `0` and `VK_NUMPAD0` with `Ctrl` into the
       keyvals the window's zoom shortcuts match
-- [ ] `(integration)` `make windows-check` and `make verify` pass
-- [ ] `(manual)` in the Windows VM, a page's `console.log("x")` appears in the
+- [x] `(integration)` `make windows-check` and `make verify` pass
+- [x] `(manual)` in the Windows VM, a page's `console.log("x")` appears in the
       application's debug log under the account's session field
-- [ ] `(manual)` in the Windows VM, `Ctrl`+`+` twice then `Ctrl`+`0` with a game
+- [x] `(manual)` in the Windows VM, `Ctrl`+`+` twice then `Ctrl`+`0` with a game
       focused makes the page 110%, 120%, then 100%, and WebView2's own zoom
       popup never appears
-- [ ] `(manual)` in the Windows VM, one `Ctrl`+wheel notch over a game changes its
+- [x] `(manual)` in the Windows VM, one `Ctrl`+wheel notch over a game changes its
       zoom by exactly one step, and the size is still remembered after a
       relaunch (item 09)
-- [ ] `(manual)` in the Windows VM, a game's popup sign-in opens in its own window and
+- [x] `(manual)` in the Windows VM, a game's popup sign-in opens in its own window and
       leaves that account logged in after the popup closes
-- [ ] `(manual)` in the Windows VM, ending one account's renderer process in Task
+- [x] `(manual)` in the Windows VM, ending one account's renderer process in Task
       Manager shows the stopped panel in that place only, and its `Start`
       button brings the game back
 

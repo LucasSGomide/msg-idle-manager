@@ -3,6 +3,15 @@
 
 mod imp;
 
+// `window/imp.rs` keeps its own module private, as every other widget's does
+// (code standards rule 12); this one type is re-exported, Windows only,
+// because `web_engine/webview2/host/imp.rs`'s ipc handler needs to name it
+// (roadmap item 12 task 03), the same reason `Window::handle_shortcut_key`
+// and `Window::apply_zoom_step` are `pub(crate)` methods reachable through
+// `.imp()` from that sibling module.
+#[cfg(windows)]
+pub(crate) use imp::ZoomStep;
+
 use std::rc::Rc;
 use std::sync::Arc;
 

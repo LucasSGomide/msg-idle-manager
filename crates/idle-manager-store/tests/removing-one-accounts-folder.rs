@@ -75,6 +75,9 @@ fn folder_returns_the_same_path_account_profile_dir_gives() {
     );
 }
 
+// Read-only-directory permissions are a Unix concept; Windows' ACL model has
+// no equivalent `set_mode` call (roadmap item 12, "carried over" note).
+#[cfg(unix)]
 #[test]
 fn removing_a_folder_inside_a_read_only_directory_returns_err_with_a_single_line_display() {
     let dir = TempDir::new("profile-removal-read-only");
