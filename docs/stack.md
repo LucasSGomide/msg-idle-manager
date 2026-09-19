@@ -4,7 +4,7 @@ What the project is built from, at which version, and why. Reference material â€
 the rules that constrain it live in [`architecture.md`](architecture.md) and
 [`code-standards.md`](code-standards.md).
 
-Versions below were the current stable releases on 2026-09-06. Bumping one is a
+Versions below were the current stable releases on 2026-09-06; the phone server's (roadmap item 13) on 2026-09-19. Bumping one is a
 deliberate act: change it here, change it in the manifest, run `make verify`.
 
 ## Target
@@ -65,6 +65,14 @@ probe.
 | `thiserror` | 2.0 | Error enums in every library crate |
 | `anyhow` | 1.0 | The binary's top-level error type |
 | `tracing` + `tracing-subscriber` | 0.1 / 0.3 | Structured logs, filtered by `RUST_LOG` |
+| `serde_json` | 1.0 | The phone's wire messages, in `remote` only (roadmap item 13) |
+| `sha1` + `base64` | 0.11 / 0.23 | The one hash and one encoding the RFC 6455 WebSocket handshake needs |
+| `hmac` + `sha2` | 0.13 / 0.11 | The enrolment proof both sides compute over a shared secret, verified in constant time |
+| `rand` | 0.10 | Enrolment codes, device ids, secrets and challenges |
+| `jpeg-encoder` | 0.7 | Frames from raw pixels, single-digit milliseconds at 412 Ã— 915; carries the IJG licence, allowed in `deny.toml` for it |
+| `if-addrs` | 0.15 | Finds the mesh address in `100.64.0.0/10` to listen on |
+| `async-channel` | 2.5 | The intent channel from the server's threads to the GTK main context; no runtime, so no `tokio` |
+| `qrcode` | 0.14 | The enrolment address as a code the phone's camera reads, in `shell` only |
 
 ## Development tooling
 

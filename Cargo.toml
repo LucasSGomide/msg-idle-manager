@@ -11,6 +11,7 @@ publish = false
 [workspace.dependencies]
 idle-manager-core = { path = "crates/idle-manager-core" }
 idle-manager-metrics = { path = "crates/idle-manager-metrics" }
+idle-manager-remote = { path = "crates/idle-manager-remote" }
 idle-manager-shell = { path = "crates/idle-manager-shell" }
 idle-manager-store = { path = "crates/idle-manager-store" }
 
@@ -41,6 +42,18 @@ thiserror = "2.0"
 toml = "1.1"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+# The phone server (roadmap item 13): plain std threads and sockets, so none of
+# these pulls in an async runtime or a GUI toolkit.
+async-channel = "2.5"
+base64 = "0.23"
+hmac = "0.13"
+if-addrs = "0.15"
+jpeg-encoder = "0.7"
+qrcode = "0.14"
+rand = "0.10"
+sha1 = "0.11"
+sha2 = "0.11"
 
 insta = "1.48"
 rstest = "0.26"

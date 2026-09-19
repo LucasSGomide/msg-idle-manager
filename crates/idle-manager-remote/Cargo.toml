@@ -1,0 +1,22 @@
+[package]
+name = "idle-manager-remote"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[dependencies]
+idle-manager-core.workspace = true
+async-channel.workspace = true
+base64.workspace = true
+hmac.workspace = true
+if-addrs.workspace = true
+jpeg-encoder.workspace = true
+rand.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+sha1.workspace = true
+sha2.workspace = true
+
+[lints]
+workspace = true

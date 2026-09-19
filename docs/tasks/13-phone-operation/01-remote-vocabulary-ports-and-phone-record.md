@@ -101,29 +101,29 @@ types exist.
 
 ## Acceptance criteria
 
-- [ ] `(unit)` `RemoteState::from_book` on a book with two workspaces lists
+- [x] `(unit)` `RemoteState::from_book` on a book with two workspaces lists
       every account exactly once under its workspace with its `Liveness`, and
       `current` is the shown workspace's focused session
-- [ ] `(unit)` `Presence` reports attached after `attach` and a heartbeat,
+- [x] `(unit)` `Presence` reports attached after `attach` and a heartbeat,
       stays attached at 14 s of silence, reports gone once at 15 s, and does
       not report gone a second time at 30 s
-- [ ] `(unit)` `tap_script(120, 340)` contains `elementFromPoint(120, 340)`
+- [x] `(unit)` `tap_script(120, 340)` contains `elementFromPoint(120, 340)`
       and dispatches `pointerdown`, `mousedown`, `pointerup`, `mouseup` and
       `click` in that order; `scroll_script` adds `dx`/`dy` to the nearest
       scrollable ancestor
-- [ ] `(unit)` `RemoteIntent` has exactly the eight variants named above and
+- [x] `(unit)` `RemoteIntent` has exactly the eight variants named above and
       no variant that names, renames, regroups or deletes an account, changes
       keep-awake, layout or zoom, or loads an address (an exhaustive match in
       the test)
-- [ ] `(integration)` `TomlPhoneRecord::write` then `read` round-trips an
+- [x] `(integration)` `TomlPhoneRecord::write` then `read` round-trips an
       `EnrolledPhone`, and on Unix the file's mode is `0600`
-- [ ] `(integration)` a missing `phone.toml` reads as `Ok(None)`; a malformed
+- [x] `(integration)` a missing `phone.toml` reads as `Ok(None)`; a malformed
       one is moved to `phone.toml.unreadable` and read as
       `PhoneRecordError::Unreadable`
-- [ ] `(integration)` `clear()` removes the record so a following `read` is
+- [x] `(integration)` `clear()` removes the record so a following `read` is
       `Ok(None)`, and `TomlPhoneRecord::listen_override()` returns the
       `[listen] address` value when present and `None` when the key is absent
-- [ ] `(integration)` `make arch-check` passes with the new rules and fails
+- [x] `(integration)` `make arch-check` passes with the new rules and fails
       when a test edit makes `idle-manager-remote` depend on
       `idle-manager-shell`
 - [ ] `(integration)` `make verify` passes

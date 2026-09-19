@@ -62,6 +62,23 @@ pub fn workspace_file() -> Result<PathBuf, LocatorSetup> {
     Ok(dirs.config_dir().join("sessions.toml"))
 }
 
+/// The file holding the one enrolled phone:
+/// `<XDG config>/idle-manager/phone.toml`.
+///
+/// Under the XDG **config** directory beside `sessions.toml`, because the same
+/// file carries the hand-editable `[listen]` override (`FR.8.3`); the secret it
+/// holds is why `TomlPhoneRecord` creates it readable by the user alone. The
+/// path is read from the environment, so a moved home directory or an unusual
+/// `XDG_CONFIG_HOME` keeps working.
+///
+/// # Errors
+///
+/// [`LocatorSetup::NoHome`] if no home directory can be determined.
+pub fn phone_file() -> Result<PathBuf, LocatorSetup> {
+    let dirs = ProjectDirs::from("", "", APP_NAME).ok_or(LocatorSetup::NoHome)?;
+    Ok(dirs.config_dir().join("phone.toml"))
+}
+
 /// The single `WebView2` user-data folder every account's engine profile
 /// shares on Windows: `<data root>/idle-manager/webview2/`.
 ///
@@ -274,6 +291,20 @@ mod tests {
                 true,
                 false,
             ),
+        );
+    }
+
+    #[test]
+    fn the_phone_file_resolves_beside_the_workspace_file_under_xdg_config() {
+        let phone = phone_file().expect("resolve the phone file");
+        let workspace = workspace_file().expect("resolve the workspace file");
+
+        assert_eq!(
+            (
+                phone.parent(),
+                phone.file_name().and_then(|name| name.to_str()),
+            ),
+            (workspace.parent(), Some("phone.toml")),
         );
     }
 

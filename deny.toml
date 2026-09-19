@@ -33,6 +33,10 @@ allow = [
   "Apache-2.0 WITH LLVM-exception",
   "BSD-2-Clause",
   "BSD-3-Clause",
+  # The Independent JPEG Group licence: BSD-style, attribution only. Carried by
+  # `jpeg-encoder` (roadmap item 13), which is `(MIT OR Apache-2.0) AND IJG`
+  # because its quantisation tables and DCT are ported from libjpeg.
+  "IJG",
   "ISC",
   "MIT",
   "MPL-2.0",

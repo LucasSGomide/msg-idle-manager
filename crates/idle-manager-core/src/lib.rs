@@ -10,6 +10,7 @@ mod layout;
 mod memory;
 mod ports;
 mod preset;
+mod remote;
 mod session;
 mod workspace;
 mod workspace_book;
@@ -17,11 +18,17 @@ mod workspace_book;
 pub use layout::{Layout, MoveOutcome, Outcome, Placement, SlotId, arrange};
 pub use memory::{BudgetVerdict, MemoryReading};
 pub use ports::{
-    MemoryProbe, MemoryProbeError, PresetCatalogue, PresetCatalogueReading, PresetFailure,
-    ProfileDirectories, ProfileError, ProfileLocator, ProfileRemoval, ProfileRemovalError,
-    WorkspaceReadError, WorkspaceStore, WorkspaceWriteError, ZoomMemory, ZoomMemoryError,
+    MemoryProbe, MemoryProbeError, PhoneLink, PhoneRecordError, PhoneRecordStore, PresetCatalogue,
+    PresetCatalogueReading, PresetFailure, ProfileDirectories, ProfileError, ProfileLocator,
+    ProfileRemoval, ProfileRemovalError, WorkspaceReadError, WorkspaceStore, WorkspaceWriteError,
+    ZoomMemory, ZoomMemoryError,
 };
 pub use preset::{InvalidZoom, Preset, PresetId, ZoomLevel};
+pub use remote::{
+    DEFAULT_MOBILE_VIEWPORT, EnrolledPhone, EnrolmentOffer, Frame, HEARTBEAT_INTERVAL_SECS,
+    PhoneStatus, Presence, PresenceChange, RemoteAccount, RemoteIntent, RemoteState,
+    RemoteWorkspace, SILENCE_LIMIT_SECS, Viewport, scroll_script, tap_script,
+};
 pub use session::{
     Liveness, RememberedZoom, Session, SessionBook, SessionId, Visibility, WorkspaceId,
     account_name, workspace_name,

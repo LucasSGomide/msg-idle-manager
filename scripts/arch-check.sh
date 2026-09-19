@@ -16,9 +16,10 @@ set -euo pipefail
 
 rules=(
   "idle-manager-core     gtk4 gdk4 glib gio webkit6 serde toml wry webview2-com gdk4-win32 windows"
-  "idle-manager-store    gtk4 gdk4 webkit6 wry webview2-com gdk4-win32 windows"
-  "idle-manager-metrics  gtk4 gdk4 webkit6 wry webview2-com gdk4-win32"
-  "idle-manager-shell    idle-manager-store idle-manager-metrics"
+  "idle-manager-store    gtk4 gdk4 webkit6 wry webview2-com gdk4-win32 windows idle-manager-remote"
+  "idle-manager-metrics  gtk4 gdk4 webkit6 wry webview2-com gdk4-win32 idle-manager-remote"
+  "idle-manager-shell    idle-manager-store idle-manager-metrics idle-manager-remote"
+  "idle-manager-remote   gtk4 gdk4 glib gio webkit6 wry webview2-com gdk4-win32 idle-manager-shell idle-manager-store idle-manager-metrics"
 )
 
 check_pass() {

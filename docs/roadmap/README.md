@@ -85,7 +85,7 @@ failure are shown inside a chooser without a modal of their own.
 
 | # | Item | Est | Depends on | Status |
 |---|---|---|---|---|
-| [13](13-phone-operation/README.md) | Operating an account from a phone | 13 | 11, 12 | not-started |
+| [13](13-phone-operation/README.md) | Operating an account from a phone | 13 | 11, 12 | in-progress |
 | [08](08-crash-recovery/README.md) | Surviving a crashed game | 5 | 03 | not-started |
 
 ## Blocked

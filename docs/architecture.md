@@ -14,7 +14,7 @@ crate is written is in [`code-standards.md`](code-standards.md).
 
 ## The shape
 
-One binary, five crates, one direction of dependency.
+One binary, six crates, one direction of dependency.
 
 ```
                         ┌─────────────────────────────┐
@@ -22,25 +22,33 @@ One binary, five crates, one direction of dependency.
                         │ builds adapters, runs the   │  composition root
                         │ GTK application             │
                         └──────────────┬──────────────┘
-             ┌────────────────┬────────┴────────┬────────────────┐
-             ▼                ▼                 ▼                │
-  ┌────────────────────┐ ┌──────────────┐ ┌──────────────────┐   │
-  │ idle-manager-shell │ │ …-store      │ │ …-metrics        │   │
-  │ GTK 4, WebKitGTK   │ │ XDG, presets │ │ /proc PSS on     │   │
-  │ or WebView2        │ │ session file │ │ Linux, process   │   │
-  │ widgets, web views │ │              │ │ tree on Windows  │   │
-  └─────────┬──────────┘ └──────┬───────┘ └────────┬─────────┘   │
-            └───────────────────┴──────────────────┴─────────────┘
+        ┌──────────────┬───────────────┼───────────────┬──────────────┐
+        ▼              ▼               ▼               ▼              │
+┌──────────────┐ ┌──────────────┐ ┌──────────────┐ ┌──────────────┐   │
+│ …-shell      │ │ …-remote     │ │ …-store      │ │ …-metrics    │   │
+│ GTK 4,       │ │ the phone    │ │ XDG, presets │ │ /proc PSS on │   │
+│ WebKitGTK or │ │ server: HTTP │ │ session and  │ │ Linux,       │   │
+│ WebView2     │ │ + WebSocket  │ │ phone files  │ │ process tree │   │
+│ widgets      │ │ on std       │ │              │ │ on Windows   │   │
+└──────┬───────┘ └──────┬───────┘ └──────┬───────┘ └──────┬───────┘   │
+       └────────────────┴────────┬───────┴────────────────┴───────────┘
                                  ▼
                    ┌──────────────────────────────┐
                    │      idle-manager-core       │
                    │ sessions, layout, backoff,   │
-                   │ the traits the rest fulfils  │
+                   │ the remote vocabulary, the   │
+                   │ traits the rest fulfils      │
                    │ no GTK · no I/O · no serde   │
                    └──────────────────────────────┘
 ```
 
 Arrows are "depends on". There is no arrow back up, and none sideways.
+
+Two of the four adapters *drive* the application — the shell from the desktop's
+own window, the remote crate from a phone on the network — and both do it the
+same way: they turn what the user did into a domain intent and render the state
+the domain answers with (rule 8). The other two are driven: the store and
+metrics answer when asked.
 
 ## Rules
 
@@ -124,6 +132,8 @@ idle-manager/
 │   │   │   ├── session.rs           identity, liveness, visibility, keep-awake
 │   │   │   ├── layout.rs            layouts, slots, what off-grid means
 │   │   │   ├── restart.rs           the crash backoff policy
+│   │   │   ├── remote.rs            what a phone may ask, the snapshot it renders,
+│   │   │   │                         the attach policy (roadmap item 13)
 │   │   │   └── ports.rs             the traits adapters implement
 │   │   └── tests/
 │   ├── idle-manager-store/
@@ -131,13 +141,17 @@ idle-manager/
 │   │   │   ├── lib.rs
 │   │   │   ├── paths.rs             XDG config and data locations
 │   │   │   ├── preset.rs            the preset catalogue
-│   │   │   └── session_file.rs      the persisted record and its mapping
+│   │   │   ├── session_file.rs      the persisted record and its mapping
+│   │   │   └── phone_record.rs      the enrolled phone, owner-readable only
 │   │   └── tests/
 │   ├── idle-manager-metrics/
 │   │   ├── src/
 │   │   │   ├── lib.rs
 │   │   │   └── proc_pss.rs          smaps_rollup parsing
 │   │   └── tests/fixtures/          captured /proc output
+│   ├── idle-manager-remote/         the phone server (roadmap item 13): the
+│   │   ├── assets/phone.html         second driving adapter, on std threads
+│   │   └── src/                      and sockets, depending on the core alone
 │   └── idle-manager-shell/
 │       ├── build.rs                 compiles resources/ into a GResource
 │       ├── resources/
@@ -168,5 +182,7 @@ idle-manager/
 | Anything read from `/proc`, or Windows' process tree | `idle-manager-metrics` |
 | A widget, a web view, a signal handler | `idle-manager-shell` |
 | Anything naming `WebKitGTK` or `WebView2` directly | `idle-manager-shell/src/web_engine/` (roadmap item 12) |
+| A word the phone and the desktop exchange, or the policy that reads it | `idle-manager-core/src/remote.rs` |
+| Anything that opens a socket, speaks HTTP or WebSocket, or encodes a frame | `idle-manager-remote` (roadmap item 13) |
 | Knowing which adapter is used | `crates/idle-manager/src/main.rs` |
 | A game's starting URL, user agent or zoom | `presets/<game>.toml` |
