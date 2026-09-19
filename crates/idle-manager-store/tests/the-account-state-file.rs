@@ -9,9 +9,9 @@ mod common;
 use std::fs;
 
 use common::TempDir;
-use idle_manager_core::{
-    Layout, ProfileLocator, RememberedZoom, SessionId, ZoomLevel, ZoomMemory, ZoomMemoryError,
-};
+#[cfg(unix)]
+use idle_manager_core::ZoomMemoryError;
+use idle_manager_core::{Layout, ProfileLocator, RememberedZoom, SessionId, ZoomLevel, ZoomMemory};
 use idle_manager_store::{TomlZoomMemory, XdgProfileLocator};
 
 fn account() -> SessionId {
@@ -155,6 +155,9 @@ fn a_written_file_shows_only_the_changed_arrangements_under_a_zoom_table() {
     insta::assert_snapshot!("account-state-file", on_disk);
 }
 
+// Read-only-directory permissions are a Unix concept; Windows' ACL model has
+// no equivalent `set_mode` call (roadmap item 12, "carried over" note).
+#[cfg(unix)]
 #[test]
 fn writing_into_a_profile_root_the_process_cannot_write_returns_the_error_and_never_panics() {
     let dir = TempDir::new("zoom-readonly");
