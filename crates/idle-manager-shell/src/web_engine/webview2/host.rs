@@ -31,12 +31,14 @@ pub(super) struct PendingView {
     pub(super) user_agent: Option<String>,
     pub(super) profile_name: String,
     pub(super) zoom: f64,
-    /// Whether the frame-callback shim ([`super::KEEP_AWAKE_JS`]) belongs in
-    /// this view's script set (roadmap item 12 task 04, `FR.6.3`). Read only
-    /// at construction: `wry`'s `with_initialization_script` is a
-    /// builder-time-only call, the same construct-only constraint
-    /// `web_engine/webkit.rs`'s content manager has on Linux, so there is no
-    /// way to add the shim to a view that already exists.
+    /// Whether the prelude that arms the frame-callback shim
+    /// (`script_set::KEEP_AWAKE_PRELUDE_JS`) belongs in this view's script
+    /// set (roadmap item 12 task 04, `FR.6.3`; the shim itself is in every
+    /// set since item 13). Read only at construction: `wry`'s
+    /// `with_initialization_script` is a builder-time-only call, the same
+    /// construct-only constraint `web_engine/webkit.rs`'s content manager has
+    /// on Linux, so there is no way to add the prelude to a view that already
+    /// exists.
     pub(super) keep_awake: bool,
 }
 
@@ -95,6 +97,20 @@ impl EngineHost {
     /// visible one this call arrived too early to reach.
     pub(super) fn set_background(&self, background: bool) {
         self.imp().set_background(background);
+    }
+
+    /// Runs `source` in the hosted view's page (roadmap item 13 task 02).
+    /// `Err(reason)` says it did not run — no view built yet, or `wry`
+    /// refused it — for the caller to log with its session field.
+    pub(super) fn run_script(&self, source: &str) -> Result<(), String> {
+        self.imp().run_script(source)
+    }
+
+    /// Asks the engine for a JPEG of the hosted view's page right now,
+    /// calling `done` exactly once with the bytes or with one line saying why
+    /// there are none (roadmap item 13 task 02, `FR.4.3`).
+    pub(super) fn capture_frame(&self, done: impl FnOnce(Result<Vec<u8>, String>) + 'static) {
+        self.imp().capture_frame(done);
     }
 
     /// Shrinks the hosted view to nothing, so nothing native draws over this

@@ -9,12 +9,21 @@
 // Injected at document start, before the page's own scripts run, so the
 // replacement is already in place by the time a game calls
 // `requestAnimationFrame` for the first time.
+//
+// Since roadmap item 13 it is injected into *every* page and stays dormant
+// until armed: it only answers from the timer while the document is hidden
+// *and* `awake` is set. A keep-awake account's prelude arms it before the
+// page runs, so item 04's behaviour is unchanged; the phone's wake arms it at
+// run time through `window.__idleManager` without a reload, and disarms it
+// again when the phone leaves (`FR.4.3`).
 (() => {
   // A guess, not a measurement: FR.6.3 asks for the shim and names no rate.
   // Tried against the repository's own `vischeck` page (a counter driven only
   // by frame callbacks) and against Kittens Game, which played normally with
   // it installed. Too slow loses progress in a game that counts frames; too
-  // fast spends processor time on every hidden account at once.
+  // fast spends processor time on every hidden account at once. Must equal
+  // `HIDDEN_FRAME_INTERVAL_MS` in `web_view.rs`, which restores it after a
+  // phone stops watching.
   const HIDDEN_FRAME_INTERVAL_MS = 250;
 
   // The engine hands out ids starting at 1 and counting up. Handing out ids
@@ -25,6 +34,14 @@
 
   const nativeRequestFrame = window.requestAnimationFrame.bind(window);
   const nativeCancelFrame = window.cancelAnimationFrame.bind(window);
+
+  // The runtime flag. Off until the prelude or `setAwake(true)` turns it on;
+  // with it off the shim is a pass-through and the engine keeps its own
+  // hidden-page behaviour.
+  let awake = false;
+  let hiddenFrameIntervalMs = HIDDEN_FRAME_INTERVAL_MS;
+
+  const shimming = () => document.hidden && awake;
 
   // Timer id, keyed by the shim's frame id, for a pending hidden-page
   // request that has not fired yet. Lets a cancel reach a timer that native
@@ -43,12 +60,24 @@
     const timerId = setTimeout(() => {
       pendingTimers.delete(frameId);
       callback(performance.now());
-    }, HIDDEN_FRAME_INTERVAL_MS);
+    }, hiddenFrameIntervalMs);
     pendingTimers.set(frameId, timerId);
   };
 
+  // Hand every request the engine is about to abandon (or has already
+  // abandoned, when armed on a page that is hidden right now) over to the
+  // timer, keeping the id the page already holds so its own
+  // `cancelAnimationFrame` still reaches it.
+  const takeOverPendingNative = () => {
+    for (const [frameId, callback] of pendingNative) {
+      nativeCancelFrame(frameId);
+      pendingNative.delete(frameId);
+      answerFromTimer(frameId, callback);
+    }
+  };
+
   window.requestAnimationFrame = (callback) => {
-    if (document.hidden) {
+    if (shimming()) {
       const frameId = nextShimFrameId--;
       answerFromTimer(frameId, callback);
       return frameId;
@@ -62,17 +91,9 @@
     return frameId;
   };
 
-  // Hand every request the engine is about to abandon over to the timer,
-  // keeping the id the page already holds so its own `cancelAnimationFrame`
-  // still reaches it.
   addEventListener('visibilitychange', () => {
-    if (!document.hidden) {
-      return;
-    }
-    for (const [frameId, callback] of pendingNative) {
-      nativeCancelFrame(frameId);
-      pendingNative.delete(frameId);
-      answerFromTimer(frameId, callback);
+    if (shimming()) {
+      takeOverPendingNative();
     }
   });
 
@@ -85,5 +106,20 @@
     }
     pendingTimers.delete(frameId);
     clearTimeout(timerId);
+  };
+
+  window.__idleManager = {
+    setAwake: (on) => {
+      awake = Boolean(on);
+      if (shimming()) {
+        takeOverPendingNative();
+      }
+    },
+    setHiddenFrameInterval: (ms) => {
+      const interval = Number(ms);
+      if (Number.isFinite(interval) && interval > 0) {
+        hiddenFrameIntervalMs = interval;
+      }
+    },
   };
 })();

@@ -225,6 +225,50 @@ impl EngineHost {
         }
     }
 
+    /// Runs `source` in the hosted view's page through `wry`'s
+    /// `evaluate_script` — `ExecuteScript` underneath, with no completion
+    /// waited on (roadmap item 13 task 02).
+    pub(super) fn run_script(&self, source: &str) -> Result<(), String> {
+        let view = self.view.borrow();
+        let Some(view) = view.as_ref() else {
+            return Err("this account has no live view to run the script in".to_owned());
+        };
+        view.evaluate_script(source)
+            .map_err(|error| error.to_string())
+    }
+
+    /// Asks the engine for a JPEG of the hosted view's page, calling `done`
+    /// exactly once: with the bytes, or with `Err(reason)` when there is no
+    /// view to capture yet or the runtime refused one of the COM steps
+    /// ([`ffi::capture_preview`], roadmap item 13 task 02).
+    pub(super) fn capture_frame(&self, done: impl FnOnce(Result<Vec<u8>, String>) + 'static) {
+        // `done` behind a shared cell for the same reason `delete_profile`'s
+        // is: it has to survive `ffi::capture_preview` taking the callback
+        // and then failing anyway.
+        let done: OneShot<Result<Vec<u8>, String>> = Rc::new(RefCell::new(Some(Box::new(done))));
+
+        let webview = self
+            .view
+            .borrow()
+            .as_ref()
+            .map(wry::WebViewExtWindows::webview);
+        let Some(webview) = webview else {
+            finish_once(
+                &done,
+                Err("this account has no live view to capture".to_owned()),
+            );
+            return;
+        };
+
+        let on_captured = {
+            let done = Rc::clone(&done);
+            move |outcome| finish_once(&done, outcome)
+        };
+        if let Err(error) = ffi::capture_preview(&webview, on_captured) {
+            finish_once(&done, Err(error.to_string()));
+        }
+    }
+
     /// Asks the engine to delete the profile this host's view runs under,
     /// calling `done` exactly once: with `Ok` when the engine reports the
     /// profile gone, or with `Err(reason)` when there is nothing here to ask
@@ -238,7 +282,7 @@ impl EngineHost {
         // subscription: it has to survive `ffi::delete_profile` taking the
         // callback and then failing anyway, which is exactly the case the
         // fallback exists for.
-        let done: DeleteOutcome = Rc::new(RefCell::new(Some(Box::new(done))));
+        let done: OneShot<Result<(), String>> = Rc::new(RefCell::new(Some(Box::new(done))));
 
         let webview = self
             .view
@@ -246,7 +290,7 @@ impl EngineHost {
             .as_ref()
             .map(wry::WebViewExtWindows::webview);
         let Some(webview) = webview else {
-            finish_delete(
+            finish_once(
                 &done,
                 Err("this account has no live view to reach its profile through".to_owned()),
             );
@@ -255,10 +299,10 @@ impl EngineHost {
 
         let on_deleted = {
             let done = Rc::clone(&done);
-            move || finish_delete(&done, Ok(()))
+            move || finish_once(&done, Ok(()))
         };
         if let Err(error) = ffi::delete_profile(&webview, on_deleted) {
-            finish_delete(&done, Err(error.to_string()));
+            finish_once(&done, Err(error.to_string()));
         }
     }
 
@@ -468,16 +512,17 @@ impl EngineHost {
     }
 }
 
-/// The one-shot completion [`EngineHost::delete_profile`] hands to both its
-/// own failure paths and the engine's `Deleted` event — whichever gets there
-/// first runs it, and [`finish_delete`] makes sure the other finds it gone.
-type DeleteOutcome = Rc<RefCell<Option<Box<dyn FnOnce(Result<(), String>)>>>>;
+/// The one-shot completion [`EngineHost::delete_profile`] and
+/// [`EngineHost::capture_frame`] each hand to both their own failure paths
+/// and the engine's completion callback — whichever gets there first runs it,
+/// and [`finish_once`] makes sure the other finds it gone.
+type OneShot<T> = Rc<RefCell<Option<Box<dyn FnOnce(T)>>>>;
 
 /// Runs `slot`'s completion with `outcome`, once and once only. A second
 /// call is a no-op: an engine that raises `Deleted` after the caller already
-/// gave up, or a `Delete` that fails after subscribing, must not report an
-/// outcome twice.
-fn finish_delete(slot: &DeleteOutcome, outcome: Result<(), String>) {
+/// gave up, or a `Delete` or `CapturePreview` that fails after its callback
+/// was handed over, must not report an outcome twice.
+fn finish_once<T>(slot: &OneShot<T>, outcome: T) {
     if let Some(done) = slot.borrow_mut().take() {
         done(outcome);
     }

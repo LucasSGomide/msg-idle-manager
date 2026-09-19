@@ -8,20 +8,23 @@ use std::cell::{OnceCell, RefCell};
 use std::path::Path;
 use std::rc::Rc;
 
+use gtk::gdk;
 use gtk::gio;
 use gtk::glib;
 use gtk4 as gtk;
 use webkit6::prelude::*;
 use webkit6::{
     CookiePersistentStorage, Feature, FeatureList, LoadEvent, NavigationAction, NetworkSession,
-    PermissionRequest, ScriptDialog, Settings, URIRequest, UserContentInjectedFrames,
-    UserContentManager, UserScript, UserScriptInjectionTime, WebProcessTerminationReason,
-    WebResource, WebView, WebsiteDataTypes,
+    PermissionRequest, ScriptDialog, Settings, SnapshotOptions, SnapshotRegion, URIRequest,
+    UserContentInjectedFrames, UserContentManager, UserScript, UserScriptInjectionTime,
+    WebProcessTerminationReason, WebResource, WebView, WebsiteDataTypes,
 };
 
 use idle_manager_core::{ProfileDirectories, SessionId, ZoomLevel};
 
-use crate::web_view::AccountSettings;
+use crate::web_engine::script_set;
+use crate::web_engine::{CapturedFrame, EngineCaptureError};
+use crate::web_view::{AccountSettings, watched_background};
 
 /// The memory limit the engine watches its rendering processes against, in
 /// mebibytes (`FR.19.4`, code standards rule 5).
@@ -89,19 +92,9 @@ const WEB_PROCESS_MEMORY_POLL_INTERVAL_SECS: f64 = 30.0;
 const COOKIE_DB: &str = "cookies.sqlite";
 
 /// The name the injected bridge posts console messages under. It appears in
-/// [`PAGE_CONSOLE_JS`] as `webkit.messageHandlers.pageConsole`; the two spell
+/// [`script_set::PAGE_CONSOLE_JS`] as `webkit.messageHandlers.pageConsole`; the two spell
 /// the same string and have to be changed together.
 const PAGE_CONSOLE_HANDLER: &str = "pageConsole";
-
-/// Compiled in rather than loaded from the `GResource` bundle: this is the only
-/// caller, it needs the source before any widget exists, and `include_str!`
-/// keeps the read infallible so the holder needs no error path for it.
-const PAGE_CONSOLE_JS: &str = include_str!("../../resources/js/page-console.js");
-
-/// The frame-callback shim (`FR.6.3`), brought in the same way and for the same
-/// reason as [`PAGE_CONSOLE_JS`]: this is its only caller, it is needed before
-/// any widget exists, and `include_str!` keeps the read infallible.
-const KEEP_AWAKE_JS: &str = include_str!("../../resources/js/keep-awake.js");
 
 /// The size an authentication popup opens at before its own page resizes it.
 const POPUP_WIDTH: i32 = 480;
@@ -274,10 +267,10 @@ impl EngineProfile {
     /// identity here — not just once at construction — is what makes a
     /// parked-and-restarted account come back with the same switches, the
     /// same size and the same identity (`FR.6.1`, `FR.10.5`). The content
-    /// manager is built with the frame-callback shim already in its script
-    /// set when `keep_awake` is on, because the manager is a construct-only
-    /// property of the view (`webkit6` 0.6.1) and cannot gain a
-    /// document-start script afterwards (`FR.6.3`).
+    /// manager is built with the frame-callback shim — and, when `keep_awake`
+    /// is on, the prelude that arms it — already in its script set, because
+    /// the manager is a construct-only property of the view (`webkit6`
+    /// 0.6.1) and cannot gain a document-start script afterwards (`FR.6.3`).
     #[must_use]
     pub(crate) fn build_view(
         &self,
@@ -306,7 +299,10 @@ impl EngineProfile {
             apply_keep_awake(&view, true, &self.id);
         }
 
-        let view = EngineView { view };
+        let view = EngineView {
+            view,
+            id: self.id.clone(),
+        };
         view.load_uri(start_address);
         view
     }
@@ -366,6 +362,9 @@ impl EngineProfile {
 #[derive(Debug, Clone)]
 pub struct EngineView {
     view: WebView,
+    /// The account this view belongs to, for the `session` field on every
+    /// failure logged from a callback (code standards rule 15).
+    id: SessionId,
 }
 
 impl EngineView {
@@ -402,13 +401,83 @@ impl EngineView {
 
     /// Toggles keep-awake on this live view: flips the two hidden-page engine
     /// switches on its settings, rebuilds the script set on its content
-    /// manager to match, and reloads, since there is no API to make either
-    /// change reach a page that has already loaded (`FR.6.2`, `FR.6.3`,
-    /// `webkit6` 0.6.1, `src/auto/user_script.rs:22`).
+    /// manager to match, and reloads, since there is no API to make a script
+    /// set change reach a page that has already loaded (`FR.6.2`, `FR.6.3`,
+    /// `webkit6` 0.6.1, `src/auto/user_script.rs:22`). The deliberate toggle
+    /// keeps its reload on purpose; only [`EngineView::set_watched`] takes the
+    /// run-time path (roadmap item 13).
     pub(crate) fn set_keep_awake(&self, on: bool, id: &SessionId) {
         apply_keep_awake(&self.view, on, id);
         rebuild_script_set(&self.view, on);
         self.view.reload();
+    }
+
+    /// Wakes this view for a watching phone (`on`) or hands it back to the
+    /// account's own `keep_awake` choice, with no reload (`FR.4.3`, roadmap
+    /// item 13 task 02): the two hidden-page engine switches go through
+    /// [`apply_keep_awake`] with `on || keep_awake`, and the frame shim is
+    /// armed or disarmed in the running page through [`EngineView::run_script`]
+    /// ([`script_set::watched_script`]). Whether the engine switches take
+    /// effect on an already-loaded page is the item's second Blocker; the
+    /// shim's runtime flag covers animation frames either way.
+    ///
+    /// `minimised` reaches only [`EngineView::set_background`], the permanent
+    /// no-op on Linux — `WebKit` derives hiddenness from the toplevel itself
+    /// — kept so both engines take `watched_background`'s one decision.
+    pub(crate) fn set_watched(&self, on: bool, keep_awake: bool, minimised: bool) {
+        apply_keep_awake(&self.view, on || keep_awake, &self.id);
+        self.set_background(watched_background(on, keep_awake, minimised));
+        self.run_script(&script_set::watched_script(on, keep_awake));
+        tracing::debug!(session = %self.id, watched = on, keep_awake, "view watched state set");
+    }
+
+    /// Runs `source` in this view's page, in the page's own world (roadmap
+    /// item 13 task 02). A failure — a syntax error, a page with no script
+    /// context yet — is logged with the session field and never surfaced,
+    /// since nothing the caller could do differs by the reason.
+    pub(crate) fn run_script(&self, source: &str) {
+        let id = self.id.clone();
+        self.view.evaluate_javascript(
+            source,
+            None,
+            None,
+            None::<&gio::Cancellable>,
+            move |result| {
+                if let Err(error) = result {
+                    tracing::warn!(session = %id, %error, "script failed in the page");
+                }
+            },
+        );
+    }
+
+    /// Takes a picture of this view's page as it is right now and hands it
+    /// to `done` exactly once, as raw RGBA pixels (roadmap item 13 task 02).
+    ///
+    /// `webkit_web_view_get_snapshot` paints the visible region in the web
+    /// process with compositing layers flattened, independently of the
+    /// widget's own on-screen frame — which stops while the toplevel is
+    /// minimised — so it is the capture path rather than GTK's widget
+    /// rendering (Technical References). Whether it also paints while the
+    /// view's activity state says hidden is the item's first Blocker, which
+    /// `frame_dump.rs` measures.
+    pub(crate) fn capture_frame(
+        &self,
+        done: impl FnOnce(Result<CapturedFrame, EngineCaptureError>) + 'static,
+    ) {
+        self.view.snapshot(
+            SnapshotRegion::Visible,
+            SnapshotOptions::NONE,
+            None::<&gio::Cancellable>,
+            move |result| {
+                done(
+                    result
+                        .map_err(|error| EngineCaptureError {
+                            reason: error.to_string(),
+                        })
+                        .and_then(|texture| rgba_frame(&texture)),
+                );
+            },
+        );
     }
 
     /// Marks whether this view should be treated as backgrounded — a no-op
@@ -610,11 +679,12 @@ fn copy_user_agent(opener: &WebView, popup: &WebView) {
     }
 }
 
-/// A fresh content manager carrying the page-console bridge, and the
-/// frame-callback shim as well when `keep_awake` is on.
+/// A fresh content manager carrying [`script_set::webkit_script_set`]: the
+/// page-console bridge, the frame-callback shim, and the prelude that arms it
+/// when `keep_awake` is on.
 ///
 /// The manager is a construct-only property of the view (`webkit6` 0.6.1),
-/// so a view that wants the shim from its first load must be built with it
+/// so a view that wants the prelude from its first load must be built with it
 /// already in the set — there is no way to add a document-start script to a
 /// view afterwards (`FR.6.3`).
 fn build_content_manager(keep_awake: bool) -> UserContentManager {
@@ -671,8 +741,9 @@ fn register_page_console_handler(content: &UserContentManager) {
     }
 }
 
-/// Adds the manager's document-start scripts: the page-console bridge always,
-/// and [`KEEP_AWAKE_JS`] as well when `keep_awake` is on.
+/// Adds the manager's document-start scripts — exactly
+/// [`script_set::webkit_script_set`], in its order, every one at document
+/// start in all frames.
 ///
 /// Split out of [`build_content_manager`] so [`rebuild_script_set`] can call
 /// it again on a manager that already exists, after
@@ -681,23 +752,55 @@ fn register_page_console_handler(content: &UserContentManager) {
 /// keep-awake off has to put the bridge back rather than leaving the page's
 /// console silently unforwarded (code standards rule 18).
 fn install_script_set(content: &UserContentManager, keep_awake: bool) {
-    content.add_script(&UserScript::new(
-        PAGE_CONSOLE_JS,
-        UserContentInjectedFrames::AllFrames,
-        UserScriptInjectionTime::Start,
-        &[],
-        &[],
-    ));
-
-    if keep_awake {
+    for source in script_set::webkit_script_set(keep_awake) {
         content.add_script(&UserScript::new(
-            KEEP_AWAKE_JS,
+            source,
             UserContentInjectedFrames::AllFrames,
             UserScriptInjectionTime::Start,
             &[],
             &[],
         ));
     }
+}
+
+/// `texture` as straight (not premultiplied) RGBA rows, the shape
+/// `CapturedFrame::Rgba` promises.
+///
+/// Through a [`gdk::TextureDownloader`] asked for
+/// [`gdk::MemoryFormat::R8g8b8a8`], not `Texture::download`: that older call
+/// only ever writes Cairo's `ARGB32`, which is premultiplied and, on this
+/// machine's byte order, `B G R A` — every consumer would have to swizzle
+/// and un-premultiply it. The downloader converts in GDK instead (GTK 4.10,
+/// the `v4_10` feature the workspace already enables). A texture reporting a
+/// non-positive size is an engine bug, not a frame, and is returned as an
+/// error rather than an empty picture.
+fn rgba_frame(texture: &gdk::Texture) -> Result<CapturedFrame, EngineCaptureError> {
+    let (Ok(width), Ok(height)) = (
+        u32::try_from(texture.width()),
+        u32::try_from(texture.height()),
+    ) else {
+        return Err(EngineCaptureError {
+            reason: format!(
+                "the snapshot reported an impossible size {}×{}",
+                texture.width(),
+                texture.height()
+            ),
+        });
+    };
+
+    let mut downloader = gdk::TextureDownloader::new(texture);
+    downloader.set_format(gdk::MemoryFormat::R8g8b8a8);
+    let (bytes, stride) = downloader.download_bytes();
+    let stride = u32::try_from(stride).map_err(|_| EngineCaptureError {
+        reason: format!("the snapshot's row stride {stride} does not fit a frame"),
+    })?;
+
+    Ok(CapturedFrame::Rgba {
+        width,
+        height,
+        stride,
+        bytes: bytes.to_vec(),
+    })
 }
 
 /// Replaces `view`'s script set to match `keep_awake`, ready for the reload
@@ -714,7 +817,7 @@ fn rebuild_script_set(view: &WebView, keep_awake: bool) {
         // Every view is built with a manager in `EngineProfile::build_view`;
         // reaching here would mean that construct-only property was somehow
         // absent.
-        tracing::warn!("view has no content manager; keep-awake script not applied");
+        tracing::warn!("view has no content manager; keep-awake prelude not applied");
         return;
     };
 

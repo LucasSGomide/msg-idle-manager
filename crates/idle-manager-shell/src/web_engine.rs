@@ -28,6 +28,10 @@ mod profile_name;
 #[cfg(any(windows, test))]
 mod virtual_key;
 
+// The document-start script sets and the run-time arming line both engines
+// share (roadmap item 13 task 02) — pure, so its tests run here too.
+mod script_set;
+
 /// One account's engine-held data could not be deleted (roadmap item 12
 /// task 06).
 ///
@@ -42,6 +46,49 @@ pub(crate) struct EngineDeleteError {
     /// prefixed with a path, the same rule `XdgProfileRemoval::remove`
     /// keeps: the dialog shows the account's folder on its own line beside
     /// this reason.
+    pub(crate) reason: String,
+}
+
+/// One captured picture of a page, in whichever shape the engine produced it
+/// (roadmap item 13 task 02, `FR.4.3`): `WebKitGTK` hands over raw pixels,
+/// `WebView2` hands over a JPEG already encoded.
+///
+/// Crate-private and shaped exactly like `idle_manager_core::Frame`, which the
+/// core is gaining in this item's task 01; task 06 maps one onto the other in
+/// a line, so this slice never waits on that crate.
+#[derive(Debug, PartialEq, Eq)]
+pub(crate) enum CapturedFrame {
+    /// Raw pixels, four bytes each in red, green, blue, alpha order.
+    // Each engine builds exactly one of the two variants, and the frame dump
+    // matches on both, so on either platform the other variant is never
+    // constructed — dead-code analysis cannot see the other engine.
+    #[cfg_attr(windows, allow(dead_code))]
+    Rgba {
+        /// Width in pixels.
+        width: u32,
+        /// Height in pixels.
+        height: u32,
+        /// Bytes from the start of one row to the start of the next — at
+        /// least `width × 4`, more when the engine pads rows.
+        stride: u32,
+        /// `stride × height` bytes of pixels.
+        bytes: Vec<u8>,
+    },
+    /// A JPEG image, ready to send as it is.
+    // Same reasoning as `Rgba`, from the other side.
+    #[cfg_attr(not(windows), allow(dead_code))]
+    Jpeg(Vec<u8>),
+}
+
+/// The engine could not take a picture of a page (roadmap item 13 task 02).
+///
+/// Engine-neutral like [`EngineDeleteError`]: the frame dump and the phone's
+/// frame loop log one reason whichever engine raised it and carry on with the
+/// next capture — a missed frame is never fatal.
+#[derive(Debug, thiserror::Error)]
+#[error("{reason}")]
+pub(crate) struct EngineCaptureError {
+    /// What went wrong, in the engine's own words.
     pub(crate) reason: String,
 }
 

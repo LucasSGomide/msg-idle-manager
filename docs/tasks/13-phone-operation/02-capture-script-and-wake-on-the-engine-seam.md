@@ -92,17 +92,17 @@ wait, and look at the pictures on each system.
 
 ## Acceptance criteria
 
-- [ ] `(unit)` the runtime-flag shim script, evaluated in a test harness or
+- [x] `(unit)` the runtime-flag shim script, evaluated in a test harness or
       inspected as a string, exposes `__idleManager.setAwake` and
       `__idleManager.setHiddenFrameInterval` and intercepts
       `requestAnimationFrame` only while hidden and awake
-- [ ] `(unit)` the keep-awake prelude sets the flag on and the plain script
+- [x] `(unit)` the keep-awake prelude sets the flag on and the plain script
       set leaves it off, checked on the script set builder for both engines
       (`cfg(any(windows, test))` for the Windows half)
-- [ ] `(unit)` `background_for` and the `set_watched(false, ..)` restore path
+- [x] `(unit)` `background_for` and the `set_watched(false, ..)` restore path
       agree: watched-off with keep-awake off and minimised yields background
 - [ ] `(integration)` `make verify` and `make windows-check` pass
-- [ ] `(integration)` `make windows-check` passes with the workspace
+- [x] `(integration)` `make windows-check` passes with the workspace
       `unsafe_code` lint still denied, so the `CapturePreview` and `IStream`
       calls compile only inside `web_engine/webview2/ffi.rs`'s scoped allow,
       each `unsafe` block carrying a `// SAFETY:` line (code standards rule 28)

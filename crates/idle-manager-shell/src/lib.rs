@@ -16,6 +16,7 @@
 mod account_deletion;
 mod add_game_dialog;
 mod delete_account_dialog;
+mod frame_dump;
 mod memory_footer;
 mod message_strip;
 mod rename_dialog;

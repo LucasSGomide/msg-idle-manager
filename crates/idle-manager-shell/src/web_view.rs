@@ -3,7 +3,19 @@
 
 use idle_manager_core::{ProfileDirectories, SessionId, ZoomLevel};
 
-use crate::web_engine::{EngineProfile, EngineView};
+use crate::frame_dump::{self, FrameDump};
+use crate::web_engine::{CapturedFrame, EngineCaptureError, EngineProfile, EngineView};
+
+/// How often the frame shim answers a hidden page's `requestAnimationFrame`
+/// while nobody is watching it, in milliseconds (`FR.6.3`, code standards
+/// rule 5). The same number `resources/js/keep-awake.js` declares as its
+/// default — `set_watched(false)` restores it, and `web_engine/script_set.rs`
+/// pins the two together.
+pub(crate) const HIDDEN_FRAME_INTERVAL_MS: u32 = 250;
+/// How often the shim answers a hidden page while a phone watches it, in
+/// milliseconds (`FR.4.3`, code standards rule 5): about thirty frames a
+/// second, so the game animates on the phone rather than stepping.
+pub(crate) const WATCHED_FRAME_INTERVAL_MS: u32 = 33;
 
 /// The view settings an account carries from its preset: the page zoom, the
 /// browser identity (or `None` for the engine's own), and whether its pages get
@@ -47,6 +59,10 @@ pub struct SessionView {
     /// rule 18).
     settings: AccountSettings,
     view: Option<EngineView>,
+    /// The debug frame dump for the live view, `None` unless
+    /// `IDLE_MANAGER_DUMP_FRAMES` is set (roadmap item 13 task 02). Held
+    /// beside the view so parking drops both together.
+    frame_dump: Option<FrameDump>,
 }
 
 impl SessionView {
@@ -71,6 +87,7 @@ impl SessionView {
             keep_awake: false,
             settings,
             view: None,
+            frame_dump: None,
         }
     }
 
@@ -117,6 +134,7 @@ impl SessionView {
     /// system and memory handed to the engine's process cache (`FR.5.2`,
     /// code-standards rule 18). A no-op if the account is already parked.
     pub fn stop(&mut self) {
+        self.frame_dump = None;
         let Some(view) = self.view.take() else {
             return;
         };
@@ -136,12 +154,14 @@ impl SessionView {
     /// (`FR.6.1`, `FR.10.5`). `minimised` is the window's current state
     /// ([`background_for`], roadmap item 12 task 04, `FR.1.9`): a no-op on
     /// Linux, where `EngineView::set_background` stays the permanent no-op
-    /// task 01 made it.
+    /// task 01 made it. Arms the debug frame dump for the new view when
+    /// `IDLE_MANAGER_DUMP_FRAMES` is set ([`frame_dump::arm`]).
     pub fn start(&mut self, minimised: bool) -> &EngineView {
         let view = self
             .profile
             .build_view(&self.start_address, &self.settings, self.keep_awake);
         view.set_background(background_for(minimised, self.keep_awake));
+        self.frame_dump = frame_dump::arm(&view, &self.id);
         self.view.insert(view)
     }
 
@@ -177,6 +197,54 @@ impl SessionView {
         view.set_zoom(zoom);
         Some(view)
     }
+
+    /// Wakes the live view for a watching phone (`on`), or hands it back to
+    /// the account's own keep-awake choice when the phone leaves
+    /// (`FR.4.3`, roadmap item 13 task 02). `minimised` is the window's
+    /// current state, as for [`SessionView::start`]. Nothing is remembered
+    /// and nothing reloads: a view rebuilt after a park comes back unwatched,
+    /// and the window re-asks when the phone attaches again. A no-op while
+    /// parked.
+    // Unused until task 06 wires the phone's attach and leave into the
+    // window, same reasoning as `web_engine/webkit.rs`'s own unused methods.
+    #[allow(dead_code)]
+    pub(crate) fn set_watched(&self, on: bool, minimised: bool) {
+        let Some(view) = self.view.as_ref() else {
+            return;
+        };
+        view.set_watched(on, self.keep_awake, minimised);
+    }
+
+    /// Runs `source` in the live view's page (roadmap item 13 task 02) — the
+    /// phone's taps arrive this way. A no-op while parked; a script failure is
+    /// logged by the engine, never surfaced.
+    // Unused until task 06 delivers the phone's taps, same reasoning as
+    // `set_watched`.
+    #[allow(dead_code)]
+    pub(crate) fn run_script(&self, source: &str) {
+        if let Some(view) = self.view.as_ref() {
+            view.run_script(source);
+        }
+    }
+
+    /// Asks the live view for a picture of its page right now, handing the
+    /// result to `done` exactly once (roadmap item 13 task 02). While parked,
+    /// `done` receives an error saying so at once.
+    // Unused until task 06's frame loop, same reasoning as `set_watched`;
+    // the frame dump reaches `EngineView::capture_frame` directly.
+    #[allow(dead_code)]
+    pub(crate) fn capture_frame(
+        &self,
+        done: impl FnOnce(Result<CapturedFrame, EngineCaptureError>) + 'static,
+    ) {
+        let Some(view) = self.view.as_ref() else {
+            done(Err(EngineCaptureError {
+                reason: "the account is parked; there is no page to capture".to_owned(),
+            }));
+            return;
+        };
+        view.capture_frame(done);
+    }
 }
 
 /// Whether an account's view should be marked invisible to the engine right
@@ -191,6 +259,19 @@ impl SessionView {
 /// platform rather than only where `set_background` does something.
 pub(crate) fn background_for(minimised: bool, keep_awake: bool) -> bool {
     minimised && !keep_awake
+}
+
+/// Whether a view should be marked invisible to the engine given that a phone
+/// is (`on`) or is no longer watching it (roadmap item 13 task 02, `FR.4.3`):
+/// never while watched, and exactly [`background_for`] once the phone leaves
+/// — so `set_watched(false)` restores precisely the state
+/// [`SessionView::start`] would have chosen.
+///
+/// Pure for the same reason as [`background_for`]: `EngineView::set_watched`
+/// is what differs between the engines, and this is the one decision behind
+/// its background half.
+pub(crate) fn watched_background(on: bool, keep_awake: bool, minimised: bool) -> bool {
+    !on && background_for(minimised, keep_awake)
 }
 
 #[cfg(test)]
@@ -215,5 +296,32 @@ mod tests {
     #[test]
     fn not_minimised_and_not_kept_awake_stays_visible() {
         assert!(!background_for(false, false));
+    }
+
+    #[test]
+    fn a_watched_view_never_goes_to_the_background() {
+        assert!(!watched_background(true, false, true));
+    }
+
+    #[test]
+    fn leaving_a_minimised_account_with_keep_awake_off_yields_background() {
+        assert!(watched_background(false, false, true));
+        assert_eq!(
+            watched_background(false, false, true),
+            background_for(true, false)
+        );
+    }
+
+    #[test]
+    fn leaving_agrees_with_background_for_in_every_state() {
+        for minimised in [false, true] {
+            for keep_awake in [false, true] {
+                assert_eq!(
+                    watched_background(false, keep_awake, minimised),
+                    background_for(minimised, keep_awake),
+                    "minimised={minimised} keep_awake={keep_awake}"
+                );
+            }
+        }
     }
 }

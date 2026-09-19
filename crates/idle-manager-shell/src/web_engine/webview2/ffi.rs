@@ -13,16 +13,20 @@ use raw_window_handle::{
     HandleError, HasWindowHandle, RawWindowHandle, Win32WindowHandle, WindowHandle,
 };
 use webview2_com::Microsoft::Web::WebView2::Win32::{
-    COREWEBVIEW2_KEY_EVENT_KIND, COREWEBVIEW2_KEY_EVENT_KIND_KEY_DOWN,
-    COREWEBVIEW2_PROCESS_FAILED_KIND, COREWEBVIEW2_PROCESS_FAILED_KIND_BROWSER_PROCESS_EXITED,
+    COREWEBVIEW2_CAPTURE_PREVIEW_IMAGE_FORMAT_JPEG, COREWEBVIEW2_KEY_EVENT_KIND,
+    COREWEBVIEW2_KEY_EVENT_KIND_KEY_DOWN, COREWEBVIEW2_PROCESS_FAILED_KIND,
+    COREWEBVIEW2_PROCESS_FAILED_KIND_BROWSER_PROCESS_EXITED,
     COREWEBVIEW2_PROCESS_FAILED_KIND_RENDER_PROCESS_EXITED,
     COREWEBVIEW2_PROCESS_FAILED_KIND_RENDER_PROCESS_UNRESPONSIVE, ICoreWebView2, ICoreWebView2_13,
     ICoreWebView2Controller, ICoreWebView2Profile8,
 };
 use webview2_com::{
-    AcceleratorKeyPressedEventHandler, ProcessFailedEventHandler, ProfileDeletedEventHandler,
+    AcceleratorKeyPressedEventHandler, CapturePreviewCompletedHandler, ProcessFailedEventHandler,
+    ProfileDeletedEventHandler,
 };
-use windows::Win32::Foundation::HWND;
+use windows::Win32::Foundation::{HGLOBAL, HWND};
+use windows::Win32::System::Com::StructuredStorage::CreateStreamOnHGlobal;
+use windows::Win32::System::Com::{IStream, STATFLAG_NONAME, STATSTG, STREAM_SEEK_SET};
 use windows::Win32::UI::Input::KeyboardAndMouse::{GetKeyState, VK_CONTROL};
 use windows::core::Interface;
 use wry::WebViewExtWindows;
@@ -229,4 +233,94 @@ pub(super) fn delete_profile(
     // `Delete` takes no arguments and has no further preconditions; the
     // engine closes the profile's own views itself as part of it.
     unsafe { profile.Delete() }
+}
+
+/// Asks `WebView2` for a JPEG of `webview`'s page as it is right now, running
+/// `on_captured` once with the encoded bytes — or with one line saying why
+/// there are none (roadmap item 13 task 02, `FR.4.3`).
+///
+/// `CapturePreview` writes into an `IStream` the caller supplies; a memory
+/// stream from `CreateStreamOnHGlobal` keeps the round trip on the heap and
+/// off the disk. The environment already runs with
+/// `--disable-backgrounding-occluded-windows` (`BROWSER_ARGS`), which is what
+/// should keep the page painting while covered; whether it also paints while
+/// the window is minimised is the item's first Blocker, which `frame_dump.rs`
+/// measures. `on_captured` runs through
+/// `glib::MainContext::default().invoke_local` (architecture rule 10), since
+/// the completion is a COM callback.
+pub(super) fn capture_preview(
+    webview: &ICoreWebView2,
+    on_captured: impl FnOnce(Result<Vec<u8>, String>) + 'static,
+) -> windows::core::Result<()> {
+    // SAFETY: a null `HGLOBAL` asks COM to allocate the stream's own memory,
+    // and `true` hands that memory to the stream to free with itself, so
+    // nothing here owns a raw allocation.
+    let stream = unsafe { CreateStreamOnHGlobal(HGLOBAL(std::ptr::null_mut()), true)? };
+
+    let stream_for_read = stream.clone();
+    let handler = CapturePreviewCompletedHandler::create(Box::new(move |result| {
+        let outcome = result
+            .map_err(|error| error.to_string())
+            .and_then(|()| read_whole_stream(&stream_for_read));
+        glib::MainContext::default().invoke_local(move || on_captured(outcome));
+        Ok(())
+    }));
+
+    // SAFETY: `webview` is the live `ICoreWebView2` behind a `wry::WebView`
+    // this module built, `stream` is the valid memory stream created above,
+    // and `handler` is a freshly created, single-owner callback object of
+    // exactly the type `CapturePreview` expects; the engine keeps its own
+    // references to both for as long as the capture runs.
+    unsafe {
+        webview.CapturePreview(
+            COREWEBVIEW2_CAPTURE_PREVIEW_IMAGE_FORMAT_JPEG,
+            &stream,
+            &handler,
+        )
+    }
+}
+
+/// Everything `stream` holds, from its start: its size from `Stat`, then a
+/// rewind, then `Read` until the stream reports nothing more — the engine
+/// leaves the position at the end of what it wrote.
+fn read_whole_stream(stream: &IStream) -> Result<Vec<u8>, String> {
+    let mut stat = STATSTG::default();
+    // SAFETY: `stat` is a valid, correctly typed out-pointer, and `NONAME`
+    // asks the stream not to allocate a name this function would otherwise
+    // have to free.
+    unsafe { stream.Stat(&raw mut stat, STATFLAG_NONAME) }.map_err(|error| error.to_string())?;
+    let size = usize::try_from(stat.cbSize).map_err(|_| {
+        format!(
+            "the captured stream's {} bytes do not fit in memory",
+            stat.cbSize
+        )
+    })?;
+
+    // SAFETY: rewinding to offset 0 from the start has no preconditions; the
+    // new position is not wanted, so no out-pointer is passed.
+    unsafe { stream.Seek(0, STREAM_SEEK_SET, None) }.map_err(|error| error.to_string())?;
+
+    let mut bytes = vec![0u8; size];
+    let mut filled = 0usize;
+    while filled < size {
+        let remaining = u32::try_from(size - filled).unwrap_or(u32::MAX);
+        let mut read = 0u32;
+        // SAFETY: the destination is the unread tail of `bytes`, which is at
+        // least `remaining` bytes long, and `read` is a valid out-pointer the
+        // stream writes the count it actually copied into.
+        let status = unsafe {
+            stream.Read(
+                bytes[filled..].as_mut_ptr().cast(),
+                remaining,
+                Some(&raw mut read),
+            )
+        };
+        status.ok().map_err(|error| error.to_string())?;
+        if read == 0 {
+            break;
+        }
+        filled += read as usize;
+    }
+    bytes.truncate(filled);
+    Ok(bytes)
 }

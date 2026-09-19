@@ -42,10 +42,13 @@ raw-window-handle.workspace = true
 # constants `ffi.rs` maps `AcceleratorKeyPressed` through to a GDK keyval.
 # `Win32_System_Com`: `ICoreWebView2*` COM interfaces. `Win32_UI_Input_KeyboardAndMouse`:
 # `GetKeyState`/`VK_CONTROL`, since `AcceleratorKeyPressedEventArgs` carries no
-# modifier state of its own (task 03).
+# modifier state of its own (task 03). `Win32_System_Com_StructuredStorage`:
+# `CreateStreamOnHGlobal`, the memory `IStream` `CapturePreview` writes a
+# frame's JPEG into (roadmap item 13 task 02).
 windows = { workspace = true, features = [
     "Win32_Foundation",
     "Win32_System_Com",
+    "Win32_System_Com_StructuredStorage",
     "Win32_UI_Input_KeyboardAndMouse",
     "Win32_UI_WindowsAndMessaging",
 ] }

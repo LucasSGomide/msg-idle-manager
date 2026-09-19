@@ -19,29 +19,13 @@ use wry::{WebViewBuilder, WebViewBuilderExtWindows, WebViewExtWindows};
 
 use idle_manager_core::{ProfileDirectories, SessionId, ZoomLevel};
 
-use crate::web_engine::EngineDeleteError;
 use crate::web_engine::ipc_message::{self, IpcAction};
 use crate::web_engine::profile_name::is_valid_profile_name;
-use crate::web_view::AccountSettings;
+use crate::web_engine::{CapturedFrame, EngineCaptureError, EngineDeleteError, script_set};
+use crate::web_view::{AccountSettings, watched_background};
 use ffi::BorrowedHwnd;
 pub(crate) use host::EngineHost;
 use host::PendingView;
-
-/// The bridge script every view loads before the page itself, so
-/// `page-console.js` and [`KEEP_AWAKE_JS`] keep working unchanged against
-/// `window.ipc` (roadmap item 12, "The Windows scripts and messages") —
-/// `configure_builder`'s `with_ipc_handler` is what listens on the other end.
-const WEBVIEW2_BRIDGE_JS: &str = include_str!("../../resources/js/webview2-bridge.js");
-/// The page-console bridge script, the same one `WebKitGTK` injects on
-/// Linux (`web_engine/webkit.rs`), carried over unchanged because
-/// [`WEBVIEW2_BRIDGE_JS`] defines the same `window.webkit.messageHandlers`
-/// shape it expects.
-const PAGE_CONSOLE_JS: &str = include_str!("../../resources/js/page-console.js");
-/// The frame-callback shim, the same script `web_engine/webkit.rs` injects
-/// for a keep-awake account on Linux (roadmap item 12 task 04, `FR.6.3`).
-/// Included only when [`host::PendingView::keep_awake`] is set — see its own
-/// doc comment for why that has to be a construction-time decision here.
-const KEEP_AWAKE_JS: &str = include_str!("../../resources/js/keep-awake.js");
 
 /// The browser arguments every view in the shared environment must agree on
 /// — `WebView2` refuses a view whose arguments differ from the environment's
@@ -179,7 +163,9 @@ fn profile_folder(profile_name: &str) -> Option<PathBuf> {
 /// Applies every setting common to a fresh `wry::WebViewBuilder` regardless
 /// of which environment it was constructed against: the address, the
 /// validated profile name, the account's identity when it has one, the
-/// document-start bridge and page-console scripts, the load-event handler
+/// document-start scripts [`script_set::webview2_script_set`] names — the
+/// bridge, the page console, the frame shim, and its arming prelude for a
+/// keep-awake account — the load-event handler
 /// [`host::EngineHost::connect_painted`] fires through, and the ipc handler
 /// that parses what the bridge script posts and hands the result to
 /// `on_ipc`, silently dropping anything [`ipc_message::parse_ipc_message`]
@@ -196,8 +182,6 @@ fn configure_builder<'a>(
         .with_url(&pending.start_address)
         .with_profile_name(&pending.profile_name)
         .with_bounds(wry::Rect::default())
-        .with_initialization_script(WEBVIEW2_BRIDGE_JS)
-        .with_initialization_script(PAGE_CONSOLE_JS)
         .with_on_page_load_handler(on_load)
         .with_ipc_handler(move |request| {
             if let Some(action) = ipc_message::parse_ipc_message(request.body()) {
@@ -222,8 +206,8 @@ fn configure_builder<'a>(
     if let Some(user_agent) = &pending.user_agent {
         builder = builder.with_user_agent(user_agent);
     }
-    if pending.keep_awake {
-        builder = builder.with_initialization_script(KEEP_AWAKE_JS);
+    for script in script_set::webview2_script_set(pending.keep_awake) {
+        builder = builder.with_initialization_script(script);
     }
     builder
 }
@@ -287,6 +271,7 @@ impl EngineProfile {
         };
         EngineView {
             host: EngineHost::new(pending),
+            id: self.id.clone(),
         }
     }
 
@@ -375,6 +360,9 @@ impl EngineProfile {
 #[derive(Debug, Clone)]
 pub struct EngineView {
     host: EngineHost,
+    /// The account this view belongs to, for the `session` field on every
+    /// failure logged from a callback (code standards rule 15).
+    id: SessionId,
 }
 
 impl EngineView {
@@ -441,6 +429,47 @@ impl EngineView {
         self.host.set_background(background);
     }
 
+    /// Wakes this view for a watching phone (`on`) or hands it back to the
+    /// account's own `keep_awake` choice (`FR.4.3`, roadmap item 13 task 02):
+    /// the controller is forced visible while watched and put back to
+    /// `background_for(minimised, keep_awake)` when the phone leaves
+    /// ([`watched_background`]) — `IsVisible` being what carries keep-awake on
+    /// Windows at all (`web_engine/webview2.rs`'s `set_background`). The
+    /// frame shim is armed and disarmed through [`EngineView::run_script`] as
+    /// well, so the runtime flag means the same on both engines.
+    pub(crate) fn set_watched(&self, on: bool, keep_awake: bool, minimised: bool) {
+        self.host
+            .set_background(watched_background(on, keep_awake, minimised));
+        self.run_script(&script_set::watched_script(on, keep_awake));
+        tracing::debug!(session = %self.id, watched = on, keep_awake, "view watched state set");
+    }
+
+    /// Runs `source` in this view's page through `wry::WebView::evaluate_script`
+    /// (roadmap item 13 task 02). A failure — or a view not built yet — is
+    /// logged with the session field and never surfaced, since nothing the
+    /// caller could do differs by the reason.
+    pub(crate) fn run_script(&self, source: &str) {
+        if let Err(reason) = self.host.run_script(source) {
+            tracing::warn!(session = %self.id, reason, "script did not run in the page");
+        }
+    }
+
+    /// Takes a picture of this view's page as it is right now and hands it
+    /// to `done` exactly once, as a JPEG the engine encoded itself
+    /// (`ICoreWebView2::CapturePreview`, roadmap item 13 task 02).
+    pub(crate) fn capture_frame(
+        &self,
+        done: impl FnOnce(Result<CapturedFrame, EngineCaptureError>) + 'static,
+    ) {
+        self.host.capture_frame(move |outcome| {
+            done(
+                outcome
+                    .map(CapturedFrame::Jpeg)
+                    .map_err(|reason| EngineCaptureError { reason }),
+            );
+        });
+    }
+
     /// Grabs keyboard focus for this view's hosted native window.
     // Unused until a later slice calls it, same reasoning as
     // `web_engine/webkit.rs`'s own currently-unused `grab_focus`.
@@ -478,15 +507,18 @@ impl EngineView {
     /// own doc comment) and offers no way to add or remove one from a view
     /// that already exists (roadmap item 12 task 04, `FR.6.2`, `FR.6.3`).
     /// [`host::PendingView::keep_awake`] is what actually adds
-    /// [`KEEP_AWAKE_JS`] — this reload does not by itself change whether the
-    /// shim is present; `SessionView::start` is what next builds the view
+    /// `script_set::KEEP_AWAKE_PRELUDE_JS` — this reload does not by itself
+    /// change whether the prelude is present; `SessionView::start` is what next builds the view
     /// with the switch's new value baked in, at the account's next park and
     /// restart. `TODO(12)`: the Windows VM measurement this task's own
     /// context calls for should also settle whether that gap (a live toggle
     /// only fully taking effect on the next restart) is acceptable, or
     /// whether it is worth reaching for the raw, asynchronous
     /// `AddScriptToExecuteOnDocumentCreated`/`RemoveScriptToExecuteOnDocumentCreated`
-    /// COM calls instead.
+    /// COM calls instead. Since roadmap item 13 the shim itself is in every
+    /// view and only the arming prelude depends on the switch, so the gap is
+    /// narrower than it was: the running page can be armed or disarmed at
+    /// once through [`EngineView::set_watched`]'s runtime path.
     pub(crate) fn set_keep_awake(&self, _on: bool, id: &SessionId) {
         tracing::debug!(session = %id, "reloading for a keep-awake toggle");
         self.host.reload();
