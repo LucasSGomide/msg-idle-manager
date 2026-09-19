@@ -1,6 +1,6 @@
 # 12 — Running natively on Windows
 
-**Depends on:** 05, 11 · **Status:** done · **Estimate:** 13
+**Depends on:** 05, 11 · **Status:** done · **Estimate:** 13 · **Merged:** 2026-09-19
 
 ## Context
 
