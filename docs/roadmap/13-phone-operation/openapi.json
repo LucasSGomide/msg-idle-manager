@@ -1,0 +1,199 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "Operating an account from a phone",
+    "version": "0.1.0",
+    "description": "The three routes `idle-manager-remote` serves on the desktop's mesh address (default port 7466). Every request without the enrolled device cookie, and every path not listed here, is answered 404 with an empty body and no `Server` header. The WebSocket messages exchanged after `GET /ws` upgrades are described under `components.schemas` as `Server*` and `Phone*` and referenced from that operation."
+  },
+  "servers": [
+    { "url": "http://{meshAddress}:7466", "variables": { "meshAddress": { "default": "100.64.0.1", "description": "The desktop's IPv4 address inside the 100.64.0.0/10 mesh range" } } }
+  ],
+  "paths": {
+    "/enrol/{code}": {
+      "get": {
+        "summary": "Enrol this phone with a one-time code",
+        "description": "Consumes the code `PhoneLink::begin_enrolment` minted (valid 600 s, single use). Mints a device id and a 32-byte secret, replaces any earlier enrolled phone in `phone.toml`, and returns the client page with the credential embedded in a `<meta>` tag.",
+        "parameters": [
+          { "name": "code", "in": "path", "required": true, "schema": { "type": "string", "pattern": "^[0-9a-f]{64}$" }, "description": "32 random bytes, hex" }
+        ],
+        "responses": {
+          "200": {
+            "description": "Enrolled. The page carries `<meta name=\"idle-manager-device-id\">` and `<meta name=\"idle-manager-secret\">`, which the page moves into `localStorage` before opening the socket.",
+            "headers": {
+              "Set-Cookie": { "schema": { "type": "string" }, "description": "`idle-manager-phone=<device id>; Path=/; Max-Age=31536000; SameSite=Strict; HttpOnly`" }
+            },
+            "content": { "text/html": { "schema": { "type": "string" } } }
+          },
+          "404": { "$ref": "#/components/responses/Nothing" }
+        }
+      }
+    },
+    "/": {
+      "get": {
+        "summary": "The phone page",
+        "description": "Serves `phone.html` only to a request carrying the enrolled device id in the `idle-manager-phone` cookie.",
+        "parameters": [ { "$ref": "#/components/parameters/DeviceCookie" } ],
+        "responses": {
+          "200": { "description": "The client page, without any credential embedded", "content": { "text/html": { "schema": { "type": "string" } } } },
+          "404": { "$ref": "#/components/responses/Nothing" }
+        }
+      }
+    },
+    "/ws": {
+      "get": {
+        "summary": "Open the phone's socket",
+        "description": "RFC 6455 upgrade, accepted only with the enrolled device cookie. After the upgrade the server sends `ServerHello` and nothing else until the phone's `PhoneAuth` proves the secret; the server then sends `ServerWelcome` and thereafter `ServerState` on every change, binary frames (`BinaryFrame`) while the phone is attached and mobile mode is on, and `ServerBye` before closing on revocation. The phone sends `PhoneMessage` variants; any other message is dropped with a logged warning and no reply. A second authenticated socket replaces the first. A wrong proof closes the socket with no message.",
+        "parameters": [
+          { "$ref": "#/components/parameters/DeviceCookie" },
+          { "name": "Upgrade", "in": "header", "required": true, "schema": { "type": "string", "const": "websocket" } },
+          { "name": "Sec-WebSocket-Key", "in": "header", "required": true, "schema": { "type": "string" } },
+          { "name": "Sec-WebSocket-Version", "in": "header", "required": true, "schema": { "type": "string", "const": "13" } }
+        ],
+        "responses": {
+          "101": {
+            "description": "Switching Protocols. Messages: server → phone `ServerHello`, `ServerWelcome`, `ServerState`, `BinaryFrame`, `ServerBye`; phone → server `PhoneMessage`.",
+            "headers": {
+              "Sec-WebSocket-Accept": { "schema": { "type": "string" }, "description": "base64(SHA-1(key + 258EAFA5-E914-47DA-95CA-C5AB0DC85B11))" }
+            }
+          },
+          "404": { "$ref": "#/components/responses/Nothing" }
+        }
+      }
+    }
+  },
+  "components": {
+    "parameters": {
+      "DeviceCookie": {
+        "name": "Cookie",
+        "in": "header",
+        "required": true,
+        "schema": { "type": "string" },
+        "description": "`idle-manager-phone=<device id>`; the id `GET /enrol/{code}` set. Absent or mismatched → 404 with an empty body."
+      }
+    },
+    "responses": {
+      "Nothing": { "description": "Not enrolled, unknown code, expired code, or unknown path: an empty body and no `Server` header, so a stranger learns nothing (Remote Access FR.6.1)." }
+    },
+    "schemas": {
+      "Viewport": {
+        "type": "object",
+        "description": "Logical pixels of the phone's screen (`window.innerWidth` × `window.innerHeight`).",
+        "properties": { "width": { "type": "integer", "minimum": 1 }, "height": { "type": "integer", "minimum": 1 } },
+        "required": ["width", "height"]
+      },
+      "Liveness": {
+        "type": "string",
+        "description": "The desktop sidebar's own liveness words (design rule 1). Item 08 adds a seventh word when it lands.",
+        "enum": ["live", "parked", "starting", "queued"]
+      },
+      "RemoteAccount": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "string", "description": "The account's `SessionId`" },
+          "name": { "type": "string" },
+          "liveness": { "$ref": "#/components/schemas/Liveness" }
+        },
+        "required": ["id", "name", "liveness"]
+      },
+      "RemoteWorkspace": {
+        "type": "object",
+        "properties": {
+          "name": { "type": "string" },
+          "accounts": { "type": "array", "items": { "$ref": "#/components/schemas/RemoteAccount" } }
+        },
+        "required": ["name", "accounts"]
+      },
+      "RemoteState": {
+        "type": "object",
+        "description": "The snapshot the phone renders, built from the `WorkspaceBook` on every redraw.",
+        "properties": {
+          "mobileMode": { "type": "boolean" },
+          "viewport": { "$ref": "#/components/schemas/Viewport" },
+          "current": { "type": ["string", "null"], "description": "The account in the `Mobile` slot, or null" },
+          "workspaces": { "type": "array", "items": { "$ref": "#/components/schemas/RemoteWorkspace" } }
+        },
+        "required": ["mobileMode", "viewport", "current", "workspaces"]
+      },
+      "ServerHello": {
+        "type": "object",
+        "properties": { "type": { "const": "hello" }, "challenge": { "type": "string", "pattern": "^[0-9a-f]{64}$" } },
+        "required": ["type", "challenge"]
+      },
+      "ServerWelcome": {
+        "type": "object",
+        "properties": {
+          "type": { "const": "welcome" },
+          "proof": { "type": "string", "description": "hex HMAC-SHA256(secret, \"desktop|\" + phone challenge)" },
+          "state": { "$ref": "#/components/schemas/RemoteState" }
+        },
+        "required": ["type", "proof", "state"]
+      },
+      "ServerState": {
+        "type": "object",
+        "properties": { "type": { "const": "state" }, "state": { "$ref": "#/components/schemas/RemoteState" } },
+        "required": ["type", "state"]
+      },
+      "ServerBye": {
+        "type": "object",
+        "properties": { "type": { "const": "bye" }, "reason": { "type": "string", "enum": ["revoked", "replaced"] } },
+        "required": ["type", "reason"]
+      },
+      "BinaryFrame": {
+        "type": "string",
+        "format": "binary",
+        "description": "A WebSocket binary message: big-endian u32 width, big-endian u32 height, then a JPEG of the current account's page at that size. Sent only while attached and mobile mode is on; a frame identical to the last is skipped."
+      },
+      "PhoneAuth": {
+        "type": "object",
+        "properties": {
+          "type": { "const": "auth" },
+          "proof": { "type": "string", "description": "hex HMAC-SHA256(secret, \"phone|\" + server challenge)" },
+          "challenge": { "type": "string", "pattern": "^[0-9a-f]{64}$" }
+        },
+        "required": ["type", "proof", "challenge"]
+      },
+      "PhoneAttach": {
+        "type": "object",
+        "properties": { "type": { "const": "attach" }, "viewport": { "$ref": "#/components/schemas/Viewport" } },
+        "required": ["type", "viewport"]
+      },
+      "PhoneLeave": { "type": "object", "properties": { "type": { "const": "leave" } }, "required": ["type"] },
+      "PhonePing": { "type": "object", "description": "Heartbeat every 5 s; 15 s without one counts as leaving.", "properties": { "type": { "const": "ping" } }, "required": ["type"] },
+      "PhoneChoose": { "type": "object", "properties": { "type": { "const": "choose" }, "account": { "type": "string" } }, "required": ["type", "account"] },
+      "PhonePark": { "type": "object", "properties": { "type": { "const": "park" }, "account": { "type": "string" } }, "required": ["type", "account"] },
+      "PhoneStart": { "type": "object", "properties": { "type": { "const": "start" }, "account": { "type": "string" } }, "required": ["type", "account"] },
+      "PhoneMobile": { "type": "object", "properties": { "type": { "const": "mobile" }, "on": { "type": "boolean" } }, "required": ["type", "on"] },
+      "PhoneTap": {
+        "type": "object",
+        "description": "Viewport pixels of the current frame; the page maps its screen touch through the frame's scale before sending.",
+        "properties": { "type": { "const": "tap" }, "x": { "type": "integer", "minimum": 0 }, "y": { "type": "integer", "minimum": 0 } },
+        "required": ["type", "x", "y"]
+      },
+      "PhoneScroll": {
+        "type": "object",
+        "properties": {
+          "type": { "const": "scroll" },
+          "x": { "type": "integer", "minimum": 0 }, "y": { "type": "integer", "minimum": 0 },
+          "dx": { "type": "integer" }, "dy": { "type": "integer" }
+        },
+        "required": ["type", "x", "y", "dx", "dy"]
+      },
+      "PhoneMessage": {
+        "description": "The closed set of messages the desktop understands; it maps onto `RemoteIntent` and nothing else (Remote Access FR.6.3).",
+        "oneOf": [
+          { "$ref": "#/components/schemas/PhoneAuth" },
+          { "$ref": "#/components/schemas/PhoneAttach" },
+          { "$ref": "#/components/schemas/PhoneLeave" },
+          { "$ref": "#/components/schemas/PhonePing" },
+          { "$ref": "#/components/schemas/PhoneChoose" },
+          { "$ref": "#/components/schemas/PhonePark" },
+          { "$ref": "#/components/schemas/PhoneStart" },
+          { "$ref": "#/components/schemas/PhoneMobile" },
+          { "$ref": "#/components/schemas/PhoneTap" },
+          { "$ref": "#/components/schemas/PhoneScroll" }
+        ],
+        "discriminator": { "propertyName": "type" }
+      }
+    }
+  }
+}

@@ -1,6 +1,6 @@
 # Goal: Record the user needs and functional requirements for operating a running account from a phone
 
-**Status:** not executed
+**Status:** executed 2026-09-19 — `Remote Access` `UN.1`–`UN.6`, `FR.1.1`–`FR.6.3` plus `FR.3.5` appended to `docs/requirements.md`; no ditched record for the on-device port
 **Rating:** —
 **Run:** standalone. 06 and 07 are both executed; 07 added no rows to
 `docs/requirements.md`, so nothing is contended and nothing is waiting.

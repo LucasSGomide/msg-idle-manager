@@ -49,13 +49,15 @@ window and a fixed sequence, since a measurement showed the web engine never
 releases a deleted account's files, so deletion removes the folder without
 waiting for them.
 
-**Next up: 12, then 08.** Item 12 makes the application run natively on
-Windows, with GTK 4 kept and Microsoft Edge WebView2 used in place of WebKitGTK
-there. It goes first because it moves every web-engine call behind one
-shell-internal seam. Item 08 adds recovery from a crash nobody was awake to see,
-building on the durable workspace 07 landed. Built after 12, its restart logic
-is written once against that seam and works on both engines. Otherwise it would
-be written against WebKit and then ported.
+**Next up: 13, then 08.** Item 12 shipped: the application runs natively on
+Windows, with every web-engine call behind one shell-internal seam. Item 13
+puts a running account on the owner's phone — one game filling a six-inch
+screen, streamed from the always-on desktop and tapped from the phone — because
+that is the daily pain today's general remote desktop leaves unsolved. It goes
+first because it builds on 12's seam directly: a frame capture and a script
+call are added once and work on both engines. Item 08 adds recovery from a
+crash nobody was awake to see, building on the durable workspace 07 landed;
+its restart logic is likewise written once against that seam.
 
 Item 09 shipped the first file the application writes on an account's behalf — a
 per-account `state.toml` holding the zoom chosen per arrangement — and with it
@@ -83,6 +85,7 @@ failure are shown inside a chooser without a modal of their own.
 
 | # | Item | Est | Depends on | Status |
 |---|---|---|---|---|
+| [13](13-phone-operation/README.md) | Operating an account from a phone | 13 | 11, 12 | not-started |
 | [08](08-crash-recovery/README.md) | Surviving a crashed game | 5 | 03 | not-started |
 
 ## Blocked

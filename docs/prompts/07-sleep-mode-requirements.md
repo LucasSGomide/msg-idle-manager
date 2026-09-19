@@ -1,7 +1,7 @@
 # Goal: Record the user needs and functional requirements for a sleep mode that keeps games running while the interface stops rendering
 
 **Status:** executed 2026-09-19 — no requirement rows; ditched as `docs/ditched/02-sleep-mode.md`
-**Rating:** —
+**Rating:** 7
 **Run:** parallel with 06 — this touches `docs/requirements.md` only, 06
 touches `crates/idle-manager-metrics/` only.
 
