@@ -1,7 +1,9 @@
 //! `ProcPssProbe` walks the whole descendant tree from the application's own
 //! pid — sandboxes and all — reads each process's proportional set size from
-//! `smaps_rollup` or a `smaps` fallback, counts only what it actually read, and
-//! keeps a refusal distinct from a malformed read.
+//! `smaps_rollup` or a `smaps` fallback, counts only what it actually read,
+//! keeps a refusal distinct from a malformed read, and lets a descendant it
+//! cannot read — gone, a zombie, refused, malformed — cost the figure one
+//! process rather than the whole sample. Only the own process failing fails it.
 
 mod common;
 
@@ -117,15 +119,9 @@ fn a_process_whose_rollup_is_absent_falls_back_to_smaps_and_produces_a_figure() 
 }
 
 #[test]
-fn a_rollup_with_no_pss_line_is_a_malformed_read_carrying_the_path() {
+fn the_own_rollup_with_no_pss_line_is_a_malformed_read_carrying_the_path() {
     let proc = FakeProc::new("nopss");
-    proc.process(100, "idle-manager", 1, 1_000)
-        .process_with_rollup(
-            101,
-            "WebKitWebProcess",
-            100,
-            &fixture("rollup-without-pss.txt"),
-        );
+    proc.process_with_rollup(100, "idle-manager", 1, &fixture("rollup-without-pss.txt"));
 
     let error = ProcPssProbe::under(proc.root(), 100)
         .read_tree()
@@ -134,20 +130,13 @@ fn a_rollup_with_no_pss_line_is_a_malformed_read_carrying_the_path() {
     let ProcPssError::Malformed { path, .. } = error else {
         panic!("expected Malformed, got {error:?}");
     };
-    assert!(path.ends_with("101/smaps_rollup"));
+    assert!(path.ends_with("100/smaps_rollup"));
 }
 
 #[test]
 fn a_malformed_read_is_distinguishable_by_matching_from_a_file_that_was_not_there() {
     let malformed = FakeProc::new("malformed");
-    malformed
-        .process(100, "idle-manager", 1, 1_000)
-        .process_with_rollup(
-            101,
-            "WebKitWebProcess",
-            100,
-            &fixture("rollup-without-pss.txt"),
-        );
+    malformed.process_with_rollup(100, "idle-manager", 1, &fixture("rollup-without-pss.txt"));
 
     let gone = FakeProc::new("gone");
     gone.process(100, "idle-manager", 1, 1_000)
@@ -164,13 +153,7 @@ fn a_malformed_read_is_distinguishable_by_matching_from_a_file_that_was_not_ther
 #[test]
 fn a_malformed_read_maps_to_the_ports_unreadable_error() {
     let proc = FakeProc::new("port-error");
-    proc.process(100, "idle-manager", 1, 1_000)
-        .process_with_rollup(
-            101,
-            "WebKitWebProcess",
-            100,
-            &fixture("rollup-without-pss.txt"),
-        );
+    proc.process_with_rollup(100, "idle-manager", 1, &fixture("rollup-without-pss.txt"));
 
     let error = ProcPssProbe::under(proc.root(), 100)
         .sample()
@@ -209,4 +192,101 @@ fn the_process_count_is_the_number_read_not_the_number_found_in_the_walk() {
         .expect("the fake tree samples");
 
     assert_eq!(reading.process_count, 2);
+}
+
+#[test]
+fn a_zombie_descendant_with_an_empty_smaps_is_skipped_and_the_sample_still_stands() {
+    let proc = FakeProc::new("zombie");
+    proc.process(100, "idle-manager", 1, 130_000)
+        .process(101, "WebKitWebProcess", 100, 500_000)
+        .process_zombie(102, "xdg-terminal-ex", 100);
+
+    let reading = ProcPssProbe::under(proc.root(), 100)
+        .sample()
+        .expect("one unreaped descendant does not blank the figure");
+
+    assert_eq!(
+        (reading.descendants_kib, reading.process_count),
+        (500_000, 2)
+    );
+}
+
+#[test]
+fn a_descendant_whose_rollup_is_empty_is_skipped_the_same_way() {
+    let proc = FakeProc::new("empty-rollup");
+    proc.process(100, "idle-manager", 1, 130_000)
+        .process_with_rollup(101, "bwrap", 100, "");
+
+    let reading = ProcPssProbe::under(proc.root(), 100)
+        .sample()
+        .expect("an empty rollup is a process with nothing left to read");
+
+    assert_eq!(reading.process_count, 1);
+}
+
+#[test]
+fn a_non_empty_smaps_with_no_pss_line_is_still_a_malformed_read_carrying_the_path() {
+    let proc = FakeProc::new("smaps-nopss");
+    proc.process_smaps_only(100, "idle-manager", 1, &fixture("smaps-without-pss.txt"));
+
+    let error = ProcPssProbe::under(proc.root(), 100)
+        .read_tree()
+        .expect_err("content with no Pss line does not parse, empty or not");
+
+    let ProcPssError::Malformed { path, .. } = error else {
+        panic!("expected Malformed, got {error:?}");
+    };
+    assert!(path.ends_with("100/smaps"));
+}
+
+#[test]
+fn a_descendant_whose_memory_file_does_not_parse_is_skipped_rather_than_failing_the_sample() {
+    let proc = FakeProc::new("malformed-descendant");
+    proc.process(100, "idle-manager", 1, 1_000)
+        .process_with_rollup(
+            101,
+            "WebKitWebProcess",
+            100,
+            &fixture("rollup-without-pss.txt"),
+        )
+        .process(102, "WebKitNetworkProcess", 100, 40_000);
+
+    let reading = ProcPssProbe::under(proc.root(), 100)
+        .sample()
+        .expect("a descendant that will not parse costs the figure one process");
+
+    assert_eq!(
+        (reading.descendants_kib, reading.process_count),
+        (40_000, 2)
+    );
+}
+
+#[test]
+fn a_descendant_whose_memory_file_is_refused_is_skipped_rather_than_failing_the_sample() {
+    let proc = FakeProc::new("refused-descendant");
+    proc.process(100, "idle-manager", 1, 1_000)
+        .process_with_unreadable_smaps(101, "bwrap", 100)
+        .process(102, "WebKitNetworkProcess", 100, 40_000);
+
+    let reading = ProcPssProbe::under(proc.root(), 100)
+        .sample()
+        .expect("a descendant that refuses to be read costs the figure one process");
+
+    assert_eq!(
+        (reading.descendants_kib, reading.process_count),
+        (40_000, 2)
+    );
+}
+
+#[test]
+fn the_own_process_refusing_to_be_read_fails_the_whole_sample() {
+    let proc = FakeProc::new("own-refused");
+    proc.process_with_unreadable_smaps(100, "idle-manager", 1)
+        .process(101, "WebKitWebProcess", 100, 500_000);
+
+    let error = ProcPssProbe::under(proc.root(), 100)
+        .read_tree()
+        .expect_err("no own figure, no sample");
+
+    assert!(matches!(error, ProcPssError::Refused { .. }));
 }

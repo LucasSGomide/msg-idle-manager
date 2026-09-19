@@ -38,8 +38,9 @@ pub enum ProcPssError {
         #[source]
         source: std::io::Error,
     },
-    /// A `/proc` file was read but its contents did not parse — most often a
-    /// `smaps_rollup` with no `Pss:` line at all.
+    /// A `/proc` file was read, had content, and that content did not parse —
+    /// most often a `smaps_rollup` with no `Pss:` line at all. An *empty* file
+    /// is not this: it is a zombie's, and reads as the process being gone.
     #[error("{path} was read but did not parse: {reason}", path = .path.display())]
     Malformed {
         /// The path whose contents would not parse.
@@ -166,44 +167,69 @@ impl ProcPssProbe {
 
     /// Walks the process tree from `own_pid` and reads each process's `Pss`.
     ///
+    /// The tree's membership churns the whole time the application runs —
+    /// `WebKitGTK` starts and stops sandboxes and bus proxies as sessions come
+    /// and go, and a helper it never reaps lingers as a zombie — so one
+    /// descendant that cannot be read is skipped with a `debug` line saying
+    /// why, never a reason to blank the whole figure. Only the application's
+    /// own process has to read for a sample to stand.
+    ///
     /// # Errors
     ///
-    /// [`ProcPssError::Refused`] if the process table or a needed file cannot
-    /// be read, [`ProcPssError::Malformed`] if a `smaps_rollup` or `smaps` was
-    /// read and held no `Pss:` line.
+    /// [`ProcPssError::Refused`] if the process table or the own process's
+    /// files cannot be read, [`ProcPssError::Malformed`] if the own process's
+    /// `smaps_rollup` or `smaps` had content and no `Pss:` line in it.
     pub fn read_tree(&self) -> Result<ProcessTreeReading, ProcPssError> {
         let table = self.read_process_table()?;
-        let order = descend_from(self.own_pid, &table);
+        let mut order = descend_from(self.own_pid, &table).into_iter();
 
-        let mut read = Vec::with_capacity(order.len());
+        // `descend_from` yields its root first whether or not the table has a
+        // row for it, so the fallback never runs; it only spares an `expect`.
+        let own_pid = order.next().unwrap_or(self.own_pid);
+        let own = self
+            .read_process(own_pid, &table)?
+            .ok_or_else(|| ProcPssError::Refused {
+                path: self.pid_dir(self.own_pid),
+                source: std::io::Error::from(std::io::ErrorKind::NotFound),
+            })?;
+
+        let mut descendants = Vec::new();
         for pid in order {
-            let command = table
-                .get(&pid)
-                .map(|entry| entry.command.clone())
-                .unwrap_or_default();
-            match self.read_pss_kib(pid)? {
-                Some(pss_kib) => read.push(ProcessMemory {
-                    pid,
-                    kind: ProcessKind::of(&command),
-                    command,
-                    pss_kib,
-                }),
-                None => {
+            match self.read_process(pid, &table) {
+                Ok(Some(process)) => descendants.push(process),
+                Ok(None) => {
                     tracing::debug!(pid, reason = "exited during the walk", "process skipped");
+                }
+                Err(error) => {
+                    tracing::debug!(pid, reason = %error, "process skipped");
                 }
             }
         }
 
-        let mut read = read.into_iter();
-        let own = read.next().ok_or_else(|| ProcPssError::Refused {
-            path: self.pid_dir(self.own_pid),
-            source: std::io::Error::from(std::io::ErrorKind::NotFound),
-        })?;
+        Ok(ProcessTreeReading { own, descendants })
+    }
 
-        Ok(ProcessTreeReading {
-            own,
-            descendants: read.collect(),
-        })
+    /// One process's contribution to the reading, labelled from the table, or
+    /// `None` when there is nothing left of it to read (see
+    /// [`ProcPssProbe::read_pss_kib`]).
+    fn read_process(
+        &self,
+        pid: u32,
+        table: &HashMap<u32, ProcessEntry>,
+    ) -> Result<Option<ProcessMemory>, ProcPssError> {
+        let Some(pss_kib) = self.read_pss_kib(pid)? else {
+            return Ok(None);
+        };
+        let command = table
+            .get(&pid)
+            .map(|entry| entry.command.clone())
+            .unwrap_or_default();
+        Ok(Some(ProcessMemory {
+            pid,
+            kind: ProcessKind::of(&command),
+            command,
+            pss_kib,
+        }))
     }
 
     fn pid_dir(&self, pid: u32) -> PathBuf {
@@ -255,27 +281,26 @@ impl ProcPssProbe {
     /// `smaps_rollup`, falling back to summing `Pss:` across `smaps` where the
     /// rollup is absent or unreadable.
     ///
-    /// `Ok(None)` means the process vanished between the walk and this read —
-    /// neither file is there. `Err(Malformed)` means a file *was* there and
+    /// `Ok(None)` means there is nothing left of the process to read: it
+    /// vanished between the walk and this read and neither file is there, or
+    /// it is a zombie — exited but unreaped, so still in the table with a
+    /// readable `status` — whose address space is gone, whose `smaps_rollup`
+    /// the kernel refuses with `ESRCH`, and whose `smaps` it serves as an
+    /// empty file. `Err(Malformed)` means a file *was* there with content and
     /// carried no `Pss:` line, which is a different thing entirely and says so.
     fn read_pss_kib(&self, pid: u32) -> Result<Option<u64>, ProcPssError> {
         let rollup_path = self.pid_dir(pid).join("smaps_rollup");
         // Absent or unreadable: the rollup is optional — a container or a
-        // hardened kernel withholds it — so any failure here falls through to
-        // the per-mapping file rather than aborting.
+        // hardened kernel withholds it, a zombie answers `ESRCH` — so any
+        // failure here falls through to the per-mapping file rather than
+        // aborting.
         if let Ok(text) = fs::read_to_string(&rollup_path) {
-            return sum_pss_kib(&text).map(Some).ok_or(ProcPssError::Malformed {
-                path: rollup_path,
-                reason: "no Pss: line".to_owned(),
-            });
+            return parse_pss_kib(&text, rollup_path);
         }
 
         let smaps_path = self.pid_dir(pid).join("smaps");
         match fs::read_to_string(&smaps_path) {
-            Ok(text) => sum_pss_kib(&text).map(Some).ok_or(ProcPssError::Malformed {
-                path: smaps_path,
-                reason: "no Pss: line".to_owned(),
-            }),
+            Ok(text) => parse_pss_kib(&text, smaps_path),
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(None),
             Err(source) => Err(ProcPssError::Refused {
                 path: smaps_path,
@@ -340,6 +365,23 @@ fn descend_from(root: u32, table: &HashMap<u32, ProcessEntry>) -> Vec<u32> {
         }
     }
     order
+}
+
+/// What one memory file's contents say about the process it belongs to.
+///
+/// An empty file is the address space having gone — the kernel serves a
+/// zombie's `smaps` as zero bytes — so it reads as `Ok(None)`, exactly as if
+/// the process had vanished. Only content with no `Pss:` line in it is
+/// [`ProcPssError::Malformed`]; the two must not blur, because one is routine
+/// churn and the other is a kernel that stopped speaking the format.
+fn parse_pss_kib(text: &str, path: PathBuf) -> Result<Option<u64>, ProcPssError> {
+    if text.trim().is_empty() {
+        return Ok(None);
+    }
+    sum_pss_kib(text).map(Some).ok_or(ProcPssError::Malformed {
+        path,
+        reason: "no Pss: line".to_owned(),
+    })
 }
 
 /// Sums every `Pss:` line's kibibyte figure, or `None` when there is no such
