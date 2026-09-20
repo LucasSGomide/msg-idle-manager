@@ -91,8 +91,19 @@ mod tests {
     }
 
     #[test]
+    fn the_shim_tells_an_awake_page_it_is_visible() {
+        assert!(
+            KEEP_AWAKE_JS.contains("get() { return awake ? false : nativeHidden.get.call(this); }")
+                && KEEP_AWAKE_JS.contains(
+                    "get() { return awake ? 'visible' : nativeVisibilityState.get.call(this); }"
+                )
+                && KEEP_AWAKE_JS.contains("event.stopImmediatePropagation();")
+        );
+    }
+
+    #[test]
     fn the_shim_intercepts_only_while_hidden_and_awake() {
-        assert!(KEEP_AWAKE_JS.contains("const shimming = () => document.hidden && awake;"));
+        assert!(KEEP_AWAKE_JS.contains("const shimming = () => reallyHidden() && awake;"));
         assert!(KEEP_AWAKE_JS.contains("if (shimming()) {"));
     }
 
@@ -175,16 +186,41 @@ mod tests {
     /// engine — behind a stand-in `window`/`document` that records whether a
     /// `requestAnimationFrame` reached the native call or a timer, then
     /// evaluates `scenario` and returns its result as a string.
+    ///
+    /// The stand-in `Document` carries `hidden` / `visibilityState` as
+    /// prototype accessors over `setReallyHidden`, the way the engine's do,
+    /// so the shim's spoof of both is what a scenario reads back; `dispatch`
+    /// runs the window's capture listeners first with an event whose
+    /// `stopImmediatePropagation` ends the run, as the real one does, and
+    /// `pageSaw` counts what reached a listener the page registered.
     #[cfg(target_os = "linux")]
     fn run_shim(scenario: &str) -> String {
         const HARNESS_JS: &str = r"
             globalThis.window = globalThis;
-            globalThis.document = { hidden: false };
-            const listeners = new Map();
-            globalThis.addEventListener = (name, fn) => {
-              listeners.set(name, [...(listeners.get(name) || []), fn]);
+            let reallyHidden = false;
+            globalThis.setReallyHidden = (on) => { reallyHidden = on; };
+            class Document {
+              get hidden() { return reallyHidden; }
+              get visibilityState() { return reallyHidden ? 'hidden' : 'visible'; }
+              addEventListener(name, fn) { pageListeners.set(name, [...(pageListeners.get(name) || []), fn]); }
+              dispatchEvent(event) { return dispatch(event.type); }
+            }
+            globalThis.Document = Document;
+            globalThis.document = new Document();
+            globalThis.Event = class { constructor(type) { this.type = type; this.stopped = false; } stopImmediatePropagation() { this.stopped = true; } };
+            const captureListeners = new Map();
+            const pageListeners = new Map();
+            globalThis.addEventListener = (name, fn, capture) => {
+              const map = capture ? captureListeners : pageListeners;
+              map.set(name, [...(map.get(name) || []), fn]);
             };
-            globalThis.dispatch = (name) => { for (const fn of listeners.get(name) || []) fn(); };
+            globalThis.pageSaw = [];
+            globalThis.dispatch = (name) => {
+              const event = new Event(name);
+              for (const fn of captureListeners.get(name) || []) { fn(event); if (event.stopped) return false; }
+              for (const fn of pageListeners.get(name) || []) { pageSaw.push(name); fn(event); }
+              return true;
+            };
             globalThis.nativeRequests = [];
             globalThis.nativeCancels = [];
             globalThis.timers = [];
@@ -235,7 +271,7 @@ mod tests {
     #[test]
     fn evaluated_a_hidden_page_that_is_not_armed_keeps_the_native_request() {
         let result = run_shim(
-            "document.hidden = true; requestAnimationFrame(() => {}); \
+            "setReallyHidden(true); requestAnimationFrame(() => {}); \
              JSON.stringify([nativeRequests.length, timers.length])",
         );
 
@@ -246,7 +282,7 @@ mod tests {
     #[test]
     fn evaluated_a_hidden_armed_page_is_answered_from_a_timer() {
         let result = run_shim(
-            "document.hidden = true; window.__idleManager.setAwake(true); \
+            "setReallyHidden(true); window.__idleManager.setAwake(true); \
              requestAnimationFrame(() => {}); \
              JSON.stringify([nativeRequests.length, timers.length])",
         );
@@ -269,7 +305,7 @@ mod tests {
     #[test]
     fn evaluated_the_timer_fires_at_the_interval_set_at_run_time() {
         let result = run_shim(&format!(
-            "document.hidden = true; window.__idleManager.setAwake(true); \
+            "setReallyHidden(true); window.__idleManager.setAwake(true); \
              window.__idleManager.setHiddenFrameInterval({WATCHED_FRAME_INTERVAL_MS}); \
              requestAnimationFrame(() => {{}}); String(timers[0].ms)"
         ));
@@ -281,7 +317,7 @@ mod tests {
     #[test]
     fn evaluated_arming_a_hidden_page_takes_over_the_request_the_engine_owes() {
         let result = run_shim(
-            "document.hidden = true; const id = requestAnimationFrame(() => {}); \
+            "setReallyHidden(true); const id = requestAnimationFrame(() => {}); \
              window.__idleManager.setAwake(true); \
              JSON.stringify([nativeCancels[0] === id, timers.length])",
         );
@@ -291,9 +327,62 @@ mod tests {
 
     #[cfg(target_os = "linux")]
     #[test]
+    fn evaluated_an_armed_page_reads_itself_visible_while_really_hidden() {
+        let result = run_shim(
+            "setReallyHidden(true); window.__idleManager.setAwake(true); \
+             JSON.stringify([document.hidden, document.visibilityState])",
+        );
+
+        assert_eq!(result, r#"[false,"visible"]"#);
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn evaluated_a_page_that_is_not_armed_reads_the_engines_own_answer() {
+        let result = run_shim(
+            "setReallyHidden(true); JSON.stringify([document.hidden, document.visibilityState])",
+        );
+
+        assert_eq!(result, r#"[true,"hidden"]"#);
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn evaluated_the_engines_visibilitychange_never_reaches_an_armed_page() {
+        // Armed and then really hidden: the engine's event stops at the shim.
+        // Disarmed while still hidden: the shim replays one, and the engine's
+        // next one passes — two in all reach the page.
+        let result = run_shim(
+            "document.addEventListener('visibilitychange', () => {}); \
+             window.__idleManager.setAwake(true); setReallyHidden(true); dispatch('visibilitychange'); \
+             const whileArmed = pageSaw.length; \
+             window.__idleManager.setAwake(false); dispatch('visibilitychange'); \
+             JSON.stringify([whileArmed, pageSaw.length])",
+        );
+
+        assert_eq!(result, "[0,2]");
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn evaluated_arming_a_really_hidden_page_replays_one_visibilitychange_that_reads_visible() {
+        let result = run_shim(
+            "const seen = []; \
+             document.addEventListener('visibilitychange', () => { seen.push(document.hidden); }); \
+             setReallyHidden(true); dispatch('visibilitychange'); \
+             window.__idleManager.setAwake(true); window.__idleManager.setAwake(true); \
+             window.__idleManager.setAwake(false); \
+             JSON.stringify(seen)",
+        );
+
+        assert_eq!(result, "[true,false,true]");
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
     fn evaluated_disarming_lets_a_hidden_page_fall_back_to_the_engine() {
         let result = run_shim(
-            "document.hidden = true; window.__idleManager.setAwake(true); \
+            "setReallyHidden(true); window.__idleManager.setAwake(true); \
              window.__idleManager.setAwake(false); requestAnimationFrame(() => {}); \
              JSON.stringify([nativeRequests.length, timers.length])",
         );

@@ -16,6 +16,17 @@
 // page runs, so item 04's behaviour is unchanged; the phone's wake arms it at
 // run time through `window.__idleManager` without a reload, and disarms it
 // again when the phone leaves (`FR.4.3`).
+//
+// Frames alone were not enough. Measured on the owner's GNOME desktop
+// (2026-09-20, item 13 task 08): with the window minimised, the phone kept
+// receiving fresh pictures but the game in them stood still, because the
+// page still read `document.hidden === true` and got its `visibilitychange`
+// — and a Phaser game pauses its own loop on exactly that, as most games
+// do. So while armed the page is also *told* it is visible: `hidden` and
+// `visibilityState` answer as if the window were on screen, and
+// `visibilitychange` never reaches the page's listeners. Arming or
+// disarming while the page is really hidden replays one `visibilitychange`
+// so a game that paused resumes, and one that was kept awake pauses again.
 (() => {
   // A guess, not a measurement: FR.6.3 asks for the shim and names no rate.
   // Tried against the repository's own `vischeck` page (a counter driven only
@@ -41,7 +52,36 @@
   let awake = false;
   let hiddenFrameIntervalMs = HIDDEN_FRAME_INTERVAL_MS;
 
-  const shimming = () => document.hidden && awake;
+  // What the engine really says, kept for the shim's own decisions — the
+  // page sees the spoofed answer below.
+  const nativeHidden = Object.getOwnPropertyDescriptor(Document.prototype, 'hidden');
+  const nativeVisibilityState = Object.getOwnPropertyDescriptor(Document.prototype, 'visibilityState');
+  const reallyHidden = () => nativeHidden.get.call(document);
+
+  const shimming = () => reallyHidden() && awake;
+
+  Object.defineProperty(Document.prototype, 'hidden', {
+    configurable: true,
+    enumerable: nativeHidden.enumerable,
+    get() { return awake ? false : nativeHidden.get.call(this); },
+  });
+  Object.defineProperty(Document.prototype, 'visibilityState', {
+    configurable: true,
+    enumerable: nativeVisibilityState.enumerable,
+    get() { return awake ? 'visible' : nativeVisibilityState.get.call(this); },
+  });
+
+  // The one `visibilitychange` the shim itself raises, so the page's
+  // listeners see the arm or disarm as the change of state it is to them.
+  let replaying = false;
+  const replayVisibilityChange = () => {
+    replaying = true;
+    try {
+      document.dispatchEvent(new Event('visibilitychange', { bubbles: true }));
+    } finally {
+      replaying = false;
+    }
+  };
 
   // Timer id, keyed by the shim's frame id, for a pending hidden-page
   // request that has not fired yet. Lets a cancel reach a timer that native
@@ -91,11 +131,18 @@
     return frameId;
   };
 
-  addEventListener('visibilitychange', () => {
+  // Capture phase on the window, registered before the page's own scripts
+  // run, so it is first in line: while armed the engine's event stops here
+  // and the page never learns it was hidden. The shim's own takeover happens
+  // in the same place, since nothing after it would fire.
+  addEventListener('visibilitychange', (event) => {
     if (shimming()) {
       takeOverPendingNative();
     }
-  });
+    if (awake && !replaying) {
+      event.stopImmediatePropagation();
+    }
+  }, true);
 
   window.cancelAnimationFrame = (frameId) => {
     const timerId = pendingTimers.get(frameId);
@@ -110,9 +157,14 @@
 
   window.__idleManager = {
     setAwake: (on) => {
-      awake = Boolean(on);
+      const next = Boolean(on);
+      const changed = next !== awake;
+      awake = next;
       if (shimming()) {
         takeOverPendingNative();
+      }
+      if (changed && reallyHidden()) {
+        replayVisibilityChange();
       }
     },
     setHiddenFrameInterval: (ms) => {
