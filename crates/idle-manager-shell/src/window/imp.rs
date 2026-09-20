@@ -65,6 +65,14 @@ pub struct Window {
     #[template_child]
     layout_mobile: TemplateChild<gtk::ToggleButton>,
     #[template_child]
+    pager: TemplateChild<gtk::Box>,
+    #[template_child]
+    page_previous: TemplateChild<gtk::Button>,
+    #[template_child]
+    page_readout: TemplateChild<gtk::Label>,
+    #[template_child]
+    page_next: TemplateChild<gtk::Button>,
+    #[template_child]
     sidebar_toggle: TemplateChild<gtk::ToggleButton>,
     #[template_child]
     sidebar_revealer: TemplateChild<gtk::Revealer>,
@@ -321,6 +329,8 @@ impl ObjectImpl for Window {
         self.connect_layout_toggle(&self.layout_side_by_side, Layout::SideBySide);
         self.connect_layout_toggle(&self.layout_grid, Layout::Grid);
         self.connect_layout_toggle(&self.layout_mobile, Layout::Mobile);
+
+        self.wire_pager();
 
         // The one place a save is allowed to be waited on: a change made a
         // moment before quitting has nothing else to trigger its write, so
@@ -1378,6 +1388,35 @@ impl Window {
         self.redraw();
     }
 
+    /// The pager's two arrows: each mirrors Shift+Tab's `NextAccount` arm in
+    /// `run_shortcut`, the book turns the page — and wraps, its own doing —
+    /// then the window redraws and saves. Extracted from `constructed` only
+    /// to keep it under the house line limit; no logic beyond calling the
+    /// two book methods lives here (code standards rule 6).
+    fn wire_pager(&self) {
+        let window = self.obj().downgrade();
+        self.page_previous.connect_clicked(move |_| {
+            if let Some(window) = window.upgrade() {
+                let imp = window.imp();
+                imp.book.borrow_mut().previous_page();
+                imp.sync_watched();
+                imp.redraw();
+                imp.request_save();
+            }
+        });
+
+        let window = self.obj().downgrade();
+        self.page_next.connect_clicked(move |_| {
+            if let Some(window) = window.upgrade() {
+                let imp = window.imp();
+                imp.book.borrow_mut().next_page();
+                imp.sync_watched();
+                imp.redraw();
+                imp.request_save();
+            }
+        });
+    }
+
     /// The sidebar row's own intents: focusing, parking, keep-awake and
     /// rename. Extracted from `constructed` only to keep it under the
     /// house line limit — each closure still just forwards the id to the
@@ -2087,6 +2126,15 @@ impl Window {
         self.workspace_empty_label
             .set_visible(shown_empty && !no_accounts_anywhere);
         self.grid.set_visible(!shown_empty);
+
+        // The pager reads two numbers off the shown workspace and shows
+        // itself only while they mean something (`FR.22.5`); the wrap on a
+        // turn is the book's own, not this widget's (code standards rule 6).
+        let page = book.active().page();
+        let pages = book.active().page_count();
+        self.page_readout
+            .set_text(&format!("{}/{}", page + 1, pages));
+        self.pager.set_visible(pages > 1);
 
         // Every change the sidebar sees, the phone sees (`FR.2.1`).
         if let Some(link) = self.phone_link.borrow().as_ref() {
