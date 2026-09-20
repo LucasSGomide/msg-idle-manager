@@ -106,7 +106,7 @@ wait, and look at the pictures on each system.
       `unsafe_code` lint still denied, so the `CapturePreview` and `IStream`
       calls compile only inside `web_engine/webview2/ffi.rs`'s scoped allow,
       each `unsafe` block carrying a `// SAFETY:` line (code standards rule 28)
-- [ ] `(manual)` on Linux with `IDLE_MANAGER_DUMP_FRAMES=/tmp/frames`, a
+- [x] `(manual)` on Linux with `IDLE_MANAGER_DUMP_FRAMES=/tmp/frames`, a
       running game writes a new frame every 2 s; after minimising the window
       for 30 s the frames written during that time differ from each other
       (or the item's first Blocker is recorded as failed, with the files kept)

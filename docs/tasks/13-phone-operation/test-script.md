@@ -21,7 +21,7 @@
 - [x] `ls /tmp/frames-13` → files `session-NNNN-0.ppm`, `-1.ppm`, … numbered from 0 per account; `head -c 15 session-NNNN-0.ppm` prints `P6`, the slot size and `255`
 - [x] Open one frame in an image viewer → it is a picture of the account's page as shown in the slot, not black or blank
 - [x] `sha256sum` two consecutive frames → hashes differ when the page changed between captures and are equal when it did not
-- [ ] Minimise the window for 30 s, restore it → the frames written during those 30 s differ from each other on an animating game, or the item's first Blocker is recorded as failed with the files kept
+- [x] `IDLE_MANAGER_MINIMISE_AFTER_SECS=16` with the dump switch, two accounts on an animating local page (one keep-awake on, one off), 80 s under `dbus-run-session` with throwaway `XDG_*_HOME` → the log shows `debug switch: minimising the window after_secs=16`, 39 frames per account are written, and every frame's `sha256sum` differs from the previous one for both accounts through the minimised minute (2026-09-19: the engine paints a current picture of a minimised page; the first Blocker is cleared)
 - [ ] `IDLE_MANAGER_DUMP_FRAMES=/nonexistent/dir …` → one `frame not written; the frame dump for this account stops here` warning per account and no further frame lines; the app keeps running
 
 ## Teardown
