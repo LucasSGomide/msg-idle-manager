@@ -12,5 +12,6 @@
     <file compressed="true" preprocess="xml-stripblanks">ui/add-game-dialog.ui</file>
     <file compressed="true" preprocess="xml-stripblanks">ui/rename-dialog.ui</file>
     <file compressed="true" preprocess="xml-stripblanks">ui/delete-account-dialog.ui</file>
+    <file compressed="true" preprocess="xml-stripblanks">ui/phone-dialog.ui</file>
   </gresource>
 </gresources>

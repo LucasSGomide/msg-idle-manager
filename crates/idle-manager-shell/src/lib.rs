@@ -19,6 +19,7 @@ mod delete_account_dialog;
 mod frame_dump;
 mod memory_footer;
 mod message_strip;
+mod phone_dialog;
 mod rename_dialog;
 mod save_on_change;
 mod session_grid;
@@ -166,6 +167,19 @@ mod tests {
             gio::ResourceLookupFlags::NONE,
         )
         .expect("look up the delete-account dialog template by its resource path");
+
+        assert!(!data.is_empty());
+    }
+
+    #[test]
+    fn the_phone_dialog_template_is_readable_from_the_registered_bundle() {
+        register_resources().expect("register the compiled bundle");
+
+        let data = gio::resources_lookup_data(
+            "/org/idlemanager/IdleManager/ui/phone-dialog.ui",
+            gio::ResourceLookupFlags::NONE,
+        )
+        .expect("look up the phone dialog template by its resource path");
 
         assert!(!data.is_empty());
     }

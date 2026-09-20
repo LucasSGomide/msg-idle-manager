@@ -1,6 +1,18 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <interface>
   <requires lib="gtk" version="4.0"/>
+  <menu id="phone_menu_model">
+    <section>
+      <item>
+        <attribute name="label">Enrol a phone…</attribute>
+        <attribute name="action">win.enrol-phone</attribute>
+      </item>
+      <item>
+        <attribute name="label">Un-enrol the phone</attribute>
+        <attribute name="action">win.revoke-phone</attribute>
+      </item>
+    </section>
+  </menu>
   <template class="IdleManagerWindow" parent="GtkApplicationWindow">
     <property name="title">Idle Manager</property>
     <property name="default-width">1280</property>
@@ -24,6 +36,13 @@
             <property name="icon-name">sidebar-show-symbolic</property>
             <property name="active">true</property>
             <property name="tooltip-text">Show or hide the account list</property>
+          </object>
+        </child>
+        <child type="end">
+          <object class="GtkMenuButton" id="phone_menu">
+            <property name="icon-name">open-menu-symbolic</property>
+            <property name="tooltip-text">Enrol or un-enrol a phone</property>
+            <property name="menu-model">phone_menu_model</property>
           </object>
         </child>
         <child type="end">

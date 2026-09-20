@@ -24,6 +24,9 @@ tracing.workspace = true
 # `serde_json` available for a Linux `cargo test` too (architecture rule 14).
 serde.workspace = true
 serde_json.workspace = true
+# The enrolment address as a code the phone's camera reads (roadmap item 13
+# task 07), rasterised into a `gdk::MemoryTexture` in `phone_dialog/qr.rs`.
+qrcode.workspace = true
 
 # `webkit6` exists only on Linux (`docs/tasks/12-windows-support`'s task 01).
 [target.'cfg(target_os = "linux")'.dependencies]

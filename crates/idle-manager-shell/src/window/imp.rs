@@ -1,7 +1,7 @@
 //! The window's template children and the wiring that turns a click into a
 //! domain intent and the result back into a redraw (architecture rules 8, 12).
 
-use std::cell::{Cell, RefCell};
+use std::cell::{Cell, OnceCell, RefCell};
 use std::collections::HashMap;
 use std::rc::Rc;
 use std::sync::Arc;
@@ -9,13 +9,14 @@ use std::time::Duration;
 
 use gtk::CompositeTemplate;
 use gtk::gdk;
+use gtk::gio;
 use gtk::glib;
 use gtk::prelude::*;
 use gtk::subclass::prelude::*;
 use gtk4 as gtk;
 
 use idle_manager_core::{
-    DEFAULT_MOBILE_VIEWPORT, Frame, Layout, Liveness, MoveOutcome, PhoneLink, Preset,
+    DEFAULT_MOBILE_VIEWPORT, Frame, Layout, Liveness, MoveOutcome, PhoneLink, PhoneStatus, Preset,
     PresetCatalogue, ProfileLocator, ProfileRemoval, RemoteIntent, RemoteState, Session, SessionId,
     SlotId, Viewport, WorkspaceBook, WorkspaceId, WorkspaceList, WorkspaceReadError, ZoomLevel,
     ZoomMemory, account_name, scroll_script, tap_script, workspace_name,
@@ -25,6 +26,7 @@ use crate::account_deletion;
 use crate::add_game_dialog::{AddGameDialog, Confirmed};
 use crate::delete_account_dialog::DeleteAccountDialog;
 use crate::message_strip::MessageStrip;
+use crate::phone_dialog::PhoneDialog;
 use crate::rename_dialog::{NameCheck, RenameDialog};
 use crate::save_on_change::Saver;
 use crate::session_grid::SessionGrid;
@@ -119,6 +121,13 @@ pub struct Window {
     /// the book through it and the capture timer publishes frames. `None`
     /// until the ports are attached, or when no link was handed over at all.
     phone_link: RefCell<Option<Arc<dyn PhoneLink>>>,
+    /// `win.enrol-phone`, the header menu's first item (task 07): opens the
+    /// phone dialog. Enabled only once a link exists to open it against.
+    enrol_phone_action: OnceCell<gio::SimpleAction>,
+    /// `win.revoke-phone`, the header menu's second item: cuts the phone off
+    /// without opening the dialog. Enabled only while the link says a phone
+    /// is enrolled, re-read on every redraw (architecture rule 8).
+    revoke_phone_action: OnceCell<gio::SimpleAction>,
     /// Whether the phone is watching right now — between its `Attach` and
     /// its `Leave`.
     phone_attached: Cell<bool>,
@@ -180,6 +189,7 @@ impl ObjectImpl for Window {
 
         arm_debug_minimise(&self.obj());
         arm_debug_layout(&self.obj());
+        self.register_phone_actions();
 
         let window = self.obj().downgrade();
         self.grid.connect_slot_focused(move |slot| {
@@ -341,6 +351,9 @@ impl Window {
             self.spawn_intent_loop(phone.intents);
             arm_debug_enrol(&self.obj());
         }
+        // A phone enrolled in an earlier run is enrolled now; the menu must
+        // say so before anything else redraws.
+        self.refresh_phone_actions();
         self.apply_read_outcome(read_outcome);
         // A first run restores nothing and so redraws nothing; the phone
         // still deserves a truthful, if empty, first snapshot.
@@ -1967,6 +1980,89 @@ impl Window {
             );
             link.publish_state(&state);
         }
+        self.refresh_phone_actions();
+    }
+
+    /// Registers the header menu's two actions (task 07). Both start
+    /// disabled: nothing can be enrolled or revoked until a link is attached.
+    fn register_phone_actions(&self) {
+        let enrol = gio::SimpleAction::new("enrol-phone", None);
+        enrol.set_enabled(false);
+        let window = self.obj().downgrade();
+        enrol.connect_activate(move |_, _| {
+            if let Some(window) = window.upgrade() {
+                window.imp().present_phone_dialog();
+            }
+        });
+        self.obj().add_action(&enrol);
+        if self.enrol_phone_action.set(enrol).is_err() {
+            tracing::error!("the enrol-phone action was registered twice");
+        }
+
+        let revoke = gio::SimpleAction::new("revoke-phone", None);
+        revoke.set_enabled(false);
+        let window = self.obj().downgrade();
+        revoke.connect_activate(move |_, _| {
+            if let Some(window) = window.upgrade() {
+                window.imp().revoke_phone();
+            }
+        });
+        self.obj().add_action(&revoke);
+        if self.revoke_phone_action.set(revoke).is_err() {
+            tracing::error!("the revoke-phone action was registered twice");
+        }
+    }
+
+    /// Asks the link where the phone stands and enables the two menu items
+    /// from the answer. `Enrol a phone…` needs only a link — a desktop that
+    /// is not listening still opens the dialog, which says why inside it
+    /// (design rule 8); `Un-enrol the phone` needs a phone to cut off.
+    fn refresh_phone_actions(&self) {
+        let status = self
+            .phone_link
+            .borrow()
+            .as_ref()
+            .map(|link| link.phone_status());
+        self.apply_phone_status(status.as_ref());
+    }
+
+    /// Enables the menu items from `status`; `None` is no link at all.
+    fn apply_phone_status(&self, status: Option<&PhoneStatus>) {
+        if let Some(action) = self.enrol_phone_action.get() {
+            action.set_enabled(status.is_some());
+        }
+        if let Some(action) = self.revoke_phone_action.get() {
+            action.set_enabled(matches!(status, Some(PhoneStatus::Enrolled { .. })));
+        }
+    }
+
+    /// Opens the phone dialog over the window. Its one-second poll reports
+    /// each change of status back here, so a scan made while it is open
+    /// enables `Un-enrol the phone` without waiting for a redraw.
+    fn present_phone_dialog(&self) {
+        let Some(link) = self.phone_link.borrow().clone() else {
+            return;
+        };
+        let dialog = PhoneDialog::new(link);
+        dialog.set_transient_for(Some(&*self.obj()));
+
+        let window = self.obj().downgrade();
+        dialog.connect_status_changed(move |status| {
+            if let Some(window) = window.upgrade() {
+                window.imp().apply_phone_status(Some(status));
+            }
+        });
+
+        dialog.present();
+    }
+
+    /// The menu's `Un-enrol the phone`: cuts the phone off at once (`FR.6.2`)
+    /// and greys the item from what the link says afterwards.
+    fn revoke_phone(&self) {
+        if let Some(link) = self.phone_link.borrow().as_ref() {
+            link.revoke_phone();
+        }
+        self.refresh_phone_actions();
     }
 }
 
@@ -2234,7 +2330,7 @@ fn layout_named(name: &str) -> Option<Layout> {
 /// Setting this in the environment to any value makes the window begin an
 /// enrolment [`DEBUG_ENROL_DELAY_SECS`] after its ports attach and log the
 /// offered address (roadmap item 13 task 06), so a headless run can enrol a
-/// scripted phone before the phone dialog (task 07) exists to show the code.
+/// scripted phone without a screen to read the phone dialog's code from.
 /// Off unless set.
 const DEBUG_ENROL_ENV: &str = "IDLE_MANAGER_DEBUG_ENROL";
 
