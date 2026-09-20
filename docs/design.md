@@ -282,3 +282,30 @@ citations, so append rather than reorder.
     acts — is done by dimming the very thing they would act on; and an
     un-enrolled phone shows one sentence and nothing else, since there is no
     form left to keep working.
+
+18. **Show a workspace's pages as two icon-button arrows around an `n/m`
+    readout, joined in one linked box beside the controls it pages through,
+    and hide the whole box the moment there is only one page rather than
+    grey it.** The header-bar pager (`window.ui` `pager`, roadmap item 14
+    task 06) sits directly left of the `1` `2` `4` `Phone` arrangement
+    toggles it shares a row with, in the same `.linked` shape those toggles
+    already use, with tabular figures on the readout (rule 11) so `9/10` and
+    `10/10` take the same space and the toggles beside it never shift. The
+    GNOME HIG would grey a control that does nothing rather than remove it,
+    but a pager greyed at one page still claims pages exist to turn — the
+    recorded choice is to hide it instead, so its very presence already
+    answers "is there more than one page" (`FR.22.5`) and nobody has to press
+    a disabled arrow to find out.
+
+19. **List every key the window answers in one `GtkShortcutsWindow` built
+    from a `gtk/help-overlay.ui` resource, opened by `Ctrl`+`?` and one
+    `Keyboard Shortcuts` item in the main menu — and name a control's own key
+    in its tooltip wherever the control mirrors one.** `help-overlay.ui`
+    (roadmap item 14 task 02) is discovered by GTK itself at a fixed
+    resource path, so the shortcuts window costs the application no wiring
+    beyond the file: `win.show-help-overlay` and its accelerator are
+    registered by the toolkit the moment the resource is found. Discoverability
+    does not stop at the overlay: the pager's tooltip names `Shift`+`Tab` and
+    a workspace heading's tooltip names `Ctrl`+`Tab` (`FR.25.1`), so a key can
+    be learned either from the one place that lists all of them or from the
+    control it moves (`FR.25.2`).

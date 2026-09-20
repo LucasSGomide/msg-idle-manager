@@ -113,6 +113,11 @@ It proves everything functional:
 - the missing-runtime dialog;
 - the zip running on a Windows install that has no GTK;
 - the phone path end to end, through the published port above.
+- `Shift`+`Tab` and `Ctrl`+`Tab` reaching the shortcut table through
+  `WebView2`'s accelerator-key callback while a game page holds the keyboard
+  (roadmap item 14 task 05), and the header-bar pager turning and wrapping
+  pages, including whether its readout's tabular figures hold their width
+  under the VM's default font (item 14 task 08).
 
 It has no GPU, so Windows draws in software. Hardware acceleration and idle
 processor figures are therefore not measured here. Memory is compared against

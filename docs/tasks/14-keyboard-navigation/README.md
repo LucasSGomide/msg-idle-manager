@@ -28,4 +28,4 @@ runs alone last.
 | [05](05-the-keys-on-windows.md) | The keys on Windows | front-end | 04 | 2/6 | in-progress |
 | [06](06-the-header-bar-pager.md) | The header-bar pager | front-end | 02, 04 | 2/8 | in-progress |
 | [07](07-park-all-and-start-all.md) | Park all and Start all | full-stack | 06 | 5/10 | in-progress |
-| [08](08-windows-verification-and-the-design-rules.md) | Windows verification, the design rules and the runbook | full-stack | 05, 07 | 0/6 | not-started |
+| [08](08-windows-verification-and-the-design-rules.md) | Windows verification, the design rules and the runbook | full-stack | 05, 07 | 2/6 | in-progress |

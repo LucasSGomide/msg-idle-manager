@@ -86,7 +86,7 @@ promised to prove by hand is left unproven.
 
 ## Acceptance criteria
 
-- [ ] `(integration)` `make verify` and `make windows-package` pass
+- [x] `(integration)` `make verify` and `make windows-package` pass
 - [ ] `(manual)` in the Windows VM, the pager appears on the third account,
       turns and wraps, and stepping `9/10` → `10/10` does not move the layout
       toggles — or the `numeric` class is removed and the reason recorded
@@ -98,7 +98,7 @@ promised to prove by hand is left unproven.
       the page holding the previously focused account with that account
       focused, and `sessions.v2.toml` is written once and unchanged by a
       second save
-- [ ] `(manual)` `docs/design.md` carries rules 18 and 19 in the file's
+- [x] `(manual)` `docs/design.md` carries rules 18 and 19 in the file's
       shape, and `docs/windows-vm.md` lists the chords and the pager among
       what the VM proves
 - [ ] `(manual)` `test-script.md` holds every step in the item's minimum list,
