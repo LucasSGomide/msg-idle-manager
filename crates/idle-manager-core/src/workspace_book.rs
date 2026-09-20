@@ -555,6 +555,58 @@ impl WorkspaceBook {
         switch
     }
 
+    /// Walks forward from the shown workspace, wrapping, to the next
+    /// workspace holding at least one session, skipping the active one, and
+    /// shows it. `None`, changing nothing, when no other workspace qualifies
+    /// (`FR.23.2`).
+    ///
+    /// The landed workspace's own focused position is untouched, so it shows
+    /// the page and place it was left on (`FR.18.3`), and if mobile mode is
+    /// on, landing applies it exactly as [`WorkspaceBook::focus_account`]
+    /// does.
+    ///
+    /// # Panics
+    ///
+    /// Never: `active` always names a workspace this book holds, an
+    /// invariant every constructor and mutator maintains.
+    pub fn focus_next_workspace(&mut self) -> Option<Switch> {
+        let start = self
+            .entries
+            .iter()
+            .position(|entry| entry.id == self.active)
+            .expect("active always names a workspace this book holds");
+        let len = self.entries.len();
+        let target = (1..len)
+            .map(|offset| (start + offset) % len)
+            .find(|&index| !self.entries[index].book.sessions().is_empty())?;
+
+        let from = self.active.clone();
+        let to = self.entries[target].id.clone();
+        self.active = to.clone();
+        self.apply_mobile_to_active();
+
+        Some(Switch { from, to })
+    }
+
+    /// Turns the shown workspace to its next page, wrapping, otherwise
+    /// exactly [`SessionBook::next_page`], so the shell never reaches for
+    /// [`WorkspaceBook::active_mut`] for a navigation (architecture rule 8).
+    pub fn next_page(&mut self) -> bool {
+        self.active_mut().next_page()
+    }
+
+    /// Turns the shown workspace to its previous page, otherwise exactly
+    /// [`WorkspaceBook::next_page`].
+    pub fn previous_page(&mut self) -> bool {
+        self.active_mut().previous_page()
+    }
+
+    /// Steps the shown workspace's focus to its next account, wrapping,
+    /// otherwise exactly [`WorkspaceBook::next_page`].
+    pub fn focus_next_account(&mut self) -> bool {
+        self.active_mut().focus_next()
+    }
+
     /// Sets the shown workspace's layout (`FR.16.4`) — a layout switch acts
     /// only on what is on screen. Not the way into mobile mode: that is
     /// [`WorkspaceBook::enter_mobile_mode`], which also takes the snapshot
@@ -1316,6 +1368,172 @@ mod tests {
         let switch = book.focus_account(&SessionId::new("session-9999"));
 
         assert_eq!((switch, book.saved()), (None, before));
+    }
+
+    /// Acceptance: `focus_next_workspace` from `Ungrouped` over `[Ungrouped:
+    /// A]`, `[W1: —]`, `[W2: B]` lands on `W2`, and from `W2` wraps to
+    /// `Ungrouped`.
+    #[test]
+    fn focus_next_workspace_walks_forward_skipping_an_empty_workspace_and_wraps() {
+        let list = a_list(
+            vec![
+                named_workspace("workspace-0001", "W1", Vec::new()),
+                named_workspace(
+                    "workspace-0002",
+                    "W2",
+                    vec![saved_account("session-0002", "B")],
+                ),
+                Workspace {
+                    accounts: vec![saved_account("session-0001", "A")],
+                    ..Workspace::default()
+                },
+            ],
+            "ungrouped",
+        );
+        let mut book = WorkspaceBook::restore(list);
+
+        let to_w2 = book.focus_next_workspace();
+        let active_after_first = book.active_id().clone();
+        let to_ungrouped = book.focus_next_workspace();
+        let active_after_second = book.active_id().clone();
+
+        assert_eq!(
+            (
+                to_w2.map(|switch| switch.to().clone()),
+                active_after_first,
+                to_ungrouped.map(|switch| switch.to().clone()),
+                active_after_second,
+            ),
+            (
+                Some(WorkspaceId::new("workspace-0002")),
+                WorkspaceId::new("workspace-0002"),
+                Some(WorkspaceId::ungrouped()),
+                WorkspaceId::ungrouped(),
+            ),
+        );
+    }
+
+    /// Acceptance: `focus_next_workspace` with a single non-empty workspace
+    /// returns `None` and leaves `active_id()` unchanged.
+    #[test]
+    fn focus_next_workspace_with_no_other_workspace_to_land_on_returns_none_and_leaves_active_unchanged()
+     {
+        let list = a_list(
+            vec![Workspace {
+                accounts: vec![saved_account("session-0001", "A")],
+                ..Workspace::default()
+            }],
+            "ungrouped",
+        );
+        let mut book = WorkspaceBook::restore(list);
+
+        let switch = book.focus_next_workspace();
+
+        assert_eq!(
+            (switch, book.active_id()),
+            (None, &WorkspaceId::ungrouped()),
+        );
+    }
+
+    /// Acceptance: after `move_accounts` puts one account into a workspace
+    /// the walk skipped, `focus_next_workspace` lands on it.
+    #[test]
+    fn focus_next_workspace_lands_on_a_workspace_once_an_account_moves_into_it() {
+        let list = a_list(
+            vec![named_workspace("workspace-0001", "W1", Vec::new())],
+            "ungrouped",
+        );
+        let mut book = WorkspaceBook::restore(list);
+        let member = book
+            .add(&WorkspaceId::ungrouped(), "A", "https://example.test/a")
+            .expect("ungrouped has room");
+
+        let skipped = book.focus_next_workspace();
+
+        book.move_accounts(&[member], &WorkspaceId::new("workspace-0001"))
+            .expect("w1 has room");
+        let landed = book.focus_next_workspace();
+
+        assert_eq!(
+            (skipped, landed.map(|switch| switch.to().clone())),
+            (None, Some(WorkspaceId::new("workspace-0001"))),
+        );
+    }
+
+    /// Acceptance: landing on a workspace whose focused position is `3`
+    /// shows that position — its `focused_session()` is the same account as
+    /// before the switch away.
+    #[test]
+    fn focus_next_workspace_lands_showing_the_same_focused_account_as_before_the_switch_away() {
+        let ids: Vec<SessionId> = (1..=4)
+            .map(|n| SessionId::new(format!("session-000{n}")))
+            .collect();
+        let party = Workspace {
+            layout: Layout::Grid,
+            focused: 3,
+            ..named_workspace(
+                "workspace-0001",
+                "Party",
+                ids.iter()
+                    .map(|id| saved_account(id.as_str(), id.as_str()))
+                    .collect(),
+            )
+        };
+        let ungrouped = Workspace {
+            accounts: vec![saved_account("session-0005", "Farm")],
+            ..Workspace::default()
+        };
+        let mut book = WorkspaceBook::restore(WorkspaceList {
+            workspaces: vec![party, ungrouped],
+            active: WorkspaceId::ungrouped(),
+            next_account_number: 6,
+            next_workspace_number: 2,
+        });
+        let focus_before_switch_away = book
+            .book(&WorkspaceId::new("workspace-0001"))
+            .expect("party exists")
+            .focused_session()
+            .map(|session| session.id().clone());
+
+        book.focus_next_workspace();
+
+        assert_eq!(
+            book.active()
+                .focused_session()
+                .map(|session| session.id().clone()),
+            focus_before_switch_away,
+        );
+    }
+
+    /// Acceptance: in mobile mode, landing applies `Layout::Mobile` to the
+    /// landed workspace and `leave_mobile_mode` afterwards restores its
+    /// layout.
+    #[test]
+    fn focus_next_workspace_applies_mobile_mode_to_the_landed_workspace_and_leaving_restores_it() {
+        let (mut book, _) = a_seated_grid_book();
+        book.enter_mobile_mode(DEFAULT_MOBILE_VIEWPORT);
+
+        let switch = book.focus_next_workspace();
+        let layout_while_mobile = book.active().layout();
+
+        book.leave_mobile_mode();
+        let layout_after_leaving = book
+            .book(&WorkspaceId::ungrouped())
+            .expect("ungrouped always exists")
+            .layout();
+
+        assert_eq!(
+            (
+                switch.map(|switch| switch.to().clone()),
+                layout_while_mobile,
+                layout_after_leaving,
+            ),
+            (
+                Some(WorkspaceId::ungrouped()),
+                Layout::Mobile,
+                Layout::default()
+            ),
+        );
     }
 
     #[test]

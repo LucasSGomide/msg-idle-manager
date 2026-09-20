@@ -71,27 +71,27 @@ Windows path all call these and only these.
 
 ## Acceptance criteria
 
-- [ ] `(unit)` four accounts in `SideBySide` starting on the first:
+- [x] `(unit)` four accounts in `SideBySide` starting on the first:
       `focus_next` four times visits the second, third, fourth and first, with
       `page()` reading `0, 1, 1, 0`
-- [ ] `(unit)` `focus_next` on a book of one account and on an empty book
+- [x] `(unit)` `focus_next` on a book of one account and on an empty book
       returns `false` and changes nothing
-- [ ] `(unit)` `next_page` lands on the first position of the next page and
+- [x] `(unit)` `next_page` lands on the first position of the next page and
       wraps from the last page to the first; `previous_page` wraps from the
       first page to the last
-- [ ] `(unit)` `next_page` and `previous_page` return `false` on a one-page
+- [x] `(unit)` `next_page` and `previous_page` return `false` on a one-page
       book, and on three accounts in `SideBySide` `next_page` from page `0`
       focuses the third account alone on page `1`
-- [ ] `(unit)` `focus_next_workspace` from `Ungrouped` over `[Ungrouped: A]`,
+- [x] `(unit)` `focus_next_workspace` from `Ungrouped` over `[Ungrouped: A]`,
       `[W1: —]`, `[W2: B]` lands on `W2`, and from `W2` wraps to `Ungrouped`
-- [ ] `(unit)` `focus_next_workspace` with a single non-empty workspace returns
+- [x] `(unit)` `focus_next_workspace` with a single non-empty workspace returns
       `None` and leaves `active_id()` unchanged
-- [ ] `(unit)` after `move_accounts` puts one account into a workspace the walk
+- [x] `(unit)` after `move_accounts` puts one account into a workspace the walk
       skipped, `focus_next_workspace` lands on it
-- [ ] `(unit)` landing on a workspace whose focused position is `3` shows that
+- [x] `(unit)` landing on a workspace whose focused position is `3` shows that
       position — its `focused_session()` is the same account as before the
       switch away
-- [ ] `(unit)` in mobile mode, landing applies `Layout::Mobile` to the landed
+- [x] `(unit)` in mobile mode, landing applies `Layout::Mobile` to the landed
       workspace and `leave_mobile_mode` afterwards restores its layout
 
 ## References

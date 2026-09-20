@@ -571,6 +571,54 @@ impl SessionBook {
         self.page() != page_before
     }
 
+    /// Moves focus to the next account in order, wrapping from the last back
+    /// to the first, and reports whether it moved. `false`, changing nothing,
+    /// for a book of one account or none — there is nowhere else to walk to
+    /// (`FR.23.1`). Stepping past the end of a page turns to the next page on
+    /// its own, since the page is derived from the focused position alone.
+    pub fn focus_next(&mut self) -> bool {
+        if self.sessions.len() <= 1 {
+            return false;
+        }
+        self.focused = (self.focused + 1) % self.sessions.len();
+        true
+    }
+
+    /// Turns to the first position of the next page, wrapping from the last
+    /// page back to the first, and reports whether it moved. `false`,
+    /// changing nothing, for a book of one page or none (`FR.22.5`).
+    pub fn next_page(&mut self) -> bool {
+        let Some(pages) = self.pages_to_step_between() else {
+            return false;
+        };
+        self.step_page((self.page() + 1) % pages);
+        true
+    }
+
+    /// Turns to the first position of the previous page, wrapping from the
+    /// first page back to the last, otherwise exactly
+    /// [`SessionBook::next_page`].
+    pub fn previous_page(&mut self) -> bool {
+        let Some(pages) = self.pages_to_step_between() else {
+            return false;
+        };
+        self.step_page((self.page() + pages - 1) % pages);
+        true
+    }
+
+    /// The page count, when there is more than one page to turn between —
+    /// `None` for a book of one page or none, the shared no-op case for
+    /// [`SessionBook::next_page`] and [`SessionBook::previous_page`].
+    fn pages_to_step_between(&self) -> Option<usize> {
+        let pages = self.page_count();
+        (pages > 1).then_some(pages)
+    }
+
+    /// Lands the focused position on `page`'s first slot.
+    fn step_page(&mut self, page: usize) {
+        self.focused = page * self.layout.slot_count();
+    }
+
     /// Adds a new account created from a typed address under `id`, appends it
     /// to the end of the order, and focuses it — the shown page turns to it
     /// and nothing is displaced (`FR.22.1`).
@@ -1006,6 +1054,129 @@ mod tests {
                 Some(Visibility::OffGrid),
                 Some(Visibility::OffGrid),
             ),
+        );
+    }
+
+    /// Acceptance: four accounts in `SideBySide` starting on the first,
+    /// `focus_next` four times visits the second, third, fourth and first,
+    /// with `page()` reading `0, 1, 1, 0`.
+    #[test]
+    fn focus_next_walks_four_accounts_in_side_by_side_turning_pages_as_it_goes() {
+        let mut book = SessionBook::new();
+        book.set_layout(Layout::SideBySide);
+        let one = add(&mut book, "One", "https://example.test/one");
+        let two = add(&mut book, "Two", "https://example.test/two");
+        let three = add(&mut book, "Three", "https://example.test/three");
+        let four = add(&mut book, "Four", "https://example.test/four");
+        book.focus_session(&one);
+
+        let mut visited = Vec::new();
+        let mut pages = Vec::new();
+        for _ in 0..4 {
+            book.focus_next();
+            visited.push(book.focused_session().map(Session::id).cloned());
+            pages.push(book.page());
+        }
+
+        assert_eq!(
+            (visited, pages),
+            (
+                vec![Some(two), Some(three), Some(four), Some(one)],
+                vec![0, 1, 1, 0],
+            ),
+        );
+    }
+
+    /// Acceptance: `focus_next` on a book of one account and on an empty book
+    /// returns `false` and changes nothing.
+    #[test]
+    fn focus_next_on_a_book_of_one_or_no_accounts_returns_false_and_changes_nothing() {
+        let mut one_book = SessionBook::new();
+        let only = add(&mut one_book, "One", "https://example.test/one");
+        let mut empty_book = SessionBook::new();
+
+        let moved_one = one_book.focus_next();
+        let moved_empty = empty_book.focus_next();
+
+        assert_eq!(
+            (
+                moved_one,
+                one_book.focused_session().map(Session::id),
+                moved_empty,
+            ),
+            (false, Some(&only), false),
+        );
+    }
+
+    /// Acceptance: `next_page` lands on the first position of the next page
+    /// and wraps from the last page to the first; `previous_page` wraps from
+    /// the first page to the last.
+    #[test]
+    fn next_page_and_previous_page_wrap_at_the_ends() {
+        let mut book = SessionBook::new();
+        book.set_layout(Layout::SideBySide);
+        let one = add(&mut book, "One", "https://example.test/one");
+        add(&mut book, "Two", "https://example.test/two");
+        let three = add(&mut book, "Three", "https://example.test/three");
+        add(&mut book, "Four", "https://example.test/four");
+        book.focus_session(&one);
+
+        let moved_forward = book.next_page();
+        let after_forward = book.focused_session().map(Session::id).cloned();
+        let wrapped_forward = book.next_page();
+        let after_wrap_forward = book.focused_session().map(Session::id).cloned();
+        let wrapped_back = book.previous_page();
+        let after_wrap_back = book.focused_session().map(Session::id).cloned();
+
+        assert_eq!(
+            (
+                moved_forward,
+                after_forward,
+                wrapped_forward,
+                after_wrap_forward,
+                wrapped_back,
+                after_wrap_back,
+            ),
+            (
+                true,
+                Some(three.clone()),
+                true,
+                Some(one),
+                true,
+                Some(three),
+            ),
+        );
+    }
+
+    /// Acceptance: `next_page` and `previous_page` return `false` on a
+    /// one-page book, and on three accounts in `SideBySide` `next_page` from
+    /// page `0` focuses the third account alone on page `1`.
+    #[test]
+    fn next_page_and_previous_page_are_no_ops_on_a_single_page_and_next_page_lands_alone_on_a_partial_page()
+     {
+        let mut single_page = SessionBook::new();
+        add(&mut single_page, "One", "https://example.test/one");
+
+        let next_on_single_page = single_page.next_page();
+        let previous_on_single_page = single_page.previous_page();
+
+        let mut three_book = SessionBook::new();
+        three_book.set_layout(Layout::SideBySide);
+        let one = add(&mut three_book, "One", "https://example.test/one");
+        add(&mut three_book, "Two", "https://example.test/two");
+        let three = add(&mut three_book, "Three", "https://example.test/three");
+        three_book.focus_session(&one);
+
+        let moved = three_book.next_page();
+
+        assert_eq!(
+            (
+                next_on_single_page,
+                previous_on_single_page,
+                moved,
+                three_book.focused_session().map(Session::id),
+            ),
+            (false, false, true, Some(&three)),
         );
     }
 
