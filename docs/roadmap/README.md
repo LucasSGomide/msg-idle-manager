@@ -59,6 +59,13 @@ call are added once and work on both engines. Item 08 adds recovery from a
 crash nobody was awake to see, building on the durable workspace 07 landed;
 its restart logic is likewise written once against that seam.
 
+Item 14 waits on 13 and follows it. It replaces the place-per-account seating
+with pages of the workspace's own order, adds `Shift`+`Tab` / `Ctrl`+`Tab`
+through the shortcut path item 12 built for both engines, and rides `Park all`
+/ `Start all` and a shortcuts window along with it. It sits behind 13 because
+the phone's own account switching and the `Mobile` layout are focus changes it
+has to treat as ordinary page turns, so their code has to exist first.
+
 Item 09 shipped the first file the application writes on an account's behalf — a
 per-account `state.toml` holding the zoom chosen per arrangement — and with it
 `Ctrl` +/-/0 and `Ctrl`+wheel resizing the focused game in place. It also set
@@ -90,7 +97,9 @@ failure are shown inside a chooser without a modal of their own.
 
 ## Blocked
 
-_(none)_
+| # | Item | Est | Depends on | Status |
+|---|---|---|---|---|
+| [14](14-keyboard-navigation/README.md) | Keyboard navigation and paged workspaces | 13 | 11, 12, 13 | not-started |
 
 ## Parked
 
