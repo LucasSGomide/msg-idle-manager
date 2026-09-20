@@ -56,6 +56,17 @@
 - [ ] Switch to another app and back → if the socket dropped, the dimmed last picture under `Reconnecting…` for a few seconds, then pictures resume on the same account
 - [ ] `Un-enrol the phone` on the desktop → the page shows only `This phone is no longer enrolled`; reopening it shows the same line
 
+## 06 — Wiring the phone into the window
+
+- [x] `cargo nextest run -p idle-manager-shell window::imp::tests` → `9 tests run: 9 passed`; `cargo nextest run -p idle-manager tests::` → `1 test run: 1 passed` (the not-listening link over a closed channel)
+- [x] `T=$(mktemp -d)`; write `$T/vischeck.html` (a page with a `requestAnimationFrame` canvas and a 100 ms `setInterval` clock), a `$T/config/idle-manager/sessions.toml` with two `running` accounts on `file://$T/vischeck.html` in two workspaces (`layout = "single"`, `keep_awake = false`), copy `~/.config/idle-manager/presets/` beside it, and write `$T/config/idle-manager/phone.toml` holding `[listen]` / `address = "127.0.0.1:7466"`; then `XDG_CONFIG_HOME=$T/config XDG_DATA_HOME=$T/data XDG_CACHE_HOME=$T/cache IDLE_MANAGER_DEBUG_ENROL=1 RUST_LOG=idle_manager=info,idle_manager_shell=debug,idle_manager_remote=debug timeout 80 dbus-run-session -- target/debug/idle-manager > $T/run.log 2>&1 &` → within 4 s the log shows `the phone server is listening address=127.0.0.1:7466`, `the phone link is ready`, then `debug switch: enrolment offered address=http://127.0.0.1:7466/enrol/<64 hex> expires_in_secs=600`
+- [x] `node scripts/phone-probe.mjs "$(grep -o 'http://127.0.0.1:7466/enrol/[0-9a-f]*' $T/run.log | head -1)" $T 10` → prints `enrolled device=<32 hex>`, `welcome proof=verified mobileMode=false`, `state after mobile: mobileMode=true viewport=412x915 current=session-0001`, `frames in 10s: 124 (12.4/s), 124 distinct, first 412x915 last 412x915`, `state after choose: current=session-0002`, `state after park: session-0002 liveness=parked`, `frames in 2s: 0`, `sent leave`, `frames in 3s: 0`
+- [x] `sha256sum $T/frame-first.jpg $T/frame-last.jpg` → two different hashes; `file $T/frame-last.jpg` → `JPEG image data … 412x915`; opened, it shows a later clock reading than `frame-first.jpg`
+- [x] In `$T/run.log`: `remote intent received intent=SetMobileMode(true)` followed within a millisecond by `mobile slot allocated size=412x915`; `the phone is watching width=412 height=915` then `view watched state set session=session-0001 watched=true`; two `phone gesture delivered to the page`; on the choose `switched the shown workspace`, `session-0001 watched=false` then `session-0002 watched=true`; on the park `web process terminated by API (parked)`; on the leave `the phone stopped watching`; `grep -c Gtk-CRITICAL $T/run.log` → `0`
+- [x] Same launch with `IDLE_MANAGER_MINIMISE_AFTER_SECS=20` and the probe run as `… $T 30` → the minimise lands inside the 30 s count, which still reports `367 (12.2/s), 367 distinct`; `frame-late.jpg` (10 s after the minimise) and `frame-last.jpg` differ and both show a later clock than `frame-first.jpg` — a `keep_awake = false` account keeps animating for the phone while the window is minimised
+- [x] With `phone.toml` absent and no `100.x.y.z` address on any interface → `WARN idle_manager: the phone server is not listening kind=NoMeshAddress error=no address in 100.64.0.0/10 to listen on; is the mesh network up?`, then `activated; presenting the main window`; the app runs on
+- [x] `kill %1; rm -rf $T`
+
 ## Teardown
 
 - [ ] `rm -rf /tmp/frames-13` and remove any `[listen]` override added to `~/.config/idle-manager/phone.toml` for testing

@@ -10,6 +10,7 @@
 // attribute exists only for the Windows subsystem field in a PE header.
 #![cfg_attr(all(windows, not(debug_assertions)), windows_subsystem = "windows")]
 
+use std::cell::RefCell;
 #[cfg(target_os = "linux")]
 use std::os::unix::process::CommandExt;
 #[cfg(target_os = "linux")]
@@ -23,15 +24,18 @@ use gtk::glib;
 use gtk::prelude::*;
 use gtk4 as gtk;
 use idle_manager_core::{
-    MemoryProbe, PresetCatalogue, ProfileLocator, ProfileRemoval, WorkspaceStore, ZoomMemory,
+    MemoryProbe, PhoneRecordStore, PresetCatalogue, ProfileLocator, ProfileRemoval, RemoteIntent,
+    WorkspaceStore, ZoomMemory,
 };
 #[cfg(target_os = "linux")]
 use idle_manager_metrics::ProcPssProbe;
 #[cfg(windows)]
 use idle_manager_metrics::ProcessTreeProbe;
-use idle_manager_shell::{Window, WindowPorts};
+use idle_manager_remote::{NotListeningLink, RemoteConfig, RemoteServer, StartError, bind_address};
+use idle_manager_shell::{PhonePorts, Window, WindowPorts};
 use idle_manager_store::{
-    TomlPresetCatalogue, TomlWorkspaceStore, TomlZoomMemory, XdgProfileLocator, XdgProfileRemoval,
+    TomlPhoneRecord, TomlPresetCatalogue, TomlWorkspaceStore, TomlZoomMemory, XdgProfileLocator,
+    XdgProfileRemoval,
 };
 
 /// The application's D-Bus and settings identifier.
@@ -104,6 +108,11 @@ fn run() -> anyhow::Result<ExitCode> {
     #[cfg(windows)]
     let probe: Arc<dyn MemoryProbe> = Arc::new(ProcessTreeProbe::new());
 
+    // One link, one intent channel: the first activation takes them, since
+    // two windows looping over one channel would each see half the phone's
+    // messages.
+    let phone = RefCell::new(Some(start_phone_server()?));
+
     let app = gtk::Application::builder().application_id(APP_ID).build();
 
     // A second launch re-activates this window rather than starting a second
@@ -139,6 +148,7 @@ fn run() -> anyhow::Result<ExitCode> {
                 zoom_memory: Rc::clone(&zoom_memory),
                 probe: Arc::clone(&probe),
                 removal: Arc::clone(&removal),
+                phone: phone.borrow_mut().take(),
             },
             read_outcome,
         );
@@ -177,10 +187,87 @@ fn select_renderer() -> Option<std::io::Error> {
     Some(command.args(arguments).env(RENDERER_ENV, RENDERER).exec())
 }
 
+/// Builds the phone's way in (roadmap item 13): the record on disk, the
+/// address it names or the mesh address discovered, and the server on it. A
+/// server that cannot start — no mesh address, a taken port — is a status the
+/// phone dialog shows, never a failed launch (`FR.5.1`); a record that will
+/// not parse is logged and the server starts with no phone enrolled, the
+/// store having already moved the file aside.
+///
+/// # Errors
+///
+/// Only when the XDG config directory itself cannot be resolved, the same
+/// failure every other store reports.
+fn start_phone_server() -> anyhow::Result<PhonePorts> {
+    let record = TomlPhoneRecord::new().context("resolve the XDG config directory")?;
+    if let Err(error) = record.read() {
+        tracing::warn!(%error, "the phone record could not be read; starting with no phone enrolled");
+    }
+    let listen_override = record.listen_override();
+    let record: Arc<dyn PhoneRecordStore> = Arc::new(record);
+
+    let started = bind_address(listen_override.as_deref())
+        .and_then(|bind| RemoteServer::start(RemoteConfig::new(bind), record));
+    Ok(match started {
+        Ok((handle, intents)) => {
+            tracing::info!(address = %handle.local_addr(), "the phone link is ready");
+            PhonePorts {
+                link: Arc::new(handle),
+                intents,
+            }
+        }
+        Err(error) => phone_ports_not_listening(&error),
+    })
+}
+
+/// The ports for a server that could not start: a link whose every status is
+/// `NotListening` with `error`'s text, and a channel whose sender is dropped
+/// at once, so the window's intent loop ends the moment it starts.
+fn phone_ports_not_listening(error: &StartError) -> PhonePorts {
+    tracing::warn!(kind = ?error, %error, "the phone server is not listening");
+    let (sender, intents) = async_channel::unbounded::<RemoteIntent>();
+    drop(sender);
+    PhonePorts {
+        link: Arc::new(NotListeningLink::new(error.to_string())),
+        intents,
+    }
+}
+
 fn exit_code(code: glib::ExitCode) -> ExitCode {
     if code == glib::ExitCode::SUCCESS {
         ExitCode::SUCCESS
     } else {
         ExitCode::FAILURE
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use idle_manager_core::{DEFAULT_MOBILE_VIEWPORT, Frame, PhoneStatus, RemoteState};
+
+    use super::*;
+
+    #[test]
+    fn a_server_that_could_not_start_becomes_a_not_listening_link_over_a_closed_channel() {
+        let ports = phone_ports_not_listening(&StartError::NoMeshAddress);
+
+        ports.link.publish_state(&RemoteState {
+            mobile_mode: false,
+            viewport: DEFAULT_MOBILE_VIEWPORT,
+            current: None,
+            workspaces: Vec::new(),
+        });
+        ports.link.publish_frame(Frame::Jpeg(Vec::new()));
+        ports.link.revoke_phone();
+
+        assert_eq!(
+            (ports.link.phone_status(), ports.intents.is_closed()),
+            (
+                PhoneStatus::NotListening {
+                    reason: StartError::NoMeshAddress.to_string()
+                },
+                true
+            )
+        );
     }
 }

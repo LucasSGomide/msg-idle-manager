@@ -7,6 +7,10 @@ publish.workspace = true
 
 [dependencies]
 idle-manager-core.workspace = true
+# The receiver the window loops over for the phone's intents (roadmap item
+# 13 task 06); the sender lives in `idle-manager-remote`, which the shell
+# never names (architecture rule 3).
+async-channel.workspace = true
 gio.workspace = true
 glib.workspace = true
 gtk4.workspace = true

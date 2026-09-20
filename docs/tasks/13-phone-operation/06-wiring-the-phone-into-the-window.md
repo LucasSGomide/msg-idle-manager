@@ -100,30 +100,30 @@ anyone.
 
 ## Acceptance criteria
 
-- [ ] `(unit)` `apply_remote_intent(Park(id))` on a `Parked` account changes
+- [x] `(unit)` `apply_remote_intent(Park(id))` on a `Parked` account changes
       nothing, and `Start(id)` on a `Live` account changes nothing (tested on
       the pure decision helper the handler calls)
-- [ ] `(unit)` the capture gate returns true only when attached, mobile mode
+- [x] `(unit)` the capture gate returns true only when attached, mobile mode
       on, current `Live` and not in flight (table-driven over the four
       booleans)
-- [ ] `(unit)` `NotListeningLink::phone_status()` is `NotListening { reason }`
+- [x] `(unit)` `NotListeningLink::phone_status()` is `NotListening { reason }`
       with the `StartError`'s text, and its `publish_state`, `publish_frame`
       and `revoke_phone` return without effect
-- [ ] `(integration)` `make verify` and `make windows-check` pass
-- [ ] `(manual)` with the phone attached, `make dev` logs show the
+- [x] `(integration)` `make verify` and `make windows-check` pass
+- [x] `(manual)` with the phone attached, `make dev` logs show the
       `publish_state` on every sidebar change and frames flowing at about
       12 per second (`RUST_LOG=idle_manager_remote=debug`)
-- [ ] `(manual)` tapping the mobile mode toggle on the phone flips the
+- [x] `(manual)` tapping the mobile mode toggle on the phone flips the
       desktop's `Phone` toggle and the slot takes the phone's reported size;
       turning it off from the phone restores the previous arrangement
-- [ ] `(manual)` choosing an account in another workspace from the phone
+- [x] `(manual)` choosing an account in another workspace from the phone
       switches the desktop's shown workspace and the phone shows that game;
       `Park` from the phone parks it on the desktop
-- [ ] `(manual)` with the window minimised and a non-keep-awake account
+- [x] `(manual)` with the window minimised and a non-keep-awake account
       current, the phone shows the game animating; after the phone leaves,
       the account's `set_background`/feature state returns to what
       `background_for` dictates (visible in the debug log)
-- [ ] `(manual)` when no mesh address exists (`[listen] address = "0.0.0.0:0"`
+- [x] `(manual)` when no mesh address exists (`[listen] address = "0.0.0.0:0"`
       removed and Tailscale stopped), the application starts normally and the
       log names `NoMeshAddress`
 

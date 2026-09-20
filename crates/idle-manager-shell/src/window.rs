@@ -21,8 +21,8 @@ use gtk::subclass::prelude::*;
 use gtk4 as gtk;
 
 use idle_manager_core::{
-    MemoryProbe, PresetCatalogue, ProfileLocator, ProfileRemoval, WorkspaceList,
-    WorkspaceReadError, WorkspaceStore, ZoomMemory,
+    MemoryProbe, PhoneLink, PresetCatalogue, ProfileLocator, ProfileRemoval, RemoteIntent,
+    WorkspaceList, WorkspaceReadError, WorkspaceStore, ZoomMemory,
 };
 
 /// The ports the window runs against, built once by the composition root and
@@ -44,6 +44,24 @@ pub struct WindowPorts {
     /// `Rc`, like `store` above: the deletion sequence calls it through
     /// `gio::spawn_blocking`, which needs `Send`.
     pub removal: Arc<dyn ProfileRemoval>,
+    /// The phone's way in (roadmap item 13 task 06). `None` when no link
+    /// exists at all — a second activation after the first took it; a
+    /// server that could not start still hands over a link, one whose status
+    /// says so, so the phone dialog can name the reason.
+    pub phone: Option<PhonePorts>,
+}
+
+/// The two halves of the phone link the composition root built: the handle
+/// the window publishes state and frames through, and the channel the
+/// phone's intents arrive on (architecture rule 3).
+#[derive(Debug)]
+pub struct PhonePorts {
+    /// Publishes state and frames, offers enrolment, answers the status.
+    pub link: Arc<dyn PhoneLink>,
+    /// What the phone asked for, in order. A closed channel — the sender
+    /// dropped — ends the window's loop at once and is how a server that
+    /// never started hands over nothing.
+    pub intents: async_channel::Receiver<RemoteIntent>,
 }
 
 glib::wrapper! {

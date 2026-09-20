@@ -15,9 +15,10 @@ use gtk::subclass::prelude::*;
 use gtk4 as gtk;
 
 use idle_manager_core::{
-    DEFAULT_MOBILE_VIEWPORT, Layout, Liveness, MoveOutcome, Preset, PresetCatalogue,
-    ProfileLocator, ProfileRemoval, Session, SessionId, SlotId, WorkspaceBook, WorkspaceId,
-    WorkspaceList, WorkspaceReadError, ZoomLevel, ZoomMemory, account_name, workspace_name,
+    DEFAULT_MOBILE_VIEWPORT, Frame, Layout, Liveness, MoveOutcome, PhoneLink, Preset,
+    PresetCatalogue, ProfileLocator, ProfileRemoval, RemoteIntent, RemoteState, Session, SessionId,
+    SlotId, Viewport, WorkspaceBook, WorkspaceId, WorkspaceList, WorkspaceReadError, ZoomLevel,
+    ZoomMemory, account_name, scroll_script, tap_script, workspace_name,
 };
 
 use crate::account_deletion;
@@ -29,7 +30,7 @@ use crate::save_on_change::Saver;
 use crate::session_grid::SessionGrid;
 use crate::session_sidebar::{MoveTarget, SessionSidebar};
 use crate::start_queue::StartQueue;
-use crate::web_engine::EngineView;
+use crate::web_engine::{CapturedFrame, EngineCaptureError, EngineView};
 use crate::web_view::{AccountSettings, SessionView, background_for};
 
 /// What a workspace name window is for — [`Window::present_workspace_name_dialog`]
@@ -114,6 +115,34 @@ pub struct Window {
     /// `state`. Read whenever a view is started, so it opens already marked
     /// to match, and updated by `apply_minimised` on every minimise/restore.
     minimised: Cell<bool>,
+    /// The phone's link (roadmap item 13 task 06): every redraw publishes
+    /// the book through it and the capture timer publishes frames. `None`
+    /// until the ports are attached, or when no link was handed over at all.
+    phone_link: RefCell<Option<Arc<dyn PhoneLink>>>,
+    /// Whether the phone is watching right now — between its `Attach` and
+    /// its `Leave`.
+    phone_attached: Cell<bool>,
+    /// The phone's screen as it last reported it, kept across a leave: the
+    /// page asks for mobile mode before it attaches, so the mode is entered
+    /// at the shape the phone had last time and corrected on the `Attach`
+    /// that follows (`FR.3.2`).
+    phone_viewport: Cell<Option<Viewport>>,
+    /// The account whose live view has been told a phone is watching it, so
+    /// the next change of current account can un-tell exactly that one
+    /// (`FR.4.3`). Only ever names an account that had a view at the time.
+    watched: RefCell<Option<SessionId>>,
+    /// The frame timer, alive from `Attach` to `Leave`.
+    capture_timer: RefCell<Option<glib::SourceId>>,
+    /// A capture asked for and not yet answered: the timer skips its tick
+    /// rather than queueing a second snapshot behind a slow one.
+    capture_in_flight: Cell<bool>,
+    /// The reason the last capture failed, so a persisting failure is logged
+    /// once and not twelve times a second.
+    capture_failure: RefCell<Option<String>>,
+    /// The width of the last frame published, in the engine's pixels. The
+    /// phone's taps arrive in that grid, and this is what maps them back to
+    /// the page's own CSS pixels.
+    frame_width: Cell<Option<u32>>,
 }
 
 impl std::fmt::Debug for Window {
@@ -307,7 +336,280 @@ impl Window {
         self.sidebar.start_memory_sampling(ports.probe);
         self.saver
             .replace(Some(Saver::new(ports.store, self.message_strip.clone())));
+        if let Some(phone) = ports.phone {
+            self.phone_link.replace(Some(phone.link));
+            self.spawn_intent_loop(phone.intents);
+            arm_debug_enrol(&self.obj());
+        }
         self.apply_read_outcome(read_outcome);
+        // A first run restores nothing and so redraws nothing; the phone
+        // still deserves a truthful, if empty, first snapshot.
+        self.publish_state();
+    }
+
+    /// Loops over the phone's intents on the GTK main context, one
+    /// [`Window::apply_remote_intent`] per message (architecture rule 10).
+    /// Ends when the channel closes — the sender dropped, which is how a
+    /// server that never started hands over nothing — or the window is gone.
+    fn spawn_intent_loop(&self, intents: async_channel::Receiver<RemoteIntent>) {
+        let window = self.obj().downgrade();
+        glib::spawn_future_local(async move {
+            while let Ok(intent) = intents.recv().await {
+                let Some(window) = window.upgrade() else {
+                    break;
+                };
+                window.imp().apply_remote_intent(intent);
+            }
+            tracing::debug!("the phone's intent channel closed; no more remote intents");
+        });
+    }
+
+    /// Turns one message from the phone into the same call a click on the
+    /// desktop makes, and nothing else (architecture rule 8): the closed set
+    /// of [`RemoteIntent`] is the whole of what a phone may do (`FR.6.3`).
+    /// `Park` and `Start` apply only where the row menu's item would; a tap
+    /// or a scroll reaches only the current account's live page, and only
+    /// while mobile mode is on, since that is the page the phone is looking
+    /// at.
+    fn apply_remote_intent(&self, intent: RemoteIntent) {
+        tracing::debug!(?intent, "remote intent received");
+        match intent {
+            RemoteIntent::Attach { viewport } => self.attach_phone(viewport),
+            RemoteIntent::Leave => self.detach_phone(),
+            RemoteIntent::ChooseAccount(id) => self.focus_session(&id),
+            RemoteIntent::Park(id) => {
+                let liveness = liveness_anywhere(&self.book.borrow(), &id);
+                if park_applies(liveness) {
+                    self.park_session(&id);
+                    self.request_save();
+                }
+            }
+            RemoteIntent::Start(id) => {
+                let liveness = liveness_anywhere(&self.book.borrow(), &id);
+                if start_applies(liveness) {
+                    self.start_session(&id);
+                    self.request_save();
+                }
+            }
+            RemoteIntent::SetMobileMode(true) => {
+                let already_on = self.book.borrow().is_mobile_mode();
+                if !already_on {
+                    let viewport = self.phone_viewport.get().unwrap_or(DEFAULT_MOBILE_VIEWPORT);
+                    self.enter_mobile_mode(viewport);
+                }
+            }
+            RemoteIntent::SetMobileMode(false) => {
+                let on = self.book.borrow().is_mobile_mode();
+                if on {
+                    self.leave_mobile_mode(None);
+                }
+            }
+            RemoteIntent::Tap { x, y } => {
+                let (x, y) = self.frame_scale().point(x, y);
+                self.run_in_current_page(&tap_script(x, y));
+            }
+            RemoteIntent::Scroll { x, y, dx, dy } => {
+                let scale = self.frame_scale();
+                let (x, y) = scale.point(x, y);
+                let (dx, dy) = scale.scroll_delta(dx, dy);
+                self.run_in_current_page(&scroll_script(x, y, dx, dy));
+            }
+        }
+    }
+
+    /// The phone started watching with a screen of `viewport`: the one
+    /// mobile slot takes that shape when the mode is on (`FR.3.2`), the
+    /// current account's view is told it is watched, and the frame timer
+    /// starts. The redraw at the end reallocates the slot and publishes the
+    /// new viewport.
+    fn attach_phone(&self, viewport: Viewport) {
+        self.phone_attached.set(true);
+        self.phone_viewport.set(Some(viewport));
+        {
+            let mut book = self.book.borrow_mut();
+            if book.is_mobile_mode() && book.mobile_viewport() != Some(viewport) {
+                book.set_mobile_viewport(viewport);
+            }
+        }
+        tracing::info!(
+            width = viewport.width,
+            height = viewport.height,
+            "the phone is watching"
+        );
+        self.sync_watched();
+        self.start_capture_timer();
+        self.redraw();
+    }
+
+    /// The phone stopped watching: no more frames, and the watched view goes
+    /// back to the behaviour `background_for` dictates for it (`FR.4.3`).
+    /// The current account is left as it is, so coming back resumes there.
+    fn detach_phone(&self) {
+        self.stop_capture_timer();
+        self.phone_attached.set(false);
+        self.sync_watched();
+        tracing::info!("the phone stopped watching");
+    }
+
+    /// Makes the current account's view the one watched view while the phone
+    /// is attached, and no view watched otherwise: whichever view was told
+    /// before and is not wanted now is un-told first (`FR.4.3`). Records
+    /// only a view that exists, so an account parked at the time is told
+    /// when its view is next built ([`Window::finish_starting`]).
+    fn sync_watched(&self) {
+        let wanted = if self.phone_attached.get() {
+            current_account(&self.book.borrow()).map(|(id, _)| id)
+        } else {
+            None
+        };
+        let previous = self.watched.borrow().clone();
+        if previous == wanted {
+            return;
+        }
+
+        let minimised = self.minimised.get();
+        let holders = self.holders.borrow();
+        if let Some(id) = &previous
+            && let Some(holder) = holders.get(id)
+        {
+            holder.set_watched(false, minimised);
+        }
+        let applied = wanted.filter(|id| {
+            holders
+                .get(id)
+                .is_some_and(|holder| holder.view().is_some())
+        });
+        if let Some(id) = &applied
+            && let Some(holder) = holders.get(id)
+        {
+            holder.set_watched(true, minimised);
+        }
+        drop(holders);
+        self.watched.replace(applied);
+    }
+
+    /// Runs `source` in the current account's live page — the phone's tap or
+    /// scroll. Ignored while mobile mode is off, since the phone is then not
+    /// looking at any page, and when the current account has no view.
+    fn run_in_current_page(&self, source: &str) {
+        let (mobile_mode, current) = {
+            let book = self.book.borrow();
+            (book.is_mobile_mode(), current_account(&book))
+        };
+        if !mobile_mode {
+            tracing::debug!("phone gesture ignored; mobile mode is off");
+            return;
+        }
+        let Some((id, _)) = current else {
+            return;
+        };
+        if let Some(holder) = self.holders.borrow().get(&id) {
+            tracing::debug!(session = %id, "phone gesture delivered to the page");
+            holder.run_script(source);
+        }
+    }
+
+    /// The mapping from the last frame's pixel grid, where the phone's
+    /// gestures are measured, to the page's CSS pixels.
+    fn frame_scale(&self) -> FrameScale {
+        let viewport = self
+            .book
+            .borrow()
+            .mobile_viewport()
+            .unwrap_or(DEFAULT_MOBILE_VIEWPORT);
+        FrameScale::between(self.frame_width.get(), viewport.width)
+    }
+
+    /// Arms the frame timer if it is not already running: every
+    /// [`FRAME_INTERVAL_MILLIS`] one [`Window::capture_tick`].
+    fn start_capture_timer(&self) {
+        if self.capture_timer.borrow().is_some() {
+            return;
+        }
+        let window = self.obj().downgrade();
+        let timer =
+            glib::timeout_add_local(Duration::from_millis(FRAME_INTERVAL_MILLIS), move || {
+                let Some(window) = window.upgrade() else {
+                    return glib::ControlFlow::Break;
+                };
+                window.imp().capture_tick();
+                glib::ControlFlow::Continue
+            });
+        self.capture_timer.replace(Some(timer));
+    }
+
+    fn stop_capture_timer(&self) {
+        if let Some(timer) = self.capture_timer.borrow_mut().take() {
+            timer.remove();
+        }
+    }
+
+    /// One tick of the frame timer: when [`capture_gate`] allows, asks the
+    /// current account's view for a picture and hands the answer to
+    /// [`Window::finish_capture`]. Only that one view is ever photographed
+    /// (`FR.4.2`).
+    fn capture_tick(&self) {
+        let (mobile_mode, current) = {
+            let book = self.book.borrow();
+            (book.is_mobile_mode(), current_account(&book))
+        };
+        if !capture_gate(
+            self.phone_attached.get(),
+            mobile_mode,
+            current.as_ref().map(|(_, liveness)| *liveness),
+            self.capture_in_flight.get(),
+        ) {
+            return;
+        }
+        let Some((id, _)) = current else {
+            return;
+        };
+        let holders = self.holders.borrow();
+        let Some(holder) = holders.get(&id) else {
+            return;
+        };
+
+        self.capture_in_flight.set(true);
+        let window = self.obj().downgrade();
+        holder.capture_frame(move |outcome| {
+            if let Some(window) = window.upgrade() {
+                window.imp().finish_capture(outcome);
+            }
+        });
+    }
+
+    /// A capture answered: a picture goes to the phone through the link,
+    /// which encodes and forwards it off the main context; a failure is
+    /// logged once per distinct reason, and the next tick tries again.
+    fn finish_capture(&self, outcome: Result<CapturedFrame, EngineCaptureError>) {
+        self.capture_in_flight.set(false);
+        match outcome {
+            Ok(captured) => {
+                let frame = frame_for_phone(captured);
+                if let Some(width) = frame_width(&frame) {
+                    self.frame_width.set(Some(width));
+                }
+                self.capture_failure.replace(None);
+                if let Some(link) = self.phone_link.borrow().as_ref() {
+                    link.publish_frame(frame);
+                }
+            }
+            Err(error) => {
+                let reason = error.to_string();
+                if self.capture_failure.borrow().as_deref() != Some(reason.as_str()) {
+                    tracing::warn!(%reason, "frame capture failed; frames pause until it succeeds");
+                    self.capture_failure.replace(Some(reason));
+                }
+            }
+        }
+    }
+
+    /// Sends the phone the book as it stands, so every change the sidebar
+    /// sees, the phone sees (`FR.2.1`). A no-op before a link is attached.
+    fn publish_state(&self) {
+        if let Some(link) = self.phone_link.borrow().as_ref() {
+            link.publish_state(&RemoteState::from_book(&self.book.borrow()));
+        }
     }
 
     /// Asks for the workspace to be saved after an action changed it. Cheap —
@@ -482,29 +784,64 @@ impl Window {
     /// already names the shown workspace's layout — reached after
     /// [`Window::focus_session`] flips the toggle to match an incoming
     /// workspace, so that never triggers a second arrangement or a second
-    /// save (`FR.16.4`). `Mobile` enters mobile mode with the default phone
-    /// viewport — roadmap item 13 task 06 passes an attached phone's own —
-    /// and `1`, `2` or `4` while the mode is on leaves it first, which puts
-    /// the arrangement from before back, then switches only if the chosen
-    /// layout differs from the restored one (Remote Access `FR.3.5`). Either
-    /// way the grid is redrawn, every account snapped to its size for the
-    /// layout now in force, and a save requested.
+    /// save (`FR.16.4`) — and after [`Window::enter_mobile_mode`] or
+    /// [`Window::leave_mobile_mode`] flip it for a phone's request, for the
+    /// same reason. `Mobile` enters mobile mode at the attached phone's own
+    /// screen size, or the default when no phone is watching; `1`, `2` or
+    /// `4` while the mode is on leaves it first, which puts the arrangement
+    /// from before back, then switches only if the chosen layout differs from
+    /// the restored one (Remote Access `FR.3.5`).
     fn choose_layout(&self, layout: Layout) {
-        {
-            let mut book = self.book.borrow_mut();
-            if book.active().layout() == layout {
-                return;
+        if self.book.borrow().active().layout() == layout {
+            return;
+        }
+        match layout {
+            Layout::Mobile => {
+                let viewport = match self.phone_viewport.get() {
+                    Some(viewport) if self.phone_attached.get() => viewport,
+                    _ => DEFAULT_MOBILE_VIEWPORT,
+                };
+                self.enter_mobile_mode(viewport);
             }
-            match layout {
-                Layout::Mobile => book.enter_mobile_mode(DEFAULT_MOBILE_VIEWPORT),
-                Layout::Single | Layout::SideBySide | Layout::Grid => {
-                    book.leave_mobile_mode();
-                    if book.active().layout() != layout {
-                        book.set_layout(layout);
-                    }
-                }
+            Layout::Single | Layout::SideBySide | Layout::Grid => {
+                self.leave_mobile_mode(Some(layout));
             }
         }
+    }
+
+    /// Switches mobile mode on with the one slot shaped as `viewport` —
+    /// pressed on the desktop or asked for by the phone, one path (`FR.3.1`).
+    /// The `Phone` toggle follows the book; when the toggle itself was what
+    /// was pressed, selecting it again is a no-op.
+    fn enter_mobile_mode(&self, viewport: Viewport) {
+        self.book.borrow_mut().enter_mobile_mode(viewport);
+        self.select_layout_toggle(Layout::Mobile);
+        self.finish_layout_change();
+    }
+
+    /// Switches mobile mode off, putting back the arrangement from before,
+    /// then switches to `then` if it names a layout other than the restored
+    /// one (`FR.3.5`). The toggles follow the book, and the handler they run
+    /// finds nothing left to change.
+    fn leave_mobile_mode(&self, then: Option<Layout>) {
+        {
+            let mut book = self.book.borrow_mut();
+            book.leave_mobile_mode();
+            if let Some(layout) = then
+                && book.active().layout() != layout
+            {
+                book.set_layout(layout);
+            }
+        }
+        let layout = self.book.borrow().active().layout();
+        self.select_layout_toggle(layout);
+        self.finish_layout_change();
+    }
+
+    /// What every arrangement change ends with: the grid redrawn, every
+    /// account snapped to its size for the layout now in force, and a save
+    /// requested.
+    fn finish_layout_change(&self) {
         self.redraw();
         self.snap_zoom_for_active();
         self.request_save();
@@ -1246,6 +1583,9 @@ impl Window {
     /// without treating the flip as a second layout switch of its own
     /// (`connect_layout_toggle`'s own guard), and no view is built, destroyed,
     /// stopped or reloaded (`FR.16.3`).
+    /// While a phone is attached, being watched moves with the current
+    /// account: the previous one is un-told before the next frame tick
+    /// (`FR.4.3`).
     fn focus_session(&self, id: &SessionId) {
         let switch = self.book.borrow_mut().focus_account(id);
         if let Some(switch) = switch {
@@ -1254,6 +1594,7 @@ impl Window {
             self.snap_zoom_for_active();
             tracing::debug!(from = %switch.from(), to = %switch.to(), "switched the shown workspace");
         }
+        self.sync_watched();
         self.redraw();
         self.request_save();
     }
@@ -1294,6 +1635,12 @@ impl Window {
         self.book.borrow_mut().park(id);
         if let Some(holder) = self.holders.borrow_mut().get_mut(id) {
             holder.stop();
+        }
+        // The view that was told it is watched is gone with the stop; the
+        // one built by the next start is told afresh at its first paint.
+        let was_watched = self.watched.borrow().as_ref() == Some(id);
+        if was_watched {
+            self.watched.replace(None);
         }
         self.grid.release_view(id);
         self.redraw();
@@ -1348,12 +1695,25 @@ impl Window {
     /// starting, so a later navigation's load event does not churn the
     /// sidebar. Searched wherever the account's workspace is, since the start
     /// queue may be starting one in a hidden workspace.
+    ///
+    /// A page that has just painted is a fresh one — a new view after a
+    /// start, or a reload — so if this is the watched account it is told
+    /// again, and if the phone is waiting on an account that had no view
+    /// until now, it is told for the first time.
     fn finish_starting(&self, id: &SessionId) {
         if liveness_anywhere(&self.book.borrow(), id) != Some(Liveness::Starting) {
             return;
         }
 
         self.book.borrow_mut().mark_started(id);
+        let is_watched = self.watched.borrow().as_ref() == Some(id);
+        if is_watched {
+            if let Some(holder) = self.holders.borrow().get(id) {
+                holder.set_watched(true, self.minimised.get());
+            }
+        } else {
+            self.sync_watched();
+        }
         self.redraw();
     }
 
@@ -1425,6 +1785,15 @@ impl Window {
                 .find_map(|workspace| workspace.book().session(id))
                 .is_some_and(Session::is_kept_awake);
             view.set_background(background_for(minimised, keep_awake));
+        }
+        drop(book);
+
+        // The watched view is the exception: a phone is looking at it, so a
+        // minimise never puts it in the background (`FR.4.3`).
+        if let Some(id) = self.watched.borrow().as_ref()
+            && let Some(holder) = self.holders.borrow().get(id)
+        {
+            holder.set_watched(true, minimised);
         }
     }
 
@@ -1587,6 +1956,139 @@ impl Window {
         self.workspace_empty_label
             .set_visible(shown_empty && !no_accounts_anywhere);
         self.grid.set_visible(!shown_empty);
+
+        // Every change the sidebar sees, the phone sees (`FR.2.1`).
+        if let Some(link) = self.phone_link.borrow().as_ref() {
+            let state = RemoteState::from_book(&book);
+            tracing::debug!(
+                mobile_mode = state.mobile_mode,
+                current = ?state.current,
+                "state published to the phone"
+            );
+            link.publish_state(&state);
+        }
+    }
+}
+
+/// The account in the shown workspace's focused slot — the one a watching
+/// phone sees — with its liveness, or `None` when that slot holds nothing.
+fn current_account(book: &WorkspaceBook) -> Option<(SessionId, Liveness)> {
+    book.active()
+        .focused_session()
+        .map(|session| (session.id().clone(), session.liveness()))
+}
+
+/// Whether a phone's `Park` applies to an account in this state: only a
+/// running one has a rendering process to stop, exactly where the row
+/// menu's item is offered (architecture rule 8).
+fn park_applies(liveness: Option<Liveness>) -> bool {
+    liveness == Some(Liveness::Live)
+}
+
+/// Whether a phone's `Start` applies to an account in this state: only a
+/// parked one. A starting or queued account is already on its way up, and
+/// during a restore the start queue owns a queued account's turn.
+fn start_applies(liveness: Option<Liveness>) -> bool {
+    liveness == Some(Liveness::Parked)
+}
+
+/// Whether the frame timer photographs the current view on this tick: a
+/// phone is attached, mobile mode is on so the phone is looking at a page,
+/// the current account (`current`, `None` for an empty slot) is live so
+/// there is a page, and the last snapshot has answered (`FR.4.2`).
+fn capture_gate(
+    attached: bool,
+    mobile_mode: bool,
+    current: Option<Liveness>,
+    in_flight: bool,
+) -> bool {
+    attached && mobile_mode && current == Some(Liveness::Live) && !in_flight
+}
+
+/// How often the current view is photographed for the phone, in
+/// milliseconds: about twelve pictures a second (code standards rule 5).
+const FRAME_INTERVAL_MILLIS: u64 = 80;
+
+/// The mapping from a frame's pixel grid to the page's CSS pixels. The phone
+/// measures its taps on the picture it was sent, whose width is the engine's
+/// — on a high-density desktop the scale factor times the viewport the page
+/// is laid out for — while `tap_script` and `scroll_script` speak in client
+/// coordinates. Before the first frame the two grids are taken as equal.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct FrameScale {
+    frame_width: u32,
+    viewport_width: u32,
+}
+
+impl FrameScale {
+    /// The scale between a frame `frame_width` pixels wide and a viewport
+    /// `viewport_width` CSS pixels wide; the identity when no frame has
+    /// been captured yet or either width is zero.
+    fn between(frame_width: Option<u32>, viewport_width: u32) -> Self {
+        match frame_width {
+            Some(frame_width) if frame_width > 0 && viewport_width > 0 => Self {
+                frame_width,
+                viewport_width,
+            },
+            _ => Self {
+                frame_width: 1,
+                viewport_width: 1,
+            },
+        }
+    }
+
+    /// A point of the frame in CSS pixels, rounded to the nearest.
+    fn point(self, x: u32, y: u32) -> (u32, u32) {
+        (self.length(x), self.length(y))
+    }
+
+    /// A finger's movement across the frame as the wheel distance
+    /// `scroll_script` adds to the page's scroll position: scaled to CSS
+    /// pixels and negated, because a finger moving up drags the content up,
+    /// which is a scroll down.
+    fn scroll_delta(self, dx: i32, dy: i32) -> (i32, i32) {
+        (-self.signed_length(dx), -self.signed_length(dy))
+    }
+
+    fn length(self, frame_pixels: u32) -> u32 {
+        let scaled = u64::from(frame_pixels) * u64::from(self.viewport_width);
+        let rounded = (scaled + u64::from(self.frame_width) / 2) / u64::from(self.frame_width);
+        u32::try_from(rounded).unwrap_or(u32::MAX)
+    }
+
+    fn signed_length(self, frame_pixels: i32) -> i32 {
+        let frame_width = i64::from(self.frame_width);
+        let scaled = i64::from(frame_pixels) * i64::from(self.viewport_width);
+        let rounded = (scaled + scaled.signum() * (frame_width / 2)) / frame_width;
+        i32::try_from(rounded).unwrap_or(0)
+    }
+}
+
+/// The engine's picture as the phone link carries it: the same two shapes,
+/// named on the core's side so the link never learns the engine seam's type.
+fn frame_for_phone(captured: CapturedFrame) -> Frame {
+    match captured {
+        CapturedFrame::Rgba {
+            width,
+            height,
+            stride,
+            bytes,
+        } => Frame::Rgba {
+            width,
+            height,
+            stride,
+            bytes,
+        },
+        CapturedFrame::Jpeg(bytes) => Frame::Jpeg(bytes),
+    }
+}
+
+/// The frame's width in its own pixels, known without decoding only for raw
+/// pixels; a ready-made JPEG's is read by the link, not here.
+fn frame_width(frame: &Frame) -> Option<u32> {
+    match frame {
+        Frame::Rgba { width, .. } => Some(*width),
+        Frame::Jpeg(_) => None,
     }
 }
 
@@ -1726,5 +2228,156 @@ fn layout_named(name: &str) -> Option<Layout> {
         "grid" => Some(Layout::Grid),
         "mobile" => Some(Layout::Mobile),
         _ => None,
+    }
+}
+
+/// Setting this in the environment to any value makes the window begin an
+/// enrolment [`DEBUG_ENROL_DELAY_SECS`] after its ports attach and log the
+/// offered address (roadmap item 13 task 06), so a headless run can enrol a
+/// scripted phone before the phone dialog (task 07) exists to show the code.
+/// Off unless set.
+const DEBUG_ENROL_ENV: &str = "IDLE_MANAGER_DEBUG_ENROL";
+
+/// How long after the ports attach [`DEBUG_ENROL_ENV`]'s enrolment begins —
+/// long enough for the server's listening line to have been logged first.
+const DEBUG_ENROL_DELAY_SECS: u64 = 3;
+
+/// Arms [`DEBUG_ENROL_ENV`]'s timer when the variable is set.
+fn arm_debug_enrol(window: &super::Window) {
+    if std::env::var_os(DEBUG_ENROL_ENV).is_none() {
+        return;
+    }
+    let weak = window.downgrade();
+    glib::timeout_add_local_once(Duration::from_secs(DEBUG_ENROL_DELAY_SECS), move || {
+        let Some(window) = weak.upgrade() else {
+            return;
+        };
+        let Some(link) = window.imp().phone_link.borrow().clone() else {
+            tracing::warn!(variable = DEBUG_ENROL_ENV, "no phone link to enrol through");
+            return;
+        };
+        let offer = link.begin_enrolment();
+        tracing::info!(
+            address = %offer.address,
+            expires_in_secs = offer.expires_in_secs,
+            "debug switch: enrolment offered"
+        );
+    });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn park_applies_only_to_a_live_account() {
+        let outcomes = [
+            park_applies(Some(Liveness::Live)),
+            park_applies(Some(Liveness::Parked)),
+            park_applies(Some(Liveness::Starting)),
+            park_applies(Some(Liveness::Queued)),
+            park_applies(None),
+        ];
+
+        assert_eq!(outcomes, [true, false, false, false, false]);
+    }
+
+    #[test]
+    fn start_applies_only_to_a_parked_account() {
+        let outcomes = [
+            start_applies(Some(Liveness::Live)),
+            start_applies(Some(Liveness::Parked)),
+            start_applies(Some(Liveness::Starting)),
+            start_applies(Some(Liveness::Queued)),
+            start_applies(None),
+        ];
+
+        assert_eq!(outcomes, [false, true, false, false, false]);
+    }
+
+    #[test]
+    fn the_capture_gate_opens_only_when_attached_in_mobile_mode_on_a_live_view_with_none_in_flight()
+    {
+        let livenesses = [
+            None,
+            Some(Liveness::Live),
+            Some(Liveness::Parked),
+            Some(Liveness::Starting),
+            Some(Liveness::Queued),
+        ];
+
+        let open: Vec<(bool, bool, Option<Liveness>, bool)> = (0..8u8)
+            .flat_map(|bits| {
+                livenesses
+                    .into_iter()
+                    .map(move |current| (bits & 1 != 0, bits & 2 != 0, current, bits & 4 != 0))
+            })
+            .filter(|(attached, mobile_mode, current, in_flight)| {
+                capture_gate(*attached, *mobile_mode, *current, *in_flight)
+            })
+            .collect();
+
+        assert_eq!(open, vec![(true, true, Some(Liveness::Live), false)]);
+    }
+
+    #[test]
+    fn a_hidpi_frame_maps_a_tap_back_to_css_pixels() {
+        let scale = FrameScale::between(Some(824), 412);
+
+        assert_eq!(scale.point(200, 150), (100, 75));
+    }
+
+    #[test]
+    fn before_the_first_frame_the_grids_are_taken_as_equal() {
+        let scale = FrameScale::between(None, 412);
+
+        assert_eq!(scale.point(200, 150), (200, 150));
+    }
+
+    #[test]
+    fn a_finger_moving_up_scrolls_the_content_down() {
+        let scale = FrameScale::between(Some(412), 412);
+
+        assert_eq!(scale.scroll_delta(6, -40), (-6, 40));
+    }
+
+    #[test]
+    fn a_scroll_on_a_hidpi_frame_is_halved_rounded_away_from_zero_and_negated() {
+        let scale = FrameScale::between(Some(824), 412);
+
+        assert_eq!(scale.scroll_delta(-30, 41), (15, -21));
+    }
+
+    #[test]
+    fn raw_pixels_keep_their_size_and_stride_on_the_way_to_the_phone() {
+        let frame = frame_for_phone(CapturedFrame::Rgba {
+            width: 2,
+            height: 1,
+            stride: 12,
+            bytes: vec![0; 12],
+        });
+
+        assert_eq!(
+            (frame_width(&frame), frame),
+            (
+                Some(2),
+                Frame::Rgba {
+                    width: 2,
+                    height: 1,
+                    stride: 12,
+                    bytes: vec![0; 12],
+                }
+            )
+        );
+    }
+
+    #[test]
+    fn a_ready_made_jpeg_passes_through_with_no_width_of_its_own() {
+        let frame = frame_for_phone(CapturedFrame::Jpeg(vec![0xFF, 0xD8]));
+
+        assert_eq!(
+            (frame_width(&frame), frame),
+            (None, Frame::Jpeg(vec![0xFF, 0xD8]))
+        );
     }
 }

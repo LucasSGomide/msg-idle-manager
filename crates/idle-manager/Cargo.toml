@@ -12,9 +12,13 @@ path = "src/main.rs"
 [dependencies]
 idle-manager-core.workspace = true
 idle-manager-metrics.workspace = true
+idle-manager-remote.workspace = true
 idle-manager-shell.workspace = true
 idle-manager-store.workspace = true
 anyhow.workspace = true
+# The never-yielding receiver the window gets when the phone server could
+# not start (roadmap item 13 task 06): the sender is dropped at once.
+async-channel.workspace = true
 gtk4.workspace = true
 tracing.workspace = true
 tracing-subscriber.workspace = true

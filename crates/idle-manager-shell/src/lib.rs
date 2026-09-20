@@ -35,7 +35,7 @@ use gtk::glib;
 use gtk::prelude::*;
 use gtk4 as gtk;
 
-pub use window::{Window, WindowPorts};
+pub use window::{PhonePorts, Window, WindowPorts};
 
 /// The compiled-in UI resource bundle could not be registered.
 #[derive(Debug, thiserror::Error)]

@@ -673,9 +673,10 @@ impl SessionGrid {
     }
 
     pub(super) fn sync(&self, book: &WorkspaceBook) {
-        self.layout.set(book.active().layout());
+        let layout_changed = self.layout.replace(book.active().layout()) != book.active().layout();
         self.focused.set(book.active().focused().index());
-        self.mobile_viewport.set(book.mobile_viewport());
+        let viewport_changed =
+            self.mobile_viewport.replace(book.mobile_viewport()) != book.mobile_viewport();
 
         let nowhere_to_drop = !has_somewhere_to_drop(self.layout.get());
         for entry in self.slots.borrow_mut().iter_mut() {
@@ -711,9 +712,33 @@ impl SessionGrid {
         let obj = self.obj();
         obj.queue_allocate();
         obj.queue_draw();
+        if layout_changed || viewport_changed {
+            self.allocate_slots_now();
+        }
     }
 
-    /// Allocates every child. Called by [`super::SlotLayout`].
+    /// Allocates every child right away rather than on the frame clock's next
+    /// layout phase. A Wayland compositor stops ticking the frame clock of a
+    /// window it is not showing — occluded, or minimised — and GTK lays out
+    /// only on a tick, so an arrangement a phone asked for would otherwise
+    /// wait until the desktop is next looked at (measured 2026-09-20: two
+    /// seconds to well over twenty-five). The engine views take their new
+    /// size from this allocation alone, and the phone's pictures follow that
+    /// size, which is what makes the wait matter (roadmap item 13 task 06,
+    /// `FR.3.2`; code standards rule 18). Nothing to do before the grid has a
+    /// size of its own; the first layout pass allocates then.
+    fn allocate_slots_now(&self) {
+        let obj = self.obj();
+        let (width, height) = (obj.width(), obj.height());
+        if width <= 0 || height <= 0 {
+            return;
+        }
+        self.allocate_slots(width, height);
+    }
+
+    /// Allocates every child. Called by [`super::SlotLayout`] on the frame
+    /// clock's layout phase, and by [`Self::allocate_slots_now`] when the
+    /// arrangement changed.
     pub(super) fn allocate_slots(&self, width: i32, height: i32) {
         let layout = self.layout.get();
         let viewport = self.viewport();
