@@ -232,6 +232,19 @@ mod tests {
             globalThis.setTimeout = (callback, ms) => { timers.push({ callback, ms }); return timers.length; };
             globalThis.clearTimeout = () => {};
             globalThis.performance = { now: () => 0 };
+            // The observers the shim wraps, and the one target they watch: a
+            // box whose size `setBoxSize` changes, as a layout would.
+            globalThis.intervals = [];
+            globalThis.setInterval = (callback, ms) => { intervals.push({ callback, ms }); return intervals.length; };
+            globalThis.clearInterval = () => {};
+            globalThis.innerWidth = 412; globalThis.innerHeight = 915; globalThis.devicePixelRatio = 1;
+            globalThis.getComputedStyle = () => ({ paddingLeft: '0', paddingRight: '0', paddingTop: '0', paddingBottom: '0', borderLeftWidth: '0', borderRightWidth: '0', borderTopWidth: '0', borderBottomWidth: '0' });
+            let box = { width: 100, height: 40 };
+            globalThis.setBoxSize = (width, height) => { box = { width, height }; };
+            globalThis.target = { isConnected: true, getBoundingClientRect: () => ({ x: 0, y: 0, left: 0, top: 0, width: box.width, height: box.height, right: box.width, bottom: box.height }) };
+            globalThis.nativeObservations = [];
+            globalThis.ResizeObserver = class { constructor(cb) { this.cb = cb; } observe(t) { nativeObservations.push(['observe', t]); } unobserve() {} disconnect() {} takeRecords() { return []; } };
+            globalThis.IntersectionObserver = class { constructor(cb, o) { this.cb = cb; this.o = o; } observe(t) { nativeObservations.push(['observe', t]); } unobserve() {} disconnect() {} takeRecords() { return []; } };
         ";
 
         let context = webkit6::javascriptcore::Context::new();
@@ -376,6 +389,50 @@ mod tests {
         );
 
         assert_eq!(result, "[true,false,true]");
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn evaluated_a_resize_observer_on_an_armed_hidden_page_is_delivered_from_the_timer() {
+        let result = run_shim(
+            "const seen = []; \
+             new ResizeObserver((entries) => { seen.push(entries[0].contentRect.width); }).observe(target); \
+             window.__idleManager.setAwake(true); setReallyHidden(true); dispatch('visibilitychange'); \
+             const armed = intervals.length; \
+             intervals[0].callback(); intervals[0].callback(); setBoxSize(300, 40); intervals[0].callback(); \
+             JSON.stringify([armed, nativeObservations.length, seen])",
+        );
+
+        assert_eq!(result, "[1,1,[100,300]]");
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn evaluated_an_intersection_observer_on_an_armed_hidden_page_reports_the_root_crossing() {
+        let result = run_shim(
+            "const seen = []; \
+             new IntersectionObserver((entries) => { seen.push(entries[0].isIntersecting); }).observe(target); \
+             window.__idleManager.setAwake(true); setReallyHidden(true); dispatch('visibilitychange'); \
+             intervals[0].callback(); \
+             target.getBoundingClientRect = () => ({ x: 0, y: 2000, left: 0, top: 2000, width: 100, height: 40, right: 100, bottom: 2040 }); \
+             intervals[0].callback(); intervals[0].callback(); \
+             JSON.stringify(seen)",
+        );
+
+        assert_eq!(result, "[true,false]");
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn evaluated_observers_on_a_visible_or_unarmed_page_start_no_timer() {
+        let result = run_shim(
+            "new ResizeObserver(() => {}).observe(target); \
+             const visible = intervals.length; \
+             setReallyHidden(true); dispatch('visibilitychange'); \
+             JSON.stringify([visible, intervals.length])",
+        );
+
+        assert_eq!(result, "[0,0]");
     }
 
     #[cfg(target_os = "linux")]

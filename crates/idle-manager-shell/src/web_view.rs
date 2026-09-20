@@ -106,7 +106,9 @@ impl SessionView {
         minimised: bool,
     ) -> Self {
         let mut holder = Self::dormant(id, directories, start_address, settings);
-        holder.start(minimised);
+        // A brand-new account is never the one a phone is looking at: the
+        // phone's current account is chosen from those already in the book.
+        holder.start(minimised, false);
         holder
     }
 
@@ -155,11 +157,18 @@ impl SessionView {
     /// ([`background_for`], roadmap item 12 task 04, `FR.1.9`): a no-op on
     /// Linux, where `EngineView::set_background` stays the permanent no-op
     /// task 01 made it. Arms the debug frame dump for the new view when
-    /// `IDLE_MANAGER_DUMP_FRAMES` is set ([`frame_dump::arm`]).
-    pub fn start(&mut self, minimised: bool) -> &EngineView {
-        let view = self
-            .profile
-            .build_view(&self.start_address, &self.settings, self.keep_awake);
+    /// `IDLE_MANAGER_DUMP_FRAMES` is set ([`frame_dump::arm`]). `watched` is
+    /// whether a phone is looking at this account right now: the view is
+    /// then built armed from document start, exactly as a keep-awake account
+    /// is, so the page's first script never sees `document.hidden` — the
+    /// runtime arming in `set_watched` comes too late for a game that reads
+    /// it at boot (roadmap item 13 task 08).
+    pub fn start(&mut self, minimised: bool, watched: bool) -> &EngineView {
+        let view = self.profile.build_view(
+            &self.start_address,
+            &self.settings,
+            self.keep_awake || watched,
+        );
         view.set_background(background_for(minimised, self.keep_awake));
         self.frame_dump = frame_dump::arm(&view, &self.id);
         self.view.insert(view)

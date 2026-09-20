@@ -17,6 +17,19 @@
 // run time through `window.__idleManager` without a reload, and disarms it
 // again when the phone leaves (`FR.4.3`).
 //
+// Observers are the third thing a hidden page never gets. `ResizeObserver`
+// and `IntersectionObserver` deliver inside the engine's rendering update,
+// which does not run for a hidden page — measured 2026-09-20 (item 13 task
+// 08): a page loaded while the window was minimised counted `ro=0 io=0`
+// after twelve seconds — and a page that sizes its panels from a
+// `ResizeObserver` or renders them on `IntersectionObserver` (Angular's
+// `@defer (on viewport)`) then stays half-built until the window is next
+// looked at. So while armed on a really hidden page the shim delivers both
+// from a timer of its own: an observation whenever a target's box, or its
+// intersection with the root, differs from the last one delivered, native
+// or not. The engine's own delivery resumes untouched once the page is
+// looked at again; what it delivers is recorded so the timer never repeats it.
+//
 // Frames alone were not enough. Measured on the owner's GNOME desktop
 // (2026-09-20, item 13 task 08): with the window minimised, the phone kept
 // receiving fresh pictures but the game in them stood still, because the
@@ -139,6 +152,7 @@
     if (shimming()) {
       takeOverPendingNative();
     }
+    syncObserverTimer();
     if (awake && !replaying) {
       event.stopImmediatePropagation();
     }
@@ -155,6 +169,170 @@
     clearTimeout(timerId);
   };
 
+  // --- observers ---------------------------------------------------------
+
+  // How often the shim looks at every observed target while it stands in
+  // for the engine. A box read forces layout, so this is slower than the
+  // frame timer; a HUD settling within a quarter second is not noticed.
+  const OBSERVER_POLL_INTERVAL_MS = 250;
+
+  const shimObservers = new Set();
+  let observerTimer = null;
+
+  const boxKey = (target) => {
+    const rect = target.getBoundingClientRect();
+    return `${rect.width}x${rect.height}`;
+  };
+
+  const rectOf = (x, y, width, height) =>
+    (typeof DOMRectReadOnly === 'function' ? DOMRectReadOnly.fromRect({ x, y, width, height }) : { x, y, width, height, top: y, left: x, right: x + width, bottom: y + height });
+
+  const contentBox = (target) => {
+    const rect = target.getBoundingClientRect();
+    const style = getComputedStyle(target);
+    const px = (value) => parseFloat(value) || 0;
+    const width = Math.max(0, rect.width - px(style.paddingLeft) - px(style.paddingRight) - px(style.borderLeftWidth) - px(style.borderRightWidth));
+    const height = Math.max(0, rect.height - px(style.paddingTop) - px(style.paddingBottom) - px(style.borderTopWidth) - px(style.borderBottomWidth));
+    return { rect, width, height, padding: { left: px(style.paddingLeft), top: px(style.paddingTop) } };
+  };
+
+  const sizeEntry = (target) => {
+    const box = contentBox(target);
+    const dpr = window.devicePixelRatio || 1;
+    return {
+      target,
+      contentRect: rectOf(box.padding.left, box.padding.top, box.width, box.height),
+      borderBoxSize: [{ inlineSize: box.rect.width, blockSize: box.rect.height }],
+      contentBoxSize: [{ inlineSize: box.width, blockSize: box.height }],
+      devicePixelContentBoxSize: [{ inlineSize: Math.round(box.width * dpr), blockSize: Math.round(box.height * dpr) }],
+    };
+  };
+
+  const rootRectOf = (root) => {
+    if (root && typeof root.getBoundingClientRect === 'function') {
+      return root.getBoundingClientRect();
+    }
+    return rectOf(0, 0, window.innerWidth, window.innerHeight);
+  };
+
+  const intersectionOf = (target, root) => {
+    const bounds = target.getBoundingClientRect();
+    const rootBounds = rootRectOf(root);
+    const left = Math.max(bounds.left, rootBounds.left);
+    const top = Math.max(bounds.top, rootBounds.top);
+    const right = Math.min(bounds.right, rootBounds.right);
+    const bottom = Math.min(bounds.bottom, rootBounds.bottom);
+    const intersects = right >= left && bottom >= top;
+    const width = intersects ? right - left : 0;
+    const height = intersects ? bottom - top : 0;
+    const area = bounds.width * bounds.height;
+    const ratio = !intersects ? 0 : area === 0 ? 1 : (width * height) / area;
+    return {
+      target,
+      isIntersecting: intersects,
+      intersectionRatio: ratio,
+      boundingClientRect: bounds,
+      intersectionRect: rectOf(intersects ? left : 0, intersects ? top : 0, width, height),
+      rootBounds,
+      time: performance.now(),
+    };
+  };
+
+  const intersectionKey = (entry, thresholds) => {
+    let crossed = -1;
+    for (let index = 0; index < thresholds.length; index += 1) {
+      if (entry.intersectionRatio >= thresholds[index]) { crossed = index; }
+    }
+    return `${entry.isIntersecting}:${crossed}`;
+  };
+
+  const pollObservers = () => {
+    if (!shimming()) { return; }
+    for (const observer of shimObservers) {
+      const entries = [];
+      for (const [target, last] of observer.targets) {
+        if (!target.isConnected) { continue; }
+        const entry = observer.kind === 'resize' ? sizeEntry(target) : intersectionOf(target, observer.root);
+        const key = observer.kind === 'resize' ? boxKey(target) : intersectionKey(entry, observer.thresholds);
+        if (key !== last) {
+          observer.targets.set(target, key);
+          entries.push(entry);
+        }
+      }
+      if (entries.length > 0) {
+        try { observer.callback(entries, observer.facade); } catch (error) { setTimeout(() => { throw error; }); }
+      }
+    }
+  };
+
+  const syncObserverTimer = () => {
+    const wanted = shimming() && shimObservers.size > 0;
+    if (wanted && observerTimer === null) {
+      observerTimer = setInterval(pollObservers, OBSERVER_POLL_INTERVAL_MS);
+    } else if (!wanted && observerTimer !== null) {
+      clearInterval(observerTimer);
+      observerTimer = null;
+    }
+  };
+
+  // Each facade holds a native observer that does the real work whenever
+  // the engine delivers, and records what it delivered so the timer only
+  // ever adds what the engine withheld.
+  const wrapObserver = (kind, Native) => {
+    if (typeof Native !== 'function') { return; }
+    const facades = new WeakMap();
+    class Facade {
+      constructor(callback, options) {
+        const record = { kind, callback, facade: this, targets: new Map(), root: null, thresholds: [0] };
+        if (kind === 'intersection') {
+          record.root = options && options.root ? options.root : null;
+          const raw = options && options.threshold !== undefined ? options.threshold : [0];
+          record.thresholds = (Array.isArray(raw) ? raw : [raw]).map(Number).sort((a, b) => a - b);
+        }
+        record.native = new Native((entries) => {
+          for (const entry of entries) {
+            if (record.targets.has(entry.target)) {
+              record.targets.set(entry.target, kind === 'resize' ? boxKey(entry.target) : intersectionKey(entry, record.thresholds));
+            }
+          }
+          callback(entries, this);
+        }, options);
+        facades.set(this, record);
+        shimObservers.add(record);
+        syncObserverTimer();
+      }
+      observe(target, options) {
+        const record = facades.get(this);
+        record.native.observe(target, options);
+        if (!record.targets.has(target)) { record.targets.set(target, null); }
+        syncObserverTimer();
+      }
+      unobserve(target) {
+        const record = facades.get(this);
+        record.native.unobserve(target);
+        record.targets.delete(target);
+      }
+      disconnect() {
+        const record = facades.get(this);
+        record.native.disconnect();
+        record.targets.clear();
+        shimObservers.delete(record);
+        syncObserverTimer();
+      }
+      takeRecords() { return facades.get(this).native.takeRecords(); }
+      get root() { return facades.get(this).native.root; }
+      get rootMargin() { return facades.get(this).native.rootMargin; }
+      get thresholds() { return facades.get(this).native.thresholds; }
+    }
+    Object.defineProperty(Facade, 'name', { value: Native.name });
+    return Facade;
+  };
+
+  const ShimResizeObserver = wrapObserver('resize', window.ResizeObserver);
+  if (ShimResizeObserver) { window.ResizeObserver = ShimResizeObserver; }
+  const ShimIntersectionObserver = wrapObserver('intersection', window.IntersectionObserver);
+  if (ShimIntersectionObserver) { window.IntersectionObserver = ShimIntersectionObserver; }
+
   window.__idleManager = {
     setAwake: (on) => {
       const next = Boolean(on);
@@ -163,6 +341,7 @@
       if (shimming()) {
         takeOverPendingNative();
       }
+      syncObserverTimer();
       if (changed && reallyHidden()) {
         replayVisibilityChange();
       }

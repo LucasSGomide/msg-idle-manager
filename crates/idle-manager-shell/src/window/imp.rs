@@ -145,6 +145,10 @@ pub struct Window {
     /// A capture asked for and not yet answered: the timer skips its tick
     /// rather than queueing a second snapshot behind a slow one.
     capture_in_flight: Cell<bool>,
+    /// When the capture in flight was asked for, so a snapshot the engine
+    /// never answers — the phone's picture would silently stop — is named in
+    /// the log and asked for again after [`CAPTURE_STALL_SECS`].
+    capture_asked_at: Cell<Option<std::time::Instant>>,
     /// The reason the last capture failed, so a persisting failure is logged
     /// once and not twelve times a second.
     capture_failure: RefCell<Option<String>>,
@@ -464,17 +468,30 @@ impl Window {
         tracing::info!("the phone stopped watching");
     }
 
+    /// The account a phone is looking at right now: the current one while a
+    /// phone is attached, none otherwise. [`Window::sync_watched`] tells
+    /// that view; [`Window::start_session`] builds a view for it armed from
+    /// the start.
+    fn watched_account(&self) -> Option<SessionId> {
+        if self.phone_attached.get() {
+            current_account(&self.book.borrow()).map(|(id, _)| id)
+        } else {
+            None
+        }
+    }
+
+    /// Whether a phone is looking at `id` right now.
+    fn phone_watches(&self, id: &SessionId) -> bool {
+        self.watched_account().as_ref() == Some(id)
+    }
+
     /// Makes the current account's view the one watched view while the phone
     /// is attached, and no view watched otherwise: whichever view was told
     /// before and is not wanted now is un-told first (`FR.4.3`). Records
     /// only a view that exists, so an account parked at the time is told
     /// when its view is next built ([`Window::finish_starting`]).
     fn sync_watched(&self) {
-        let wanted = if self.phone_attached.get() {
-            current_account(&self.book.borrow()).map(|(id, _)| id)
-        } else {
-            None
-        };
+        let wanted = self.watched_account();
         let previous = self.watched.borrow().clone();
         if previous == wanted {
             return;
@@ -566,6 +583,20 @@ impl Window {
             let book = self.book.borrow();
             (book.is_mobile_mode(), current_account(&book))
         };
+        if self.capture_in_flight.get()
+            && let Some(asked) = self.capture_asked_at.get()
+            && asked.elapsed() >= Duration::from_secs(CAPTURE_STALL_SECS)
+        {
+            // The engine owes an answer it may never give — a web process
+            // that stopped, or a page the compositor no longer drives. The
+            // stall is named once and a new capture asked for; an answer
+            // that arrives late still publishes, just out of order.
+            tracing::warn!(
+                stalled_secs = asked.elapsed().as_secs(),
+                "a frame capture has not answered; asking again"
+            );
+            self.capture_in_flight.set(false);
+        }
         if !capture_gate(
             self.phone_attached.get(),
             mobile_mode,
@@ -583,6 +614,7 @@ impl Window {
         };
 
         self.capture_in_flight.set(true);
+        self.capture_asked_at.set(Some(std::time::Instant::now()));
         let window = self.obj().downgrade();
         holder.capture_frame(move |outcome| {
             if let Some(window) = window.upgrade() {
@@ -596,6 +628,7 @@ impl Window {
     /// logged once per distinct reason, and the next tick tries again.
     fn finish_capture(&self, outcome: Result<CapturedFrame, EngineCaptureError>) {
         self.capture_in_flight.set(false);
+        self.capture_asked_at.set(None);
         match outcome {
             Ok(captured) => {
                 let frame = frame_for_phone(captured);
@@ -1676,7 +1709,9 @@ impl Window {
                 tracing::error!(session = %id, "no holder to start");
                 return None;
             };
-            holder.start(self.minimised.get()).clone()
+            holder
+                .start(self.minimised.get(), self.phone_watches(id))
+                .clone()
         };
 
         self.grid.attach_view(id, &view);
@@ -2104,6 +2139,11 @@ fn capture_gate(
 /// How often the current view is photographed for the phone, in
 /// milliseconds: about twelve pictures a second (code standards rule 5).
 const FRAME_INTERVAL_MILLIS: u64 = 80;
+
+/// How long a capture may go unanswered before it is called stalled, logged
+/// and asked for again: many times the frame interval, so a slow snapshot on
+/// a busy page is never mistaken for a dead one.
+const CAPTURE_STALL_SECS: u64 = 5;
 
 /// The mapping from a frame's pixel grid to the page's CSS pixels. The phone
 /// measures its taps on the picture it was sent, whose width is the engine's

@@ -426,6 +426,13 @@ impl EngineView {
     /// — kept so both engines take `watched_background`'s one decision.
     pub(crate) fn set_watched(&self, on: bool, keep_awake: bool, minimised: bool) {
         apply_keep_awake(&self.view, on || keep_awake, &self.id);
+        // The document-start set follows too, without a reload: a page the
+        // watched account navigates or reloads on its own must come up armed
+        // from its first script, since a game that reads `document.hidden`
+        // at boot settles into its paused state before any runtime arming
+        // reaches it (measured 2026-09-20, item 13 task 08: `hidden0=true`
+        // on a page loaded while minimised).
+        rebuild_script_set(&self.view, on || keep_awake);
         self.set_background(watched_background(on, keep_awake, minimised));
         self.run_script(&script_set::watched_script(on, keep_awake));
         tracing::debug!(session = %self.id, watched = on, keep_awake, "view watched state set");
