@@ -19,11 +19,11 @@ window. 08 runs alone last.
 
 | # | Task | Scope | Depends on | Criteria | Status |
 |---|---|---|---|---|---|
-| [01](01-remote-vocabulary-ports-and-phone-record.md) | The remote vocabulary, its two ports, and the phone record on disk | back-end | — | 8/9 | in-progress |
-| [02](02-capture-script-and-wake-on-the-engine-seam.md) | Capturing a frame, running a script and waking a view on both engines | front-end | — | 5/9 | in-progress |
-| [03](03-the-mobile-layout-on-the-desktop.md) | The Mobile layout on the desktop | full-stack | 01 | 6/10 | in-progress |
-| [04](04-the-remote-server.md) | The remote server: enrolment, the socket and its proof | back-end | 01 | 9/10 | in-progress |
-| [05](05-the-phone-page.md) | The phone page | front-end | 04 | 0/10 | not-started |
-| [06](06-wiring-the-phone-into-the-window.md) | Wiring the phone into the window | full-stack | 02, 03, 04 | 0/9 | not-started |
+| [01](01-remote-vocabulary-ports-and-phone-record.md) | The remote vocabulary, its two ports, and the phone record on disk | back-end | — | 9/9 | done |
+| [02](02-capture-script-and-wake-on-the-engine-seam.md) | Capturing a frame, running a script and waking a view on both engines | front-end | — | 6/9 | in-progress |
+| [03](03-the-mobile-layout-on-the-desktop.md) | The Mobile layout on the desktop | full-stack | 01 | 7/10 | in-progress |
+| [04](04-the-remote-server.md) | The remote server: enrolment, the socket and its proof | back-end | 01 | 10/10 | done |
+| [05](05-the-phone-page.md) | The phone page | front-end | 04 | 3/10 | in-progress |
+| [06](06-wiring-the-phone-into-the-window.md) | Wiring the phone into the window | full-stack | 02, 03, 04 | 9/9 | done |
 | [07](07-the-phone-dialog-and-header-menu.md) | The phone dialog and the header menu | front-end | 06 | 0/8 | not-started |
 | [08](08-windows-verification-and-measurements.md) | Windows verification, the measurements and the docs | full-stack | 05, 07 | 0/6 | not-started |

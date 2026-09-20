@@ -112,7 +112,7 @@ return. The phone later drives the same switch through the same code.
 - [x] `(unit)` the store maps `Layout::Mobile` to the `single` record spelling
       and the snapshot of a saved file written during mobile mode is
       unchanged from the pre-mobile one
-- [ ] `(integration)` `make verify` passes
+- [x] `(integration)` `make verify` passes
 - [ ] `(manual)` pressing `Phone` shows one 412 × 915 outlined slot with the
       focused game inside and no grip, and with the window at its default
       800 px height the slot is clipped at the bottom, not scaled

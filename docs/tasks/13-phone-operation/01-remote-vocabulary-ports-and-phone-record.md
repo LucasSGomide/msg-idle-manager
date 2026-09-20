@@ -126,7 +126,7 @@ types exist.
 - [x] `(integration)` `make arch-check` passes with the new rules and fails
       when a test edit makes `idle-manager-remote` depend on
       `idle-manager-shell`
-- [ ] `(integration)` `make verify` passes
+- [x] `(integration)` `make verify` passes
 
 ## References
 

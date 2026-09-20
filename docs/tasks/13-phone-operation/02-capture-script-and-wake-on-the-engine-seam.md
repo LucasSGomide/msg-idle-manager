@@ -101,7 +101,7 @@ wait, and look at the pictures on each system.
       (`cfg(any(windows, test))` for the Windows half)
 - [x] `(unit)` `background_for` and the `set_watched(false, ..)` restore path
       agree: watched-off with keep-awake off and minimised yields background
-- [ ] `(integration)` `make verify` and `make windows-check` pass
+- [x] `(integration)` `make verify` and `make windows-check` pass
 - [x] `(integration)` `make windows-check` passes with the workspace
       `unsafe_code` lint still denied, so the `CapturePreview` and `IStream`
       calls compile only inside `web_engine/webview2/ffi.rs`'s scoped allow,

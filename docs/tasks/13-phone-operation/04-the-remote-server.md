@@ -128,7 +128,7 @@ beside the desktop's mobile layout work.
 - [x] `(integration)` 15 s without `ping` (clock driven by the test) yields
       one `Leave`; `revoke_phone()` sends `bye {reason: revoked}`, closes the
       socket, yields `Leave`, and a following `phone_status()` is `NotEnrolled`
-- [ ] `(integration)` `make verify` and `make windows-check` pass
+- [x] `(integration)` `make verify` and `make windows-check` pass
 
 ## References
 
