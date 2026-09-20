@@ -13,3 +13,4 @@ item's header carries `Landed:` or `Merged:`. Items 01–07 and 09–12 are `don
 | # | Roadmap item | Tasks | Progress | Status |
 |---|---|---|---|---|
 | [13](13-phone-operation/) | Operating an account from a phone | 8 | 3/8 | in-progress |
+| [14](14-keyboard-navigation/) | Keyboard navigation and paged workspaces | 8 | 0/8 | in-progress |

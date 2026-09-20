@@ -12,6 +12,12 @@
         <attribute name="action">win.revoke-phone</attribute>
       </item>
     </section>
+    <section>
+      <item>
+        <attribute name="label">Keyboard Shortcuts</attribute>
+        <attribute name="action">win.show-help-overlay</attribute>
+      </item>
+    </section>
   </menu>
   <template class="IdleManagerWindow" parent="GtkApplicationWindow">
     <property name="title">Idle Manager</property>
@@ -41,7 +47,7 @@
         <child type="end">
           <object class="GtkMenuButton" id="phone_menu">
             <property name="icon-name">open-menu-symbolic</property>
-            <property name="tooltip-text">Enrol or un-enrol a phone</property>
+            <property name="tooltip-text">Menu</property>
             <property name="menu-model">phone_menu_model</property>
           </object>
         </child>

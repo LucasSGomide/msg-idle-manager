@@ -224,6 +224,19 @@ mod tests {
     }
 
     #[test]
+    fn the_help_overlay_is_readable_from_the_registered_bundle() {
+        register_resources().expect("register the compiled bundle");
+
+        let data = gio::resources_lookup_data(
+            "/org/idlemanager/IdleManager/gtk/help-overlay.ui",
+            gio::ResourceLookupFlags::NONE,
+        )
+        .expect("look up the help overlay by its resource path");
+
+        assert!(!data.is_empty());
+    }
+
+    #[test]
     fn the_session_grid_stylesheet_is_readable_from_the_registered_bundle() {
         register_resources().expect("register the compiled bundle");
 

@@ -27,7 +27,9 @@ citations, so append rather than reorder.
 
 4. **Name a `.ui` template after the widget it defines** — `session-grid.ui`
    beside `session_grid.rs`. The two spellings are the same name in the two
-   casings their tools require, and grep finds both from either.
+   casings their tools require, and grep finds both from either. The one
+   exception is `help-overlay.ui`, which GTK looks up by this fixed name to
+   find the window's `GtkShortcutsWindow`.
 
 ## Crates and modules
 
