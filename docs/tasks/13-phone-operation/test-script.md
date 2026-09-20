@@ -67,6 +67,16 @@
 - [x] With `phone.toml` absent and no `100.x.y.z` address on any interface → `WARN idle_manager: the phone server is not listening kind=NoMeshAddress error=no address in 100.64.0.0/10 to listen on; is the mesh network up?`, then `activated; presenting the main window`; the app runs on
 - [x] `kill %1; rm -rf $T`
 
+## 07 — The phone dialog and the header menu
+
+- [x] `cargo nextest run -p idle-manager-shell phone_dialog` → `12 tests run: 12 passed`; `the_status_line_names_each_of_the_four_states`, `only_the_not_listening_line_is_dimmed`, `the_countdown_reads_minutes_and_two_digit_seconds` and `the_phone_dialog_template_is_readable_from_the_registered_bundle` are among them
+- [x] Throwaway `$T/config/idle-manager/` with `presets/` copied in and `phone.toml` holding `[listen]` / `address = "127.0.0.1:7466"`; `Xvfb :99 -screen 0 1280x800x24 -fbdir $T &`, then `DISPLAY=:99 GDK_BACKEND=x11 GSK_RENDERER=cairo GTK_A11Y=atspi XDG_CONFIG_HOME=$T/config XDG_DATA_HOME=$T/data XDG_CACHE_HOME=$T/cache dbus-run-session -- bash -c 'target/debug/idle-manager & …'` → the header bar reads `[1][2][4][Phone] ☰ ▤ [Add game]`, the ☰ right of the layout toggles; `gdbus call --session --dest org.idlemanager.IdleManager --object-path /org/idlemanager/IdleManager/window/1 --method org.gtk.Actions.DescribeAll` inside that session → `'revoke-phone': (false, …), 'enrol-phone': (true, …)`
+- [x] `… --method org.gtk.Actions.Activate "enrol-phone" "[]" "{}"` → a `Phone` window opens reading `No phone enrolled`, `Enrol…` sensitive, `Un-enrol` insensitive, no code block
+- [x] Press `Enrol…` (XTEST click at the button; no window manager runs on `:99`, so the dialog sits at 0,0) → a black-on-white QR code with a light border at its native size, the address `http://127.0.0.1:7466/enrol/<64 hex>` as selectable text beneath it, `Valid for 9:58` two seconds after the press, `Enrol…` insensitive; the AT-SPI tree (`Atspi.get_desktop(0)`, python3-gi) lists the address label's text
+- [x] `curl -s -o /dev/null -w "%{http_code}" <that address>` → `200`; within 2 s the dialog reads `Phone enrolled`, the code block is gone, `Un-enrol` is red and sensitive, and `DescribeAll` → `'revoke-phone': (true, …)`; the app log shows `a phone was enrolled device_id=<32 hex>`
+- [x] `… Activate "revoke-phone" "[]" "{}"` with the dialog still open → the log shows `the phone was revoked`; within 2 s the dialog reads `No phone enrolled`, `Un-enrol` insensitive, and `DescribeAll` → `'revoke-phone': (false, …)`
+- [x] Same launch with `phone.toml` holding `address = "nowhere"` → the dialog reads `Not listening: the listen override "nowhere" is not an address` in dim text, `Enrol…` and `Un-enrol` both insensitive, the main window unchanged; `grep -c Gtk-CRITICAL $T/app.log` → `0` in every run above
+
 ## Teardown
 
 - [ ] `rm -rf /tmp/frames-13` and remove any `[listen]` override added to `~/.config/idle-manager/phone.toml` for testing

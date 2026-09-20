@@ -88,13 +88,13 @@ has connected the server to the window.
 
 ## Acceptance criteria
 
-- [ ] `(unit)` the status mapping yields the four lines above from the four
+- [x] `(unit)` the status mapping yields the four lines above from the four
       `PhoneStatus` values, with the dim class only for `NotListening`
-- [ ] `(unit)` the countdown formats 600 s as `Valid for 10:00` and 59 s as
+- [x] `(unit)` the countdown formats 600 s as `Valid for 10:00` and 59 s as
       `Valid for 0:59`
-- [ ] `(unit)` the `phone-dialog.ui` template is readable from the registered
+- [x] `(unit)` the `phone-dialog.ui` template is readable from the registered
       bundle (the existing template test pattern in `lib.rs`)
-- [ ] `(integration)` `make verify` passes
+- [x] `(integration)` `make verify` passes
 - [ ] `(manual)` `Enrol a phone…` shows a scannable QR code and the same
       address as text; scanning it on the phone flips the line to
       `Phone enrolled` within a second and the code disappears

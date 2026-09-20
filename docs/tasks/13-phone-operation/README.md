@@ -25,5 +25,5 @@ window. 08 runs alone last.
 | [04](04-the-remote-server.md) | The remote server: enrolment, the socket and its proof | back-end | 01 | 10/10 | done |
 | [05](05-the-phone-page.md) | The phone page | front-end | 04 | 3/10 | in-progress |
 | [06](06-wiring-the-phone-into-the-window.md) | Wiring the phone into the window | full-stack | 02, 03, 04 | 9/9 | done |
-| [07](07-the-phone-dialog-and-header-menu.md) | The phone dialog and the header menu | front-end | 06 | 0/8 | not-started |
+| [07](07-the-phone-dialog-and-header-menu.md) | The phone dialog and the header menu | front-end | 06 | 4/8 | in-progress |
 | [08](08-windows-verification-and-measurements.md) | Windows verification, the measurements and the docs | full-stack | 05, 07 | 0/6 | not-started |
