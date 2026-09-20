@@ -126,10 +126,10 @@ already built, and because nothing in it can be tried until the server exists.
 
 ## Acceptance criteria
 
-- [ ] `(unit)` the page served by `GET /` contains no secret and the page
+- [x] `(unit)` the page served by `GET /` contains no secret and the page
       served by `GET /enrol/{code}` contains both meta tags with the minted
       values
-- [ ] `(unit)` the inline SHA-256 produces
+- [x] `(unit)` the inline SHA-256 produces
       `ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad` for
       `abc` and the HMAC produces RFC 4231 test case 2's value (checked by
       running the extracted function under `node` in the test, skipped when
@@ -137,7 +137,7 @@ already built, and because nothing in it can be tried until the server exists.
 - [ ] `(manual)` on an Android phone, opening the enrolment address shows the
       toggle screen, and "Add to Home Screen" then opens the page standalone
 - [ ] `(manual)` on an iPhone, the same two steps hold
-- [ ] `(unit)` the tap/scroll classifier and the coordinate mapping, run
+- [x] `(unit)` the tap/scroll classifier and the coordinate mapping, run
       under `node` like the hash test: a press released within 300 ms and
       10 px yields `tap` at the canvas point divided by the draw scale, and a
       longer move yields `scroll` with the moved deltas

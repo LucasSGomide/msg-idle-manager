@@ -4,24 +4,1154 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="theme-color" content="#1e1e1e">
   <meta name="idle-manager-device-id" content="{{idle-manager-device-id}}">
   <meta name="idle-manager-secret" content="{{idle-manager-secret}}">
   <title>Idle Manager</title>
   <style>
-    html, body { margin: 0; height: 100%; background: #111; color: #eee; font-family: sans-serif; }
-    main { display: flex; align-items: center; justify-content: center; height: 100%; }
+    :root {
+      --bg: #1e1e1e;
+      --fg: #ffffff;
+      --dim: rgba(255, 255, 255, 0.55);
+      --line: rgba(255, 255, 255, 0.12);
+      --raised: #2b2b2b;
+      --accent: #3584e4;
+      --safe-top: env(safe-area-inset-top, 0px);
+      --safe-left: env(safe-area-inset-left, 0px);
+      --safe-bottom: env(safe-area-inset-bottom, 0px);
+    }
+    * { box-sizing: border-box; }
+    html, body {
+      margin: 0;
+      width: 100%;
+      height: 100%;
+      overflow: hidden;
+      background: var(--bg);
+      color: var(--fg);
+      font: 16px/1.4 -apple-system, "Segoe UI", Roboto, Cantarell, sans-serif;
+      -webkit-text-size-adjust: 100%;
+      -webkit-tap-highlight-color: transparent;
+      -webkit-user-select: none;
+      user-select: none;
+      overscroll-behavior: none;
+    }
+    [hidden] { display: none !important; }
+    .screen {
+      position: fixed;
+      inset: 0;
+      background: var(--bg);
+    }
+    .stack {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 20px;
+      height: 100%;
+      padding: 24px;
+      text-align: center;
+    }
+    .dim { color: var(--dim); }
+    .word { font-size: 15px; }
+    .name { font-size: 20px; }
+    .switch-label { font-size: 20px; }
+    .switch {
+      position: relative;
+      width: 96px;
+      height: 52px;
+      padding: 0;
+      border: 0;
+      border-radius: 26px;
+      background: #5e5e5e;
+      transition: background 150ms;
+      cursor: pointer;
+    }
+    .switch::after {
+      content: "";
+      position: absolute;
+      top: 4px;
+      left: 4px;
+      width: 44px;
+      height: 44px;
+      border-radius: 22px;
+      background: var(--fg);
+      transition: transform 150ms;
+    }
+    .switch[aria-checked="true"] { background: var(--accent); }
+    .switch[aria-checked="true"]::after { transform: translateX(44px); }
+    .switch:disabled { opacity: 0.4; cursor: default; }
+    .switch.small { width: 60px; height: 32px; border-radius: 16px; }
+    .switch.small::after { width: 26px; height: 26px; top: 3px; left: 3px; }
+    .switch.small[aria-checked="true"]::after { transform: translateX(28px); }
+    .button {
+      min-width: 120px;
+      padding: 12px 24px;
+      border: 0;
+      border-radius: 8px;
+      background: var(--raised);
+      color: var(--fg);
+      font: inherit;
+      font-size: 17px;
+      cursor: pointer;
+    }
+    .button:active { background: #383838; }
+    .button:disabled { opacity: 0.4; cursor: default; }
+
+    #frame {
+      position: absolute;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+      background: #000;
+      touch-action: none;
+      transition: opacity 200ms;
+    }
+    #frame.dimmed { opacity: 0.35; }
+    #reconnecting {
+      position: absolute;
+      inset: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      pointer-events: none;
+      font-size: 18px;
+    }
+    #handle {
+      position: absolute;
+      top: calc(12px + var(--safe-top));
+      left: calc(12px + var(--safe-left));
+      width: 44px;
+      height: 44px;
+      border: 0;
+      border-radius: 22px;
+      background: rgba(30, 30, 30, 0.55);
+      color: var(--fg);
+      font-size: 22px;
+      line-height: 44px;
+      text-align: center;
+      cursor: pointer;
+      -webkit-backdrop-filter: blur(6px);
+      backdrop-filter: blur(6px);
+    }
+    #scrim {
+      position: absolute;
+      inset: 0;
+      background: rgba(0, 0, 0, 0.45);
+      opacity: 0;
+      pointer-events: none;
+      transition: opacity 200ms;
+    }
+    #list {
+      position: absolute;
+      top: 0;
+      bottom: 0;
+      left: 0;
+      width: min(82%, 360px);
+      display: flex;
+      flex-direction: column;
+      background: var(--bg);
+      box-shadow: 4px 0 24px rgba(0, 0, 0, 0.5);
+      transform: translateX(-102%);
+      transition: transform 220ms ease-out;
+      padding-top: var(--safe-top);
+      padding-left: var(--safe-left);
+      padding-bottom: var(--safe-bottom);
+    }
+    #game.list-open #list { transform: translateX(0); }
+    #game.list-open #scrim { opacity: 1; pointer-events: auto; }
+    #workspaces {
+      flex: 1;
+      overflow-y: auto;
+      -webkit-overflow-scrolling: touch;
+      padding: 12px 0;
+    }
+    #workspaces h2 {
+      margin: 12px 16px 4px;
+      font-size: 15px;
+      font-weight: normal;
+      color: var(--dim);
+    }
+    #workspaces .empty {
+      margin: 4px 16px 12px 24px;
+      font-size: 15px;
+    }
+    .row {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 4px 12px 4px 16px;
+    }
+    .row.current { background: rgba(255, 255, 255, 0.08); }
+    .row .pick {
+      flex: 1;
+      min-width: 0;
+      padding: 8px 8px;
+      border: 0;
+      background: none;
+      color: var(--fg);
+      font: inherit;
+      text-align: left;
+      cursor: pointer;
+    }
+    .row .pick .label {
+      display: block;
+      overflow: hidden;
+      white-space: nowrap;
+      text-overflow: ellipsis;
+    }
+    .row.dimmed .pick .label { color: var(--dim); }
+    .row .pick .word { display: block; color: var(--dim); font-size: 13px; }
+    .row .action { min-width: 84px; padding: 8px 12px; font-size: 15px; }
+    #list-foot {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 16px;
+      border-top: 1px solid var(--line);
+    }
   </style>
 </head>
 <body>
-  <main><p id="status">Connecting…</p></main>
+  <section id="toggle" class="screen" hidden>
+    <div class="stack">
+      <span class="switch-label">Mobile mode</span>
+      <button id="toggle-switch" class="switch" type="button" role="switch" aria-checked="false" aria-label="Mobile mode" disabled></button>
+      <p id="toggle-line" class="dim">Connecting…</p>
+    </div>
+  </section>
+
+  <section id="game" class="screen" hidden>
+    <canvas id="frame"></canvas>
+    <div id="absent" class="stack" hidden>
+      <span id="absent-name" class="name"></span>
+      <span id="absent-word" class="word dim"></span>
+      <button id="absent-start" class="button" type="button">Start</button>
+    </div>
+    <div id="empty" class="stack" hidden>
+      <span class="dim">No games in this workspace</span>
+    </div>
+    <div id="reconnecting" hidden><span>Reconnecting…</span></div>
+    <button id="handle" type="button" aria-label="Accounts">≡</button>
+    <div id="scrim"></div>
+    <aside id="list" aria-label="Accounts">
+      <div id="workspaces"></div>
+      <div id="list-foot">
+        <span class="switch-label">Mobile mode</span>
+        <button id="list-switch" class="switch small" type="button" role="switch" aria-checked="true" aria-label="Mobile mode"></button>
+      </div>
+    </aside>
+  </section>
+
+  <section id="refused" class="screen" hidden>
+    <div class="stack">
+      <span class="dim">This phone is no longer enrolled</span>
+    </div>
+  </section>
+
   <script>
+    // BEGIN pure
+    // Everything between the markers is pure: no DOM, no socket, no timers.
+    // It is exposed on window.__phone so a test can lift this block out of the
+    // page and run it under node.
+    (function (exports) {
+      'use strict';
+
+      var TAP_MAX_MILLIS = 300;
+      var TAP_MAX_PX = 10;
+      var FRAME_HEADER_BYTES = 8;
+      var SHA256_K = [
+        0x428a2f98, 0x71374491, 0xb5c0fbcf, 0xe9b5dba5, 0x3956c25b, 0x59f111f1, 0x923f82a4, 0xab1c5ed5,
+        0xd807aa98, 0x12835b01, 0x243185be, 0x550c7dc3, 0x72be5d74, 0x80deb1fe, 0x9bdc06a7, 0xc19bf174,
+        0xe49b69c1, 0xefbe4786, 0x0fc19dc6, 0x240ca1cc, 0x2de92c6f, 0x4a7484aa, 0x5cb0a9dc, 0x76f988da,
+        0x983e5152, 0xa831c66d, 0xb00327c8, 0xbf597fc7, 0xc6e00bf3, 0xd5a79147, 0x06ca6351, 0x14292967,
+        0x27b70a85, 0x2e1b2138, 0x4d2c6dfc, 0x53380d13, 0x650a7354, 0x766a0abb, 0x81c2c92e, 0x92722c85,
+        0xa2bfe8a1, 0xa81a664b, 0xc24b8b70, 0xc76c51a3, 0xd192e819, 0xd6990624, 0xf40e3585, 0x106aa070,
+        0x19a4c116, 0x1e376c08, 0x2748774c, 0x34b0bcb5, 0x391c0cb3, 0x4ed8aa4a, 0x5b9cca4f, 0x682e6ff3,
+        0x748f82ee, 0x78a5636f, 0x84c87814, 0x8cc70208, 0x90befffa, 0xa4506ceb, 0xbef9a3f7, 0xc67178f2
+      ];
+      var SHA256_INIT = [
+        0x6a09e667, 0xbb67ae85, 0x3c6ef372, 0xa54ff53a, 0x510e527f, 0x9b05688c, 0x1f83d9ab, 0x5be0cd19
+      ];
+
+      function rotr(x, n) { return (x >>> n) | (x << (32 - n)); }
+
+      // UTF-8 bytes of a string, without TextEncoder so old WebViews work too.
+      function utf8(text) {
+        var out = [];
+        for (var i = 0; i < text.length; i++) {
+          var code = text.charCodeAt(i);
+          if (code >= 0xd800 && code <= 0xdbff && i + 1 < text.length) {
+            var low = text.charCodeAt(i + 1);
+            if (low >= 0xdc00 && low <= 0xdfff) {
+              code = 0x10000 + ((code - 0xd800) << 10) + (low - 0xdc00);
+              i++;
+            }
+          }
+          if (code < 0x80) {
+            out.push(code);
+          } else if (code < 0x800) {
+            out.push(0xc0 | (code >> 6), 0x80 | (code & 0x3f));
+          } else if (code < 0x10000) {
+            out.push(0xe0 | (code >> 12), 0x80 | ((code >> 6) & 0x3f), 0x80 | (code & 0x3f));
+          } else {
+            out.push(0xf0 | (code >> 18), 0x80 | ((code >> 12) & 0x3f), 0x80 | ((code >> 6) & 0x3f), 0x80 | (code & 0x3f));
+          }
+        }
+        return new Uint8Array(out);
+      }
+
+      function bytesToHex(bytes) {
+        var digits = '0123456789abcdef';
+        var out = '';
+        for (var i = 0; i < bytes.length; i++) {
+          out += digits[bytes[i] >> 4] + digits[bytes[i] & 0x0f];
+        }
+        return out;
+      }
+
+      // null on an odd length or a non-hex digit, so a damaged secret is
+      // refused rather than hashed as garbage.
+      function hexToBytes(hex) {
+        if (typeof hex !== 'string' || hex.length % 2 !== 0 || /[^0-9a-fA-F]/.test(hex)) {
+          return null;
+        }
+        var out = new Uint8Array(hex.length / 2);
+        for (var i = 0; i < out.length; i++) {
+          out[i] = parseInt(hex.substr(i * 2, 2), 16);
+        }
+        return out;
+      }
+
+      function sha256(bytes) {
+        var length = bytes.length;
+        var padded = new Uint8Array((((length + 9) + 63) >> 6) << 6);
+        padded.set(bytes);
+        padded[length] = 0x80;
+        var view = new DataView(padded.buffer);
+        var bits = length * 8;
+        view.setUint32(padded.length - 8, Math.floor(bits / 0x100000000));
+        view.setUint32(padded.length - 4, bits >>> 0);
+        var h = SHA256_INIT.slice();
+        var w = new Uint32Array(64);
+        for (var offset = 0; offset < padded.length; offset += 64) {
+          var i;
+          for (i = 0; i < 16; i++) { w[i] = view.getUint32(offset + i * 4); }
+          for (i = 16; i < 64; i++) {
+            var s0 = rotr(w[i - 15], 7) ^ rotr(w[i - 15], 18) ^ (w[i - 15] >>> 3);
+            var s1 = rotr(w[i - 2], 17) ^ rotr(w[i - 2], 19) ^ (w[i - 2] >>> 10);
+            w[i] = (w[i - 16] + s0 + w[i - 7] + s1) >>> 0;
+          }
+          var a = h[0], b = h[1], c = h[2], d = h[3], e = h[4], f = h[5], g = h[6], hh = h[7];
+          for (i = 0; i < 64; i++) {
+            var S1 = rotr(e, 6) ^ rotr(e, 11) ^ rotr(e, 25);
+            var ch = (e & f) ^ (~e & g);
+            var t1 = (hh + S1 + ch + SHA256_K[i] + w[i]) >>> 0;
+            var S0 = rotr(a, 2) ^ rotr(a, 13) ^ rotr(a, 22);
+            var maj = (a & b) ^ (a & c) ^ (b & c);
+            var t2 = (S0 + maj) >>> 0;
+            hh = g; g = f; f = e; e = (d + t1) >>> 0;
+            d = c; c = b; b = a; a = (t1 + t2) >>> 0;
+          }
+          h[0] = (h[0] + a) >>> 0; h[1] = (h[1] + b) >>> 0; h[2] = (h[2] + c) >>> 0; h[3] = (h[3] + d) >>> 0;
+          h[4] = (h[4] + e) >>> 0; h[5] = (h[5] + f) >>> 0; h[6] = (h[6] + g) >>> 0; h[7] = (h[7] + hh) >>> 0;
+        }
+        var out = new Uint8Array(32);
+        var outView = new DataView(out.buffer);
+        for (var j = 0; j < 8; j++) { outView.setUint32(j * 4, h[j]); }
+        return out;
+      }
+
+      function hmacSha256(key, message) {
+        var block = 64;
+        if (key.length > block) { key = sha256(key); }
+        var inner = new Uint8Array(block + message.length);
+        var outer = new Uint8Array(block + 32);
+        for (var i = 0; i < block; i++) {
+          var k = i < key.length ? key[i] : 0;
+          inner[i] = k ^ 0x36;
+          outer[i] = k ^ 0x5c;
+        }
+        inner.set(message, block);
+        outer.set(sha256(inner), block);
+        return sha256(outer);
+      }
+
+      // The hex proof one side sends: HMAC(secret, prefix + challenge).
+      function proof(secretHex, prefix, challenge) {
+        var secret = hexToBytes(secretHex);
+        if (secret === null) { return null; }
+        return bytesToHex(hmacSha256(secret, utf8(prefix + challenge)));
+      }
+
+      // Hex of `count` random bytes, from the system when the page has it.
+      function randomHex(count, getRandomValues) {
+        var bytes = new Uint8Array(count);
+        if (typeof getRandomValues === 'function') {
+          getRandomValues(bytes);
+        } else {
+          for (var i = 0; i < count; i++) { bytes[i] = Math.floor(Math.random() * 256); }
+        }
+        return bytesToHex(bytes);
+      }
+
+      // A text message from the server as an object with a string `type`, or
+      // null for anything else.
+      function parseMessage(text) {
+        var message;
+        try { message = JSON.parse(text); } catch (error) { return null; }
+        if (message === null || typeof message !== 'object' || typeof message.type !== 'string') {
+          return null;
+        }
+        return message;
+      }
+
+      // The two big-endian u32s before the JPEG, or null on a short message.
+      function parseFrameHeader(buffer) {
+        if (buffer.byteLength < FRAME_HEADER_BYTES) { return null; }
+        var view = new DataView(buffer);
+        var width = view.getUint32(0);
+        var height = view.getUint32(4);
+        if (width === 0 || height === 0) { return null; }
+        return { width: width, height: height, jpegOffset: FRAME_HEADER_BYTES };
+      }
+
+      // Where a frame lands on the canvas: scaled to fit with its aspect kept
+      // and centred, so the rest of the canvas is black bars.
+      function fitFrame(frameWidth, frameHeight, canvasWidth, canvasHeight) {
+        var scale = Math.min(canvasWidth / frameWidth, canvasHeight / frameHeight);
+        var width = frameWidth * scale;
+        var height = frameHeight * scale;
+        return {
+          scale: scale,
+          offsetX: (canvasWidth - width) / 2,
+          offsetY: (canvasHeight - height) / 2,
+          width: width,
+          height: height,
+          frameWidth: frameWidth,
+          frameHeight: frameHeight
+        };
+      }
+
+      // A canvas point back into the frame's own pixels, clamped to the frame.
+      function toViewport(point, fit) {
+        var x = (point.x - fit.offsetX) / fit.scale;
+        var y = (point.y - fit.offsetY) / fit.scale;
+        return {
+          x: Math.min(fit.frameWidth - 1, Math.max(0, Math.round(x))),
+          y: Math.min(fit.frameHeight - 1, Math.max(0, Math.round(y)))
+        };
+      }
+
+      // A finger's movement in canvas pixels, in frame pixels.
+      function toViewportDelta(dx, dy, fit) {
+        return { dx: Math.round(dx / fit.scale), dy: Math.round(dy / fit.scale) };
+      }
+
+      // One press from the finger going down. Points are canvas pixels, times
+      // are milliseconds on any one clock.
+      function beginPress(x, y, time) {
+        return { startX: x, startY: y, startTime: time, lastX: x, lastY: y, scrolling: false };
+      }
+
+      function distance(press, x, y) {
+        return Math.hypot(x - press.startX, y - press.startY);
+      }
+
+      // The press after the finger moved: the same press, plus the movement
+      // to send as a scroll once the press has stopped being a possible tap.
+      function movePress(press, x, y, time) {
+        var scrolling = press.scrolling
+          || time - press.startTime > TAP_MAX_MILLIS
+          || distance(press, x, y) > TAP_MAX_PX;
+        var next = {
+          startX: press.startX, startY: press.startY, startTime: press.startTime,
+          lastX: x, lastY: y, scrolling: scrolling
+        };
+        if (!scrolling) { return { press: next, scroll: null }; }
+        var dx = x - press.lastX;
+        var dy = y - press.lastY;
+        if (dx === 0 && dy === 0) { return { press: next, scroll: null }; }
+        return { press: next, scroll: { dx: dx, dy: dy } };
+      }
+
+      // What the finger lifting means: 'tap' for a short still press, 'scroll'
+      // for a press that moved, null for a long still press.
+      function endPress(press, x, y, time) {
+        if (press.scrolling) { return 'scroll'; }
+        if (time - press.startTime <= TAP_MAX_MILLIS && distance(press, x, y) <= TAP_MAX_PX) {
+          return 'tap';
+        }
+        return distance(press, x, y) > TAP_MAX_PX ? 'scroll' : null;
+      }
+
+      // The workspace the game screen shows: the one holding `current`, else
+      // the first, else null.
+      function shownWorkspace(state) {
+        var workspaces = (state && state.workspaces) || [];
+        for (var i = 0; i < workspaces.length; i++) {
+          var accounts = workspaces[i].accounts || [];
+          for (var j = 0; j < accounts.length; j++) {
+            if (state.current !== null && accounts[j].id === state.current) { return workspaces[i]; }
+          }
+        }
+        return workspaces.length > 0 ? workspaces[0] : null;
+      }
+
+      function currentAccount(state) {
+        if (!state || state.current === null || state.current === undefined) { return null; }
+        var workspaces = state.workspaces || [];
+        for (var i = 0; i < workspaces.length; i++) {
+          var accounts = workspaces[i].accounts || [];
+          for (var j = 0; j < accounts.length; j++) {
+            if (accounts[j].id === state.current) { return accounts[j]; }
+          }
+        }
+        return null;
+      }
+
+      // The sidebar's state word with its first letter raised, for the panel.
+      function capitalise(word) {
+        return word.length === 0 ? word : word.charAt(0).toUpperCase() + word.slice(1);
+      }
+
+      // The row's one inverting control (design rule 2).
+      function actionFor(liveness) {
+        return {
+          label: liveness === 'live' ? 'Park' : 'Start',
+          sensitive: liveness === 'live' || liveness === 'parked'
+        };
+      }
+
+      exports.TAP_MAX_MILLIS = TAP_MAX_MILLIS;
+      exports.TAP_MAX_PX = TAP_MAX_PX;
+      exports.utf8 = utf8;
+      exports.bytesToHex = bytesToHex;
+      exports.hexToBytes = hexToBytes;
+      exports.sha256 = sha256;
+      exports.hmacSha256 = hmacSha256;
+      exports.proof = proof;
+      exports.randomHex = randomHex;
+      exports.parseMessage = parseMessage;
+      exports.parseFrameHeader = parseFrameHeader;
+      exports.fitFrame = fitFrame;
+      exports.toViewport = toViewport;
+      exports.toViewportDelta = toViewportDelta;
+      exports.beginPress = beginPress;
+      exports.movePress = movePress;
+      exports.endPress = endPress;
+      exports.shownWorkspace = shownWorkspace;
+      exports.currentAccount = currentAccount;
+      exports.capitalise = capitalise;
+      exports.actionFor = actionFor;
+    })(window.__phone = window.__phone || {});
+    // END pure
+
     (function () {
-      var status = document.getElementById('status');
-      var socket = new WebSocket((location.protocol === 'https:' ? 'wss://' : 'ws://') + location.host + '/ws');
-      socket.binaryType = 'arraybuffer';
-      socket.onopen = function () { status.textContent = 'Connected'; };
-      socket.onclose = function () { status.textContent = 'Disconnected'; };
-      socket.onerror = function () { status.textContent = 'Connection failed'; };
+      'use strict';
+
+      var pure = window.__phone;
+
+      // Where the credential lives once the enrolment page has been opened
+      // once: localStorage of this origin, under these two keys. The device id
+      // is the cookie's value and is kept only so a later page can tell which
+      // enrolment it belongs to; the secret keys every proof.
+      var STORAGE_DEVICE_ID = 'idle-manager.device-id';
+      var STORAGE_SECRET = 'idle-manager.secret';
+      var PING_MILLIS = 5000;
+      var RETRY_DELAYS_MILLIS = [1000, 2000, 5000];
+      var CHALLENGE_BYTES = 32;
+      var PHONE_PREFIX = 'phone|';
+      var DESKTOP_PREFIX = 'desktop|';
+      var RESIZE_SETTLE_MILLIS = 250;
+
+      var el = {
+        toggle: document.getElementById('toggle'),
+        toggleSwitch: document.getElementById('toggle-switch'),
+        toggleLine: document.getElementById('toggle-line'),
+        game: document.getElementById('game'),
+        frame: document.getElementById('frame'),
+        absent: document.getElementById('absent'),
+        absentName: document.getElementById('absent-name'),
+        absentWord: document.getElementById('absent-word'),
+        absentStart: document.getElementById('absent-start'),
+        empty: document.getElementById('empty'),
+        reconnecting: document.getElementById('reconnecting'),
+        handle: document.getElementById('handle'),
+        scrim: document.getElementById('scrim'),
+        list: document.getElementById('list'),
+        workspaces: document.getElementById('workspaces'),
+        listSwitch: document.getElementById('list-switch'),
+        refused: document.getElementById('refused')
+      };
+      var context = el.frame.getContext('2d');
+
+      var secretHex = null;
+      var socket = null;
+      // 'connecting' until welcome proves the desktop, 'open' after, 'refused'
+      // for good, 'replaced' until this page is looked at again.
+      var phase = 'connecting';
+      var everWelcomed = false;
+      var authSent = false;
+      var authFailures = 0;
+      var ownChallenge = null;
+      var retryIndex = 0;
+      var retryTimer = null;
+      var pingTimer = null;
+      var resizeTimer = null;
+      var state = null;
+      var attached = false;
+      var attachedViewport = null;
+      var listOpen = false;
+      var frame = null;
+      var fit = null;
+      var decoding = false;
+      var pendingFrame = null;
+      var press = null;
+      var fullscreenAsked = false;
+      var renderedListKey = null;
+
+      function loadCredential() {
+        var metas = {
+          deviceId: document.querySelector('meta[name="idle-manager-device-id"]'),
+          secret: document.querySelector('meta[name="idle-manager-secret"]')
+        };
+        var fresh = {
+          deviceId: metas.deviceId ? metas.deviceId.getAttribute('content') : '',
+          secret: metas.secret ? metas.secret.getAttribute('content') : ''
+        };
+        if (metas.deviceId) { metas.deviceId.parentNode.removeChild(metas.deviceId); }
+        if (metas.secret) { metas.secret.parentNode.removeChild(metas.secret); }
+        var stored = null;
+        try {
+          if (fresh.secret) {
+            window.localStorage.setItem(STORAGE_DEVICE_ID, fresh.deviceId);
+            window.localStorage.setItem(STORAGE_SECRET, fresh.secret);
+          }
+          stored = window.localStorage.getItem(STORAGE_SECRET);
+        } catch (error) {
+          stored = null;
+        }
+        var secret = fresh.secret || stored || '';
+        if (fresh.secret && window.history && typeof window.history.replaceState === 'function'
+            && window.location.pathname.indexOf('/enrol/') === 0) {
+          // The address the phone bookmarks must be `/`, not the one-shot
+          // enrolment code that is already spent.
+          window.history.replaceState(null, '', '/');
+        }
+        return pure.hexToBytes(secret) !== null && secret.length > 0 ? secret : null;
+      }
+
+      function show(screen) {
+        el.toggle.hidden = screen !== 'toggle';
+        el.game.hidden = screen !== 'game';
+        el.refused.hidden = screen !== 'refused';
+      }
+
+      function shouldAttach() {
+        return phase === 'open'
+          && document.visibilityState === 'visible'
+          && state !== null
+          && state.mobileMode === true
+          && state.current !== null && state.current !== undefined;
+      }
+
+      function currentViewport() {
+        return { width: Math.max(1, Math.round(window.innerWidth)), height: Math.max(1, Math.round(window.innerHeight)) };
+      }
+
+      function sameViewport(a, b) {
+        return a !== null && b !== null && a.width === b.width && a.height === b.height;
+      }
+
+      function send(message) {
+        if (socket === null || socket.readyState !== 1) { return false; }
+        socket.send(JSON.stringify(message));
+        return true;
+      }
+
+      function sendIntent(message) {
+        if (phase !== 'open') { return; }
+        send(message);
+      }
+
+      function syncPresence() {
+        var wanted = shouldAttach();
+        var viewport = currentViewport();
+        if (wanted && (!attached || !sameViewport(attachedViewport, viewport))) {
+          if (send({ type: 'attach', viewport: viewport })) {
+            attached = true;
+            attachedViewport = viewport;
+          }
+        } else if (!wanted && attached) {
+          send({ type: 'leave' });
+          attached = false;
+          attachedViewport = null;
+        }
+      }
+
+      function leaveNow() {
+        if (attached) {
+          send({ type: 'leave' });
+          attached = false;
+          attachedViewport = null;
+        }
+      }
+
+      function render() {
+        if (phase === 'refused') {
+          show('refused');
+          return;
+        }
+        if (state === null || state.mobileMode !== true) {
+          renderToggle();
+          return;
+        }
+        renderGame();
+      }
+
+      function renderToggle() {
+        show('toggle');
+        listOpen = false;
+        el.game.classList.remove('list-open');
+        var connected = phase === 'open' && state !== null;
+        el.toggleSwitch.disabled = !connected;
+        el.toggleSwitch.setAttribute('aria-checked', 'false');
+        el.toggleLine.textContent = connected
+          ? 'Turn it on to see a game here'
+          : (everWelcomed ? 'Reconnecting…' : 'Connecting…');
+      }
+
+      function renderGame() {
+        show('game');
+        var connected = phase === 'open';
+        var workspace = pure.shownWorkspace(state);
+        var account = pure.currentAccount(state);
+        var noAccounts = workspace === null || (workspace.accounts || []).length === 0;
+        var absent = account !== null && account.liveness !== 'live';
+        el.empty.hidden = !noAccounts;
+        el.absent.hidden = noAccounts || !absent;
+        el.frame.hidden = noAccounts || absent;
+        if (absent) {
+          el.absentName.textContent = account.name;
+          el.absentWord.textContent = pure.capitalise(account.liveness);
+          el.absentStart.disabled = !connected || !pure.actionFor(account.liveness).sensitive;
+        }
+        el.frame.classList.toggle('dimmed', !connected);
+        el.reconnecting.hidden = connected;
+        el.game.classList.toggle('list-open', listOpen);
+        renderList();
+        drawFrame();
+      }
+
+      // The rows are rebuilt only when what they show changed, so a burst of
+      // state messages cannot replace a button under a finger mid-press.
+      function renderList() {
+        var key = JSON.stringify([phase, state.current, state.workspaces]);
+        if (key === renderedListKey) { return; }
+        renderedListKey = key;
+        var scrollTop = el.workspaces.scrollTop;
+        while (el.workspaces.firstChild) { el.workspaces.removeChild(el.workspaces.firstChild); }
+        var workspaces = state.workspaces || [];
+        for (var i = 0; i < workspaces.length; i++) {
+          var heading = document.createElement('h2');
+          heading.textContent = workspaces[i].name;
+          el.workspaces.appendChild(heading);
+          var accounts = workspaces[i].accounts || [];
+          if (accounts.length === 0) {
+            var empty = document.createElement('p');
+            empty.className = 'empty dim';
+            empty.textContent = 'No accounts';
+            el.workspaces.appendChild(empty);
+          }
+          for (var j = 0; j < accounts.length; j++) {
+            el.workspaces.appendChild(renderRow(accounts[j]));
+          }
+        }
+        el.workspaces.scrollTop = scrollTop;
+        el.listSwitch.setAttribute('aria-checked', 'true');
+        el.listSwitch.disabled = phase !== 'open';
+      }
+
+      function renderRow(account) {
+        var row = document.createElement('div');
+        row.className = 'row';
+        if (account.id === state.current) { row.classList.add('current'); }
+        // Design rule 3: a parked or queued account's name is dimmed.
+        if (account.liveness === 'parked' || account.liveness === 'queued') { row.classList.add('dimmed'); }
+        var pick = document.createElement('button');
+        pick.type = 'button';
+        pick.className = 'pick';
+        var label = document.createElement('span');
+        label.className = 'label';
+        label.textContent = account.name;
+        var word = document.createElement('span');
+        word.className = 'word';
+        word.textContent = account.liveness;
+        pick.appendChild(label);
+        pick.appendChild(word);
+        pick.addEventListener('click', function () {
+          sendIntent({ type: 'choose', account: account.id });
+          setListOpen(false);
+        });
+        var action = pure.actionFor(account.liveness);
+        var button = document.createElement('button');
+        button.type = 'button';
+        button.className = 'button action';
+        button.textContent = action.label;
+        button.disabled = phase !== 'open' || !action.sensitive;
+        button.addEventListener('click', function () {
+          sendIntent({ type: account.liveness === 'live' ? 'park' : 'start', account: account.id });
+        });
+        row.appendChild(pick);
+        row.appendChild(button);
+        return row;
+      }
+
+      function setListOpen(open) {
+        listOpen = open;
+        el.game.classList.toggle('list-open', listOpen);
+      }
+
+      function sizeCanvas() {
+        var ratio = window.devicePixelRatio || 1;
+        var width = Math.max(1, Math.round(window.innerWidth));
+        var height = Math.max(1, Math.round(window.innerHeight));
+        if (el.frame.width !== Math.round(width * ratio) || el.frame.height !== Math.round(height * ratio)) {
+          el.frame.width = Math.round(width * ratio);
+          el.frame.height = Math.round(height * ratio);
+        }
+        return { width: width, height: height, ratio: ratio };
+      }
+
+      function drawFrame() {
+        var size = sizeCanvas();
+        context.setTransform(size.ratio, 0, 0, size.ratio, 0, 0);
+        context.fillStyle = '#000';
+        context.fillRect(0, 0, size.width, size.height);
+        if (frame === null) { fit = null; return; }
+        fit = pure.fitFrame(frame.width, frame.height, size.width, size.height);
+        context.drawImage(frame.image, fit.offsetX, fit.offsetY, fit.width, fit.height);
+      }
+
+      function decodeFrame(buffer) {
+        var header = pure.parseFrameHeader(buffer);
+        if (header === null) { return; }
+        if (decoding) { pendingFrame = buffer; return; }
+        decoding = true;
+        var jpeg = new Blob([new Uint8Array(buffer, header.jpegOffset)], { type: 'image/jpeg' });
+        decodeJpeg(jpeg, function (image) {
+          decoding = false;
+          if (image !== null) {
+            if (frame !== null && typeof frame.image.close === 'function') { frame.image.close(); }
+            frame = { image: image, width: header.width, height: header.height };
+            drawFrame();
+          }
+          if (pendingFrame !== null) {
+            var next = pendingFrame;
+            pendingFrame = null;
+            decodeFrame(next);
+          }
+        });
+      }
+
+      function decodeJpeg(blob, done) {
+        if (typeof window.createImageBitmap === 'function') {
+          window.createImageBitmap(blob).then(done, function () { decodeWithImage(blob, done); });
+        } else {
+          decodeWithImage(blob, done);
+        }
+      }
+
+      function decodeWithImage(blob, done) {
+        var url = URL.createObjectURL(blob);
+        var image = new Image();
+        image.onload = function () { URL.revokeObjectURL(url); done(image); };
+        image.onerror = function () { URL.revokeObjectURL(url); done(null); };
+        image.src = url;
+      }
+
+      function canvasPoint(event) {
+        var rect = el.frame.getBoundingClientRect();
+        return { x: event.clientX - rect.left, y: event.clientY - rect.top };
+      }
+
+      function onPointerDown(event) {
+        if (!event.isPrimary || listOpen) { return; }
+        event.preventDefault();
+        var point = canvasPoint(event);
+        press = pure.beginPress(point.x, point.y, event.timeStamp);
+        if (typeof el.frame.setPointerCapture === 'function') {
+          try { el.frame.setPointerCapture(event.pointerId); } catch (error) { /* a pointer already gone */ }
+        }
+      }
+
+      function onPointerMove(event) {
+        if (press === null || !event.isPrimary) { return; }
+        var point = canvasPoint(event);
+        var moved = pure.movePress(press, point.x, point.y, event.timeStamp);
+        press = moved.press;
+        if (moved.scroll === null || fit === null || !attached) { return; }
+        var at = pure.toViewport({ x: press.startX, y: press.startY }, fit);
+        var delta = pure.toViewportDelta(moved.scroll.dx, moved.scroll.dy, fit);
+        if (delta.dx === 0 && delta.dy === 0) { return; }
+        sendIntent({ type: 'scroll', x: at.x, y: at.y, dx: delta.dx, dy: delta.dy });
+      }
+
+      function onPointerUp(event) {
+        if (press === null || !event.isPrimary) { return; }
+        var point = canvasPoint(event);
+        var ended = pure.endPress(press, point.x, point.y, event.timeStamp);
+        var start = press;
+        press = null;
+        if (ended !== 'tap') { return; }
+        askFullscreen();
+        if (fit === null || !attached) { return; }
+        var at = pure.toViewport({ x: start.startX, y: start.startY }, fit);
+        sendIntent({ type: 'tap', x: at.x, y: at.y });
+      }
+
+      function onPointerCancel() {
+        press = null;
+      }
+
+      function askFullscreen() {
+        if (fullscreenAsked) { return; }
+        fullscreenAsked = true;
+        var root = document.documentElement;
+        var request = root.requestFullscreen || root.webkitRequestFullscreen;
+        if (typeof request !== 'function' || document.fullscreenElement) { return; }
+        try {
+          var outcome = request.call(root, { navigationUI: 'hide' });
+          if (outcome && typeof outcome.catch === 'function') { outcome.catch(function () { /* not allowed here */ }); }
+        } catch (error) { /* not allowed here */ }
+      }
+
+      function socketUrl() {
+        var scheme = window.location.protocol === 'https:' ? 'wss://' : 'ws://';
+        return scheme + window.location.host + '/ws';
+      }
+
+      function connect() {
+        if (retryTimer !== null) { clearTimeout(retryTimer); retryTimer = null; }
+        if (phase === 'refused') { return; }
+        phase = 'connecting';
+        authSent = false;
+        attached = false;
+        attachedViewport = null;
+        ownChallenge = pure.randomHex(CHALLENGE_BYTES, window.crypto && window.crypto.getRandomValues
+          ? window.crypto.getRandomValues.bind(window.crypto) : null);
+        render();
+        var opened;
+        try {
+          opened = new WebSocket(socketUrl());
+        } catch (error) {
+          scheduleRetry();
+          return;
+        }
+        socket = opened;
+        socket.binaryType = 'arraybuffer';
+        socket.onmessage = function (event) { onMessage(opened, event); };
+        socket.onclose = function () { onClose(opened); };
+        socket.onerror = function () { /* onclose follows */ };
+      }
+
+      function onMessage(from, event) {
+        if (from !== socket) { return; }
+        if (typeof event.data !== 'string') {
+          if (phase === 'open' && event.data instanceof ArrayBuffer) { decodeFrame(event.data); }
+          return;
+        }
+        var message = pure.parseMessage(event.data);
+        if (message === null) { return; }
+        switch (message.type) {
+          case 'hello': return onHello(message);
+          case 'welcome': return onWelcome(message);
+          case 'state': return onState(message);
+          case 'bye': return onBye(message);
+          default: return;
+        }
+      }
+
+      function onHello(message) {
+        if (phase !== 'connecting' || typeof message.challenge !== 'string') { return; }
+        var answer = pure.proof(secretHex, PHONE_PREFIX, message.challenge);
+        if (answer === null) { refuse(); return; }
+        authSent = true;
+        send({ type: 'auth', proof: answer, challenge: ownChallenge });
+      }
+
+      function onWelcome(message) {
+        if (phase !== 'connecting') { return; }
+        var expected = pure.proof(secretHex, DESKTOP_PREFIX, ownChallenge);
+        if (expected === null || typeof message.proof !== 'string' || message.proof.toLowerCase() !== expected) {
+          // The other end does not hold our secret: it is not our desktop, or
+          // ours has forgotten us.
+          refuse();
+          return;
+        }
+        phase = 'open';
+        everWelcomed = true;
+        authFailures = 0;
+        retryIndex = 0;
+        state = message.state || null;
+        startPings();
+        render();
+        syncPresence();
+      }
+
+      function onState(message) {
+        if (phase !== 'open' || !message.state) { return; }
+        state = message.state;
+        render();
+        syncPresence();
+      }
+
+      function onBye(message) {
+        if (message.reason === 'replaced') {
+          // A newer page from this phone took over; come back only once this
+          // one is looked at again, so two pages never fight over the socket.
+          phase = 'replaced';
+          closeSocket();
+          render();
+          return;
+        }
+        refuse();
+      }
+
+      function onClose(from) {
+        if (from !== socket) { return; }
+        socket = null;
+        stopPings();
+        attached = false;
+        attachedViewport = null;
+        if (phase === 'refused' || phase === 'replaced') { render(); return; }
+        var wasProving = phase === 'connecting';
+        phase = 'connecting';
+        render();
+        if (wasProving) {
+          probeEnrolment(authSent);
+        } else {
+          scheduleRetry();
+        }
+      }
+
+      // A socket that ended before welcome: ask the plain route whether this
+      // phone is still enrolled, since the browser hides why the upgrade failed.
+      function probeEnrolment(afterAuth) {
+        if (typeof window.fetch !== 'function') { scheduleRetry(); return; }
+        window.fetch('/', { method: 'GET', cache: 'no-store', credentials: 'same-origin' }).then(function (response) {
+          if (response.status === 404) { refuse(); return; }
+          if (afterAuth) {
+            authFailures += 1;
+            if (authFailures >= 2) { refuse(); return; }
+          }
+          scheduleRetry();
+        }, function () {
+          scheduleRetry();
+        });
+      }
+
+      function scheduleRetry() {
+        if (retryTimer !== null || phase === 'refused') { return; }
+        var delay = RETRY_DELAYS_MILLIS[Math.min(retryIndex, RETRY_DELAYS_MILLIS.length - 1)];
+        retryIndex += 1;
+        retryTimer = setTimeout(function () { retryTimer = null; connect(); }, delay);
+      }
+
+      function refuse() {
+        phase = 'refused';
+        if (retryTimer !== null) { clearTimeout(retryTimer); retryTimer = null; }
+        stopPings();
+        closeSocket();
+        render();
+      }
+
+      function closeSocket() {
+        var closing = socket;
+        socket = null;
+        attached = false;
+        attachedViewport = null;
+        if (closing !== null) {
+          closing.onclose = null;
+          closing.onmessage = null;
+          try { closing.close(); } catch (error) { /* already closed */ }
+        }
+      }
+
+      function startPings() {
+        stopPings();
+        pingTimer = setInterval(function () { send({ type: 'ping' }); }, PING_MILLIS);
+      }
+
+      function stopPings() {
+        if (pingTimer !== null) { clearInterval(pingTimer); pingTimer = null; }
+      }
+
+      function onVisibilityChange() {
+        if (document.visibilityState === 'hidden') {
+          leaveNow();
+          return;
+        }
+        if (phase === 'replaced') {
+          phase = 'connecting';
+          retryIndex = 0;
+          connect();
+          return;
+        }
+        if (socket === null && phase !== 'refused') {
+          retryIndex = 0;
+          connect();
+          return;
+        }
+        syncPresence();
+      }
+
+      function onResize() {
+        if (resizeTimer !== null) { clearTimeout(resizeTimer); }
+        resizeTimer = setTimeout(function () {
+          resizeTimer = null;
+          if (!el.game.hidden) { drawFrame(); }
+          syncPresence();
+        }, RESIZE_SETTLE_MILLIS);
+        if (!el.game.hidden) { drawFrame(); }
+      }
+
+      function wire() {
+        el.toggleSwitch.addEventListener('click', function () {
+          sendIntent({ type: 'mobile', on: true });
+        });
+        el.listSwitch.addEventListener('click', function () {
+          sendIntent({ type: 'mobile', on: false });
+          setListOpen(false);
+        });
+        el.absentStart.addEventListener('click', function () {
+          var account = pure.currentAccount(state);
+          if (account !== null) { sendIntent({ type: 'start', account: account.id }); }
+        });
+        el.handle.addEventListener('click', function () { setListOpen(!listOpen); });
+        el.scrim.addEventListener('click', function () { setListOpen(false); });
+        el.frame.addEventListener('pointerdown', onPointerDown);
+        el.frame.addEventListener('pointermove', onPointerMove);
+        el.frame.addEventListener('pointerup', onPointerUp);
+        el.frame.addEventListener('pointercancel', onPointerCancel);
+        el.frame.addEventListener('contextmenu', function (event) { event.preventDefault(); });
+        document.addEventListener('visibilitychange', onVisibilityChange);
+        window.addEventListener('pagehide', leaveNow);
+        window.addEventListener('resize', onResize);
+        window.addEventListener('orientationchange', onResize);
+      }
+
+      secretHex = loadCredential();
+      if (secretHex === null) {
+        phase = 'refused';
+        render();
+        return;
+      }
+      wire();
+      render();
+      connect();
     })();
   </script>
 </body>

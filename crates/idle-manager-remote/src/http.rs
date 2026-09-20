@@ -367,6 +367,38 @@ mod tests {
     }
 
     #[test]
+    fn the_page_served_without_a_credential_carries_none_of_the_minted_values() {
+        let phone = EnrolledPhone {
+            device_id: "0123456789abcdef0123456789abcdef".to_owned(),
+            secret: (0x40..0x60).collect(),
+            enrolled_on: String::new(),
+        };
+        let secret_hex = encode_hex(&phone.secret);
+        let enrolment_page = render_page(Some(&phone));
+
+        let page = render_page(None);
+
+        assert!(
+            enrolment_page.contains(&secret_hex)
+                && enrolment_page.contains(&phone.device_id)
+                && !page.contains(&secret_hex)
+                && !page.contains(&phone.device_id),
+            "{page}"
+        );
+    }
+
+    #[test]
+    fn the_page_names_the_socket_path_and_the_two_placeholders_the_server_fills() {
+        let names = (
+            PAGE.contains("'/ws'"),
+            PAGE.contains(DEVICE_ID_PLACEHOLDER),
+            PAGE.contains(SECRET_PLACEHOLDER),
+        );
+
+        assert_eq!(names, (true, true, true));
+    }
+
+    #[test]
     fn the_not_found_answer_has_no_body_and_no_server_header() {
         let response = String::from_utf8(not_found()).expect("ascii");
 

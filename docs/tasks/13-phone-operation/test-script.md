@@ -45,6 +45,17 @@
 - [x] `curl -si -H 'Cookie: idle-manager-phone=<device id>' http://127.0.0.1:7466/` → `HTTP/1.1 200 OK`, no `Set-Cookie`, body holds `<title>Idle Manager</title>` and an empty `idle-manager-secret` meta
 - [x] `curl -si --max-time 2 -H 'Cookie: idle-manager-phone=<device id>' -H 'Upgrade: websocket' -H 'Connection: Upgrade' -H 'Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==' -H 'Sec-WebSocket-Version: 13' http://127.0.0.1:7466/ws` → `HTTP/1.1 101 Switching Protocols`, `Sec-WebSocket-Accept: s3pPLMBiTxaQ9kYGzzhZRbK+xOo=`
 
+## 05 — The phone page
+
+- [x] `cargo nextest run -p idle-manager-remote` → `94 tests run: 94 passed, 1 skipped`; the seven `the-phone-pages-pure-script-under-node` tests print `PASS` (with `node` hidden from `PATH` each prints `note: … is skipped` and still passes)
+- [x] With the hand-run server up (`IDLE_MANAGER_REMOTE_HOLD_SECS=150 cargo nextest run -p idle-manager-remote --run-ignored only --no-capture`), `curl -si http://127.0.0.1:7466/enrol/<code>` → `200`, `Set-Cookie: idle-manager-phone=<32 hex>`; the body is balanced HTML with no `{{` and both metas filled; `curl -s -H 'Cookie: idle-manager-phone=<id>' http://127.0.0.1:7466/ | grep -c <secret hex>` → `0`
+- [x] A Node WebSocket client built from the page's own `// BEGIN pure` block against that server: `hello` → `auth` → `welcome` with the proof verified and `state.mobileMode` false; the same with a wrong secret → the socket closes with no `welcome`
+- [ ] On the phone (Android, then iPhone), open the enrolment address from the desktop's phone dialog → the page shows `Mobile mode`, a large centred switch (off) and the dim line `Turn it on to see a game here`; the address bar now reads `/`; "Add to Home Screen", open it from there → standalone, same screen
+- [ ] Tap the switch → the desktop enters the `Mobile` layout at the phone's screen size and the page shows the current game filling the screen within a second; a short touch on a game button takes effect; a drag scrolls the page; the top-left round handle opens the list
+- [ ] In the list: workspace names as plain headings, each account with its name and the word `live`/`parked`/`starting`/`queued` beneath, `Park` on live rows and `Start` on the others (insensitive for `starting`/`queued`), the current row highlighted; tap another name → the other game appears; tap `Park` on the current row → its word turns `parked` and the game screen becomes the name, `Parked` and a `Start` button; a workspace with no accounts shows `No games in this workspace`
+- [ ] Switch to another app and back → if the socket dropped, the dimmed last picture under `Reconnecting…` for a few seconds, then pictures resume on the same account
+- [ ] `Un-enrol the phone` on the desktop → the page shows only `This phone is no longer enrolled`; reopening it shows the same line
+
 ## Teardown
 
 - [ ] `rm -rf /tmp/frames-13` and remove any `[listen]` override added to `~/.config/idle-manager/phone.toml` for testing
