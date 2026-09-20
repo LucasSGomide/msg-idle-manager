@@ -674,7 +674,7 @@ impl SessionGrid {
 
     pub(super) fn sync(&self, book: &WorkspaceBook) {
         let layout_changed = self.layout.replace(book.active().layout()) != book.active().layout();
-        self.focused.set(book.active().focused().index());
+        self.focused.set(book.active().focused_slot().index());
         let viewport_changed =
             self.mobile_viewport.replace(book.mobile_viewport()) != book.mobile_viewport();
 
@@ -819,11 +819,14 @@ impl SessionGrid {
             return;
         };
 
-        self.focused.set(slot.index());
+        // The grid reports the intent and lets the window decide: it does
+        // not set its own `focused` here, so an empty trailing slot never
+        // shows an outline the book itself would refuse (architecture rule
+        // 8). `sync`, called by the window only when the book's focus
+        // actually moved, is what updates `self.focused` and redraws.
         if let Some(handler) = self.on_slot_focused.borrow().as_ref() {
             handler(slot);
         }
-        obj.queue_draw();
     }
 
     /// The slot the point `(x, y)` in the grid's own coordinates falls in, or

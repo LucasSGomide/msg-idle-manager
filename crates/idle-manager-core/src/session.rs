@@ -1,11 +1,15 @@
 //! What a game account is: the identity the program mints for it, the two
-//! things the user typed, and whether it currently occupies a slot.
+//! things the user typed, and the book of accounts a workspace holds.
+//!
+//! A workspace's accounts have exactly one order — [`SessionBook::sessions`]
+//! — and the screen shows one page of that order at a time, the page size set
+//! by the layout. Nothing about where an account sits is stored: it is always
+//! derived from its position in the order, the layout's slot count, and which
+//! position is focused.
 
 use std::collections::HashMap;
 
-use crate::layout::{
-    Layout, MoveOutcome, Placement, SlotId, arrange, bring_into_focus, move_into_slot,
-};
+use crate::layout::{Layout, MoveOutcome, SlotId};
 use crate::preset::{Preset, ZoomLevel};
 use crate::workspace::{Account, SavedLiveness, Workspace};
 
@@ -118,8 +122,11 @@ pub fn workspace_name(raw: &str) -> Option<String> {
 
 /// Whether a session is shown in a numbered slot or is out of sight.
 ///
-/// One field, three-free: there is no "hidden" boolean beside an optional slot,
-/// because that would make a fourth, meaningless state representable.
+/// Never stored: it is [`SessionBook::placement`]'s derived answer, worked out
+/// from an account's position in the order, the layout's slot count, and the
+/// focused position (code standards rule 1) — there is no state where a slot
+/// and a visibility could disagree, because there is no second field to
+/// disagree with.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Visibility {
     /// Occupying a visible slot in the current layout.
@@ -208,14 +215,14 @@ impl FromIterator<(Layout, ZoomLevel)> for RememberedZoom {
 }
 
 /// One game account: its minted identity, the name and start address it was
-/// created with, where it currently sits, and the view settings it carries from
-/// its preset.
+/// created with, whether it is running, and the view settings it carries from
+/// its preset. Carries no seat of its own — [`SessionBook::placement`] derives
+/// where it sits from its position in the book's order.
 #[derive(Debug, Clone)]
 pub struct Session {
     id: SessionId,
     display_name: String,
     start_address: String,
-    visibility: Visibility,
     liveness: Liveness,
     is_kept_awake: bool,
     browser_identity: Option<String>,
@@ -248,12 +255,6 @@ impl Session {
     #[must_use]
     pub fn start_address(&self) -> &str {
         &self.start_address
-    }
-
-    /// Where this session currently sits.
-    #[must_use]
-    pub fn visibility(&self) -> Visibility {
-        self.visibility
     }
 
     /// Whether this session is running, parked, or starting up.
@@ -316,42 +317,21 @@ impl Session {
     }
 }
 
-/// Where one account sat in an [`Arrangement`]: its visibility then, and the
-/// slot it would return to.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-struct Seat {
-    visibility: Visibility,
-    remembered: Option<SlotId>,
-}
-
-/// One workspace's seating as a value that can be put back later: its layout,
-/// its focused slot, and where every account sat and would return to. Taken
-/// by [`SessionBook::arrangement`] before mobile mode rearranges the book and
-/// handed back to [`SessionBook::restore_arrangement`] when the mode ends, so
-/// leaving puts back exactly what entering found (Remote Access `FR.3.5`).
-///
-/// Carries the visibility as well as the remembered slot because the
-/// placement pass alone cannot reproduce a seating: an account displaced
-/// off-grid by a focus swap still remembers the slot it lost, and a slot
-/// freed by a removal stays empty rather than being refilled.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct Arrangement {
-    layout: Layout,
-    focused: SlotId,
-    seats: HashMap<SessionId, Seat>,
-}
-
 /// The application's sessions in the order they sit in, together with the
-/// current layout and the slot a full-grid addition displaces.
+/// current layout and the position of the focused account.
 ///
-/// The book is the only place a [`SessionId`] is minted, and every identifier
-/// it returns is distinct from every one already in it.
+/// A workspace's whole seating is these three things and nothing else
+/// (`FR.22.1`, `FR.22.2`): with `k = layout.slot_count()`, the shown page is
+/// `focused / k`, and every session's slot is derived from where it sits in
+/// `sessions` relative to that page — never stored, so it can never drift from
+/// the order (code standards rule 1). The book is the only place a
+/// [`SessionId`] is minted, and every identifier it returns is distinct from
+/// every one already in it.
 #[derive(Debug)]
 pub struct SessionBook {
     sessions: Vec<Session>,
     layout: Layout,
-    focused: SlotId,
-    remembered: HashMap<SessionId, SlotId>,
+    focused: usize,
 }
 
 impl SessionBook {
@@ -361,23 +341,22 @@ impl SessionBook {
         Self {
             sessions: Vec::new(),
             layout: Layout::Single,
-            focused: SlotId::FIRST,
-            remembered: HashMap::new(),
+            focused: 0,
         }
     }
 
     /// Rebuilds a book from a saved [`Workspace`].
     ///
-    /// The accounts come back in the order the workspace held them. One saved
-    /// as running becomes [`Liveness::Queued`] — nothing is running yet — and
-    /// one saved as parked stays [`Liveness::Parked`], costing nothing. The
-    /// saved layout and focused place become active and each account's
-    /// remembered slot is seeded, so visibility is normalised through the same
-    /// placement a layout switch uses: an account whose saved slot the layout
-    /// cannot show lands off-grid and returns to that slot when a layout with
-    /// it is chosen (`FR.3.2`). The workspace's `id`, `name` and `is_expanded`
-    /// are not this book's to keep — [`crate::WorkspaceBook`] carries those
-    /// alongside the book it restores here — and minting is likewise
+    /// The accounts come back in the order the workspace held them, which is
+    /// the one order this book keeps. One saved as running becomes
+    /// [`Liveness::Queued`] — nothing is running yet — and one saved as parked
+    /// stays [`Liveness::Parked`], costing nothing. The saved layout becomes
+    /// active and the saved focused position is clamped to `0` when the book
+    /// is empty, else below `sessions.len()` — a hand-edited file naming a
+    /// position past the end of its own list never leaves the book focused
+    /// nowhere. The workspace's `id`, `name` and `is_expanded` are not this
+    /// book's to keep — [`crate::WorkspaceBook`] carries those alongside the
+    /// book it restores here — and minting is likewise
     /// [`crate::WorkspaceBook`]'s job now, from one counter shared by every
     /// workspace.
     #[must_use]
@@ -389,34 +368,16 @@ impl SessionBook {
             ..
         } = workspace;
 
-        let mut remembered: HashMap<SessionId, SlotId> = HashMap::new();
-        for account in &accounts {
-            let slot = account.remembered_slot.or(match account.visibility {
-                Visibility::InSlot(slot) => Some(slot),
-                Visibility::OffGrid => None,
-            });
-            if let Some(slot) = slot {
-                remembered.insert(account.id.clone(), slot);
-            }
-        }
-
-        let order: Vec<SessionId> = accounts.iter().map(|account| account.id.clone()).collect();
-        let placement = arrange(layout, &order, &remembered);
-
-        let sessions = accounts
+        let sessions: Vec<Session> = accounts
             .into_iter()
             .map(|account| Session {
-                visibility: placement
-                    .get(&account.id)
-                    .copied()
-                    .unwrap_or(Visibility::OffGrid),
+                id: account.id,
+                display_name: account.display_name,
+                start_address: account.start_address,
                 liveness: match account.liveness {
                     SavedLiveness::Running => Liveness::Queued,
                     SavedLiveness::Parked => Liveness::Parked,
                 },
-                id: account.id,
-                display_name: account.display_name,
-                start_address: account.start_address,
                 is_kept_awake: account.is_kept_awake,
                 browser_identity: account.browser_identity,
                 // The workspace does not persist WebGL yet; a restored account
@@ -428,11 +389,12 @@ impl SessionBook {
             })
             .collect();
 
+        let focused = focused.min(sessions.len().saturating_sub(1));
+
         Self {
             sessions,
             layout,
-            focused: focused_or_first(focused, layout),
-            remembered,
+            focused,
         }
     }
 
@@ -456,175 +418,39 @@ impl SessionBook {
     /// [`crate::WorkspaceBook`], which owns them.
     ///
     /// Accounts in the order they sit in, each carrying its name, address,
-    /// zoom, identity, keep-awake flag, and where it sits, plus the active
-    /// layout and focused place. A [`Liveness::Starting`] or
-    /// [`Liveness::Queued`] account is reported as [`SavedLiveness::Running`]:
-    /// those describe a moment, not a wish.
+    /// zoom, identity and keep-awake flag, plus the active layout and the
+    /// focused position. A [`Liveness::Starting`] or [`Liveness::Queued`]
+    /// account is reported as [`SavedLiveness::Running`]: those describe a
+    /// moment, not a wish.
     #[must_use]
     pub fn workspace(&self, id: WorkspaceId, name: String, is_expanded: bool) -> Workspace {
-        self.workspace_as(&self.arrangement(), id, name, is_expanded)
-    }
-
-    /// [`SessionBook::workspace`] with `arrangement` in place of the live
-    /// seating — what mobile mode saves, so the file never records
-    /// [`Layout::Mobile`] and a relaunch opens in the arrangement from before
-    /// (Remote Access `FR.3.4`). Every field that is not a seat — name,
-    /// address, liveness, keep-awake, identity, zoom — is still the live one,
-    /// so a park made while the mode is on is written. An account
-    /// `arrangement` does not know is seated as
-    /// [`SessionBook::restore_arrangement`] would seat it.
-    #[must_use]
-    pub(crate) fn workspace_as(
-        &self,
-        arrangement: &Arrangement,
-        id: WorkspaceId,
-        name: String,
-        is_expanded: bool,
-    ) -> Workspace {
-        let seats = self.seats_under(arrangement);
         let accounts = self
             .sessions
             .iter()
-            .map(|session| {
-                let seat = seats.get(&session.id).copied().unwrap_or(Seat {
-                    visibility: Visibility::OffGrid,
-                    remembered: None,
-                });
-                Account {
-                    id: session.id.clone(),
-                    display_name: session.display_name.clone(),
-                    start_address: session.start_address.clone(),
-                    liveness: match session.liveness {
-                        Liveness::Parked => SavedLiveness::Parked,
-                        Liveness::Live | Liveness::Starting | Liveness::Queued => {
-                            SavedLiveness::Running
-                        }
-                    },
-                    visibility: seat.visibility,
-                    remembered_slot: seat.remembered,
-                    is_kept_awake: session.is_kept_awake,
-                    browser_identity: session.browser_identity.clone(),
-                    zoom: session.preset_zoom,
-                }
+            .map(|session| Account {
+                id: session.id.clone(),
+                display_name: session.display_name.clone(),
+                start_address: session.start_address.clone(),
+                liveness: match session.liveness {
+                    Liveness::Parked => SavedLiveness::Parked,
+                    Liveness::Live | Liveness::Starting | Liveness::Queued => {
+                        SavedLiveness::Running
+                    }
+                },
+                is_kept_awake: session.is_kept_awake,
+                browser_identity: session.browser_identity.clone(),
+                zoom: session.preset_zoom,
             })
             .collect();
 
         Workspace {
             id,
             name,
-            focused: focused_or_first(arrangement.focused, arrangement.layout),
+            focused: self.focused,
             is_expanded,
             accounts,
-            layout: arrangement.layout,
-        }
-    }
-
-    /// This book's seating right now, as a value [`SessionBook::restore_arrangement`]
-    /// puts back later — taken before mobile mode rearranges the book
-    /// (Remote Access `FR.3.5`).
-    #[must_use]
-    pub(crate) fn arrangement(&self) -> Arrangement {
-        Arrangement {
             layout: self.layout,
-            focused: self.focused,
-            seats: self.current_seats(),
         }
-    }
-
-    /// Puts `arrangement` back: its layout, its focused slot, and every
-    /// account it knows in the seat it had. An account removed since is
-    /// skipped; an account added since keeps the slot it holds when the
-    /// layout has it and nobody returning claims it, and otherwise takes the
-    /// lowest free slot or goes off-grid — the placement pass's own rule
-    /// (Remote Access `FR.3.5`). Liveness, keep-awake and zoom are untouched.
-    pub(crate) fn restore_arrangement(&mut self, arrangement: &Arrangement) {
-        let seats = self.seats_under(arrangement);
-
-        self.layout = arrangement.layout;
-        self.focused = focused_or_first(arrangement.focused, arrangement.layout);
-        for session in &mut self.sessions {
-            let Some(seat) = seats.get(&session.id) else {
-                continue;
-            };
-            session.visibility = seat.visibility;
-            match seat.remembered {
-                Some(slot) => {
-                    self.remembered.insert(session.id.clone(), slot);
-                }
-                None => {
-                    self.remembered.remove(&session.id);
-                }
-            }
-        }
-    }
-
-    fn current_seats(&self) -> HashMap<SessionId, Seat> {
-        self.sessions
-            .iter()
-            .map(|session| {
-                (
-                    session.id.clone(),
-                    Seat {
-                        visibility: session.visibility,
-                        remembered: self.remembered.get(&session.id).copied(),
-                    },
-                )
-            })
-            .collect()
-    }
-
-    /// Where every session of this book sits under `arrangement`: a session
-    /// the arrangement knows sits exactly where it did; one it does not —
-    /// added since it was taken — keeps its own slot if `arrangement`'s
-    /// layout has it and no returning session holds it, else the lowest free
-    /// slot, else off-grid. In session order, so two newcomers never land in
-    /// one slot.
-    fn seats_under(&self, arrangement: &Arrangement) -> HashMap<SessionId, Seat> {
-        let mut taken: Vec<SlotId> = self
-            .sessions
-            .iter()
-            .filter_map(|session| arrangement.seats.get(&session.id))
-            .filter_map(|seat| match seat.visibility {
-                Visibility::InSlot(slot) => Some(slot),
-                Visibility::OffGrid => None,
-            })
-            .collect();
-
-        let mut seats = HashMap::with_capacity(self.sessions.len());
-        for session in &self.sessions {
-            if let Some(seat) = arrangement.seats.get(&session.id) {
-                seats.insert(session.id.clone(), *seat);
-                continue;
-            }
-
-            let kept = match session.visibility {
-                Visibility::InSlot(slot)
-                    if arrangement.layout.contains(slot) && !taken.contains(&slot) =>
-                {
-                    Some(slot)
-                }
-                Visibility::InSlot(_) | Visibility::OffGrid => arrangement
-                    .layout
-                    .slots()
-                    .find(|slot| !taken.contains(slot)),
-            };
-            let seat = match kept {
-                Some(slot) => {
-                    taken.push(slot);
-                    Seat {
-                        visibility: Visibility::InSlot(slot),
-                        remembered: Some(slot),
-                    }
-                }
-                None => Seat {
-                    visibility: Visibility::OffGrid,
-                    remembered: self.remembered.get(&session.id).copied(),
-                },
-            };
-            seats.insert(session.id.clone(), seat);
-        }
-
-        seats
     }
 
     /// The queued accounts in book order, and nothing else.
@@ -664,38 +490,100 @@ impl SessionBook {
         self.layout
     }
 
-    /// The slot a full-grid addition displaces.
-    #[must_use]
-    pub fn focused(&self) -> SlotId {
-        self.focused
+    /// Switches to `layout`. Nothing else changes: the page shown is
+    /// recomputed from the unchanged focused position, which is what keeps
+    /// the focused account on screen across a layout switch (`FR.22.2`
+    /// refining `FR.3.2`).
+    pub fn set_layout(&mut self, layout: Layout) {
+        self.layout = layout;
     }
 
-    /// Focus `slot`, so the next addition into a full grid lands there. A slot
-    /// outside the current layout is ignored.
-    pub fn set_focused(&mut self, slot: SlotId) {
-        if self.layout.contains(slot) {
-            self.focused = slot;
+    /// The page currently shown, counting from zero.
+    #[must_use]
+    pub fn page(&self) -> usize {
+        self.page_of(self.focused)
+    }
+
+    /// How many pages this book's order divides into at the current layout —
+    /// `0` for an empty book, otherwise `sessions.len()` divided by the
+    /// layout's slot count, rounded up so a part-empty last page still counts.
+    #[must_use]
+    pub fn page_count(&self) -> usize {
+        if self.sessions.is_empty() {
+            0
+        } else {
+            self.sessions.len().div_ceil(self.layout.slot_count())
         }
     }
 
-    /// Adds a new account created from a typed address under `id`, and places
-    /// it.
+    /// Where `id`'s account sits: [`Visibility::InSlot`] with its slot on the
+    /// shown page, [`Visibility::OffGrid`] on any other page, or `None` if
+    /// this book does not hold `id` at all.
+    #[must_use]
+    pub fn placement(&self, id: &SessionId) -> Option<Visibility> {
+        let position = self.sessions.iter().position(|s| &s.id == id)?;
+        if self.page_of(position) == self.page() {
+            Some(Visibility::InSlot(self.slot_of(position)))
+        } else {
+            Some(Visibility::OffGrid)
+        }
+    }
+
+    /// The slot the focused account sits in on the shown page.
+    #[must_use]
+    pub fn focused_slot(&self) -> SlotId {
+        self.slot_of(self.focused)
+    }
+
+    /// The account sitting in the focused position, or `None` for an empty
+    /// book. The one place the shell asks which account a keyboard gesture
+    /// acts on.
+    #[must_use]
+    pub fn focused_session(&self) -> Option<&Session> {
+        self.sessions.get(self.focused)
+    }
+
+    /// Focuses whichever account sits in `slot` on the shown page, and reports
+    /// whether that position holds an account. `false`, changing nothing, for
+    /// a slot outside the layout or a trailing slot the order does not reach —
+    /// a click on an empty slot leaves the focus where it was.
+    pub fn focus_slot(&mut self, slot: SlotId) -> bool {
+        if !self.layout.contains(slot) {
+            return false;
+        }
+        let target = self.page() * self.layout.slot_count() + slot.index();
+        if target < self.sessions.len() {
+            self.focused = target;
+            true
+        } else {
+            false
+        }
+    }
+
+    /// Focuses `id`'s account and reports whether the shown page changed.
+    /// Leaves the book untouched for an id this book does not hold.
+    pub fn focus_session(&mut self, id: &SessionId) -> bool {
+        let Some(position) = self.sessions.iter().position(|s| &s.id == id) else {
+            return false;
+        };
+        let page_before = self.page();
+        self.focused = position;
+        self.page() != page_before
+    }
+
+    /// Adds a new account created from a typed address under `id`, appends it
+    /// to the end of the order, and focuses it — the shown page turns to it
+    /// and nothing is displaced (`FR.22.1`).
     ///
     /// `id` is minted by the caller — [`crate::WorkspaceBook`], from the one
     /// counter shared by every workspace — never by this book (code standards
-    /// rule 2). The session takes the lowest-numbered free slot of the current
-    /// layout. If every slot is occupied it takes the focused slot, and that
-    /// slot's previous occupant becomes [`Visibility::OffGrid`]. It carries no
-    /// browser identity and the default zoom — everything a preset would have
-    /// supplied falls back here.
+    /// rule 2). It carries no browser identity and the default zoom —
+    /// everything a preset would have supplied falls back here.
     pub fn add(&mut self, id: &SessionId, display_name: &str, start_address: &str) {
-        let visibility = self.place(id);
-
         self.sessions.push(Session {
             id: id.clone(),
             display_name: display_name.to_owned(),
             start_address: start_address.to_owned(),
-            visibility,
             liveness: Liveness::Live,
             is_kept_awake: false,
             browser_identity: None,
@@ -703,11 +591,13 @@ impl SessionBook {
             preset_zoom: ZoomLevel::DEFAULT,
             remembered_zoom: RememberedZoom::new(),
         });
+        self.focused = self.sessions.len() - 1;
     }
 
     /// Adds a new account under `id`, playing `preset`'s game under the name
-    /// `account_name`, places it exactly as [`SessionBook::add`] does, and
-    /// copies the preset's start address, zoom and browser identity onto it.
+    /// `account_name`, appends and focuses it exactly as [`SessionBook::add`]
+    /// does, and copies the preset's start address, zoom and browser identity
+    /// onto it.
     ///
     /// `id` is minted by the caller, as [`SessionBook::add`] documents. The
     /// preset's keep-awake default is applied through
@@ -719,13 +609,10 @@ impl SessionBook {
     /// [`Liveness::Live`] like any other. Both are existing transitions; no
     /// field is written behind their backs.
     pub fn add_from_preset(&mut self, id: &SessionId, account_name: &str, preset: &Preset) {
-        let visibility = self.place(id);
-
         self.sessions.push(Session {
             id: id.clone(),
             display_name: account_name.to_owned(),
             start_address: preset.start_address.clone(),
-            visibility,
             liveness: Liveness::Live,
             is_kept_awake: false,
             browser_identity: preset.browser_identity.clone(),
@@ -733,44 +620,16 @@ impl SessionBook {
             preset_zoom: preset.zoom,
             remembered_zoom: RememberedZoom::new(),
         });
+        self.focused = self.sessions.len() - 1;
 
         self.set_keep_awake(id, preset.keep_awake_default);
         self.mark_started(id);
     }
 
-    /// Places `id` into the lowest free slot of the current layout, or into the
-    /// focused slot with its occupant displaced off-grid when the grid is full,
-    /// and remembers the slot it landed in.
-    fn place(&mut self, id: &SessionId) -> Visibility {
-        let occupied = self.occupied_slots();
-        let free = self.layout.slots().find(|slot| !occupied.contains(slot));
-
-        let visibility = if let Some(slot) = free {
-            Visibility::InSlot(slot)
-        } else {
-            let target = self.focused;
-            if let Some(displaced) = self
-                .sessions
-                .iter_mut()
-                .find(|session| session.visibility == Visibility::InSlot(target))
-            {
-                displaced.visibility = Visibility::OffGrid;
-            }
-            Visibility::InSlot(target)
-        };
-
-        if let Visibility::InSlot(slot) = visibility {
-            self.remembered.insert(id.clone(), slot);
-        }
-
-        visibility
-    }
-
-    /// Park `session`: its liveness becomes [`Liveness::Parked`], and its
-    /// visibility is left exactly as it was — a parked account keeps its place.
-    /// Parking an already-parked session changes nothing. Returns the session's
-    /// liveness after the call; an id not in the book changes nothing and
-    /// returns [`Liveness::Live`].
+    /// Park `session`: its liveness becomes [`Liveness::Parked`]. Parking an
+    /// already-parked session changes nothing. Returns the session's liveness
+    /// after the call; an id not in the book changes nothing and returns
+    /// [`Liveness::Live`].
     pub fn park(&mut self, session: &SessionId) -> Liveness {
         self.set_liveness(session, Liveness::Parked)
     }
@@ -778,8 +637,8 @@ impl SessionBook {
     /// Unpark `session`: a parked *or* queued session becomes
     /// [`Liveness::Starting`], because no page has painted yet — a queued
     /// account is one the start queue has just reached. A live or
-    /// already-starting session is left as it is. Visibility is never touched.
-    /// Returns the session's liveness after the call.
+    /// already-starting session is left as it is. Returns the session's
+    /// liveness after the call.
     pub fn unpark(&mut self, session: &SessionId) -> Liveness {
         let Some(current) = self.liveness_of(session) else {
             return Liveness::Live;
@@ -793,8 +652,7 @@ impl SessionBook {
 
     /// End `session`'s starting interval once the shell reports its first
     /// paint: [`Liveness::Starting`] becomes [`Liveness::Live`]. Any other
-    /// state is left as it is. Visibility is never touched. Returns the
-    /// session's liveness after the call.
+    /// state is left as it is. Returns the session's liveness after the call.
     pub fn mark_started(&mut self, session: &SessionId) -> Liveness {
         let Some(current) = self.liveness_of(session) else {
             return Liveness::Live;
@@ -838,10 +696,10 @@ impl SessionBook {
     ///
     /// `false` for an unknown id or a name that is empty once trimmed, and the
     /// book is left exactly as it was. Otherwise the trimmed name replaces
-    /// `account`'s display name and nothing else: its id, liveness,
-    /// visibility, keep-awake flag, the book's focused slot and the order of
-    /// its sessions are untouched (`FR.13.2`, `FR.13.5`). Two accounts may
-    /// share a name, since [`SessionBook::add`] already allows that.
+    /// `account`'s display name and nothing else: its id, liveness, keep-awake
+    /// flag, the book's focused position and the order of its sessions are
+    /// untouched (`FR.13.2`, `FR.13.5`). Two accounts may share a name, since
+    /// [`SessionBook::add`] already allows that.
     pub fn rename(&mut self, account: &SessionId, name: &str) -> bool {
         let Some(trimmed) = account_name(name) else {
             return false;
@@ -867,8 +725,8 @@ impl SessionBook {
     /// layout, records it against that arrangement only, and returns the new
     /// size. `None` for an id the book does not hold, and `None` with nothing
     /// recorded while the layout is [`Layout::Mobile`], where the size is
-    /// locked (Remote Access `FR.3.2`). Liveness and visibility are untouched
-    /// — a zoom is not a reload (`FR.11.5`).
+    /// locked (Remote Access `FR.3.2`). Liveness is untouched — a zoom is not
+    /// a reload (`FR.11.5`).
     pub fn zoom_in(&mut self, account: &SessionId) -> Option<ZoomLevel> {
         self.step_zoom(account, ZoomLevel::stepped_in)
     }
@@ -909,44 +767,24 @@ impl SessionBook {
         Some(session.preset_zoom)
     }
 
-    /// The account sitting in the focused slot, or `None` when that slot holds
-    /// nothing. The one place the shell asks which account a keyboard gesture
-    /// acts on.
-    #[must_use]
-    pub fn focused_session(&self) -> Option<&Session> {
-        let focused = Visibility::InSlot(self.focused);
-        self.sessions
-            .iter()
-            .find(|session| session.visibility == focused)
-    }
-
-    /// Removes `id` from this book, together with its remembered slot, and
-    /// returns it. Every other session's visibility is left exactly as it
-    /// was, so the freed place stays empty (`FR.17.8`, `FR.21.5`). `None` for
+    /// Removes `id` from this book and returns it. The focused position keeps
+    /// the same account focused unless `id` was that account, in which case it
+    /// clamps to the new last position (`0` for an emptied book). `None` for
     /// an id this book does not hold.
     pub fn take(&mut self, id: &SessionId) -> Option<Session> {
         let index = self.sessions.iter().position(|s| &s.id == id)?;
-        self.remembered.remove(id);
-        Some(self.sessions.remove(index))
+        let focused_before = self.focused_session().map(|s| s.id.clone());
+        let taken = self.sessions.remove(index);
+        self.keep_focus_on(focused_before);
+        Some(taken)
     }
 
-    /// Appends an arriving `session` to the end of this book's list, seated in
-    /// the lowest free slot of this book's current layout if one is free and
-    /// off-grid otherwise. Never displaces an already-seated session
-    /// (`FR.17.3`). Every other field — liveness, keep-awake, remembered
-    /// zoom — is carried over exactly as `session` held it.
-    pub fn adopt(&mut self, mut session: Session) {
-        let occupied = self.occupied_slots();
-        let free = self.layout.slots().find(|slot| !occupied.contains(slot));
-
-        session.visibility = match free {
-            Some(slot) => {
-                self.remembered.insert(session.id.clone(), slot);
-                Visibility::InSlot(slot)
-            }
-            None => Visibility::OffGrid,
-        };
-
+    /// Appends an arriving `session` to the end of this book's list and
+    /// leaves the focused position exactly as it was — an account moved into
+    /// a hidden workspace never changes what that workspace shows. Every
+    /// field on `session` — liveness, keep-awake, remembered zoom — is
+    /// carried over unchanged (`FR.17.3`).
+    pub fn adopt(&mut self, session: Session) {
         self.sessions.push(session);
     }
 
@@ -967,158 +805,99 @@ impl SessionBook {
         }
     }
 
-    /// Switches to `layout` and re-places every session.
+    /// Move `account` to `target`, a slot on the shown page, and report what
+    /// happened (`FR.22.4`).
     ///
-    /// A session whose slot still exists stays in it. A session whose slot is
-    /// gone becomes [`Visibility::OffGrid`] with its slot remembered, so
-    /// growing the layout again returns it there — or to the lowest free slot
-    /// if another session has since taken it. Display names and start addresses
-    /// are untouched.
-    pub fn set_layout(&mut self, layout: Layout) {
-        self.layout = layout;
-        if !layout.contains(self.focused) {
-            self.focused = SlotId::FIRST;
-        }
-
-        let order: Vec<SessionId> = self
-            .sessions
-            .iter()
-            .map(|session| session.id.clone())
-            .collect();
-        let placement = arrange(layout, &order, &self.remembered);
-
-        for session in &mut self.sessions {
-            let visibility = placement
-                .get(&session.id)
-                .copied()
-                .unwrap_or(Visibility::OffGrid);
-            session.visibility = visibility;
-            if let Visibility::InSlot(slot) = visibility {
-                self.remembered.insert(session.id.clone(), slot);
-            }
-        }
-    }
-
-    /// Bring `session` into the focused slot and report where every session now
-    /// sits.
-    ///
-    /// If `session` already holds a slot, focus moves there and nothing else
-    /// changes. If the focused slot is empty, `session` fills it. If it is
-    /// taken, `session` and the slot's occupant trade places, the occupant
-    /// going off-grid. A `session` not in the book leaves the book untouched.
-    /// See [`crate::Outcome`] for the three cases the returned [`Placement`]
-    /// distinguishes.
-    pub fn focus_session(&mut self, session: &SessionId) -> Placement {
-        let current: HashMap<SessionId, Visibility> = self
-            .sessions
-            .iter()
-            .map(|s| (s.id.clone(), s.visibility))
-            .collect();
-
-        let placement = bring_into_focus(&current, self.focused, session);
-
-        self.focused = placement.focused();
-        for s in &mut self.sessions {
-            let Some(visibility) = placement.visibility().get(&s.id).copied() else {
-                continue;
-            };
-            s.visibility = visibility;
-            if let Visibility::InSlot(slot) = visibility {
-                self.remembered.insert(s.id.clone(), slot);
-            }
-        }
-
-        placement
-    }
-
-    /// Move `account` to `target` and report what happened.
-    ///
-    /// [`MoveOutcome::Unchanged`] when `target` is `account`'s own slot, is not
-    /// a slot the current layout has, or `account` is off-grid or unknown —
-    /// the book is left exactly as it was, not even its session order. On a
-    /// real move both accounts' new slots are remembered, so a later layout
-    /// switch returns them there (`FR.3.2`). Focus is a slot index, so keeping
-    /// it on the account that had it means: if the focused slot was
-    /// `account`'s, it becomes `target`; if it was `target` and the result is
-    /// [`MoveOutcome::Swapped`], it becomes `account`'s old slot; otherwise it
-    /// is unchanged (`FR.14.3`). `sessions` is then reordered to read like the
-    /// window (`FR.14.7`). No liveness, keep-awake flag or remembered zoom is
-    /// read or written (`FR.14.8`).
+    /// The source position is `account`'s index; the target position is
+    /// `page() * k + target.index()`. An occupied target trades the two `Vec`
+    /// entries directly ([`MoveOutcome::Swapped`]); a target past the end of
+    /// the order removes the account from its own position and pushes it to
+    /// the end ([`MoveOutcome::Filled`]). [`MoveOutcome::Unchanged`], with the
+    /// book untouched, when the target is the source, is not a slot the
+    /// layout has, or `account` is unknown or not on the shown page — it
+    /// cannot be on another page since only the shown page has places, but
+    /// the book's own answer is trusted over the caller's. Either real move
+    /// keeps every other page's accounts at their own positions, since both
+    /// edits stay inside the shown page's slice of the order, and moves focus
+    /// with the dragged account (`FR.14.3`). No liveness, keep-awake flag or
+    /// remembered zoom is read or written (`FR.14.8`).
     pub fn move_to_slot(&mut self, account: &SessionId, target: SlotId) -> MoveOutcome {
-        let current: HashMap<SessionId, Visibility> = self
-            .sessions
-            .iter()
-            .map(|s| (s.id.clone(), s.visibility))
-            .collect();
-
-        let moved = move_into_slot(&current, self.layout, account, target);
-        if *moved.outcome() == MoveOutcome::Unchanged {
+        if !self.layout.contains(target) {
+            return MoveOutcome::Unchanged;
+        }
+        let Some(source) = self.sessions.iter().position(|s| &s.id == account) else {
+            return MoveOutcome::Unchanged;
+        };
+        if self.page_of(source) != self.page() {
             return MoveOutcome::Unchanged;
         }
 
-        for s in &mut self.sessions {
-            let Some(visibility) = moved.visibility().get(&s.id).copied() else {
-                continue;
-            };
-            s.visibility = visibility;
-            if let Visibility::InSlot(slot) = visibility {
-                self.remembered.insert(s.id.clone(), slot);
-            }
+        let destination = self.page() * self.layout.slot_count() + target.index();
+        if destination == source {
+            return MoveOutcome::Unchanged;
         }
 
-        let Some(Visibility::InSlot(source)) = current.get(account).copied() else {
-            unreachable!("a real move only happens when `account` holds a slot");
+        let focused_before = self.focused_session().map(|s| s.id.clone());
+
+        let outcome = if destination < self.sessions.len() {
+            let with = self.sessions[destination].id.clone();
+            self.sessions.swap(source, destination);
+            MoveOutcome::Swapped { with }
+        } else {
+            let session = self.sessions.remove(source);
+            self.sessions.push(session);
+            MoveOutcome::Filled
         };
 
-        if self.focused == source {
-            self.focused = target;
-        } else if self.focused == target && matches!(moved.outcome(), MoveOutcome::Swapped { .. }) {
-            self.focused = source;
+        self.keep_focus_on(focused_before);
+        outcome
+    }
+
+    /// Moves the focused position to wherever the account that held it —
+    /// `id_before` — now sits, so a reorder or a removal never changes which
+    /// account is focused unless that account is gone, in which case the
+    /// position clamps to `0` when the book is empty, else below
+    /// `sessions.len()`. Run after every mutation that can move or drop an
+    /// account (`take`, `move_to_slot`).
+    fn keep_focus_on(&mut self, id_before: Option<SessionId>) {
+        if let Some(id) = id_before
+            && let Some(position) = self.sessions.iter().position(|s| s.id == id)
+        {
+            self.focused = position;
+            return;
         }
-
-        self.reorder_by_placement();
-
-        moved.outcome().clone()
+        self.focused = self.focused.min(self.sessions.len().saturating_sub(1));
     }
 
-    /// Reorders `sessions` to read like the window: [`Visibility::InSlot`]
-    /// accounts first, by slot index, then off-grid accounts in their
-    /// existing relative order. A stable sort, so an unchanged move, a
-    /// rename, a layout switch or a focus change never calls this and never
-    /// disturbs the order (`FR.14.7`).
-    fn reorder_by_placement(&mut self) {
-        self.sessions
-            .sort_by_key(|session| match session.visibility {
-                Visibility::InSlot(slot) => (0, slot.index()),
-                Visibility::OffGrid => (1, 0),
-            });
+    /// The page a position falls on, at the book's current layout.
+    fn page_of(&self, position: usize) -> usize {
+        position / self.layout.slot_count()
     }
 
-    fn occupied_slots(&self) -> Vec<SlotId> {
-        self.sessions
-            .iter()
-            .filter_map(|session| match session.visibility {
-                Visibility::InSlot(slot) => Some(slot),
-                Visibility::OffGrid => None,
-            })
-            .collect()
+    /// The slot a position occupies within its own page.
+    fn slot_of(&self, position: usize) -> SlotId {
+        SlotId::new(position % self.layout.slot_count())
+    }
+
+    /// The focused position, raw — for [`crate::WorkspaceBook`]'s mobile-mode
+    /// snapshot alone, which must save and restore an exact position rather
+    /// than the slot a particular layout happens to derive it into.
+    #[must_use]
+    pub(crate) fn focused_position(&self) -> usize {
+        self.focused
+    }
+
+    /// Restores a focused position saved earlier by
+    /// [`SessionBook::focused_position`], clamped the same way every mutation
+    /// clamps it in case an account gone since made it invalid.
+    pub(crate) fn restore_focus(&mut self, position: usize) {
+        self.focused = position.min(self.sessions.len().saturating_sub(1));
     }
 }
 
 impl Default for SessionBook {
     fn default() -> Self {
         Self::new()
-    }
-}
-
-/// `focused` if `layout` actually has that slot, [`SlotId::FIRST`] otherwise —
-/// a hand-edited file naming a focused place outside the saved layout falls
-/// back rather than leaving the book focused nowhere.
-fn focused_or_first(focused: SlotId, layout: Layout) -> SlotId {
-    if layout.contains(focused) {
-        focused
-    } else {
-        SlotId::FIRST
     }
 }
 
@@ -1144,6 +923,25 @@ mod tests {
         id
     }
 
+    fn session<'a>(book: &'a SessionBook, id: &SessionId) -> &'a Session {
+        book.sessions()
+            .iter()
+            .find(|session| session.id() == id)
+            .expect("session present")
+    }
+
+    fn liveness_of(book: &SessionBook, id: &SessionId) -> Liveness {
+        session(book, id).liveness()
+    }
+
+    fn is_kept_awake(book: &SessionBook, id: &SessionId) -> bool {
+        session(book, id).is_kept_awake()
+    }
+
+    fn order(book: &SessionBook) -> Vec<SessionId> {
+        book.sessions().iter().map(|s| s.id().clone()).collect()
+    }
+
     #[test]
     fn a_minted_identifier_is_distinct_from_every_existing_one() {
         let mut book = SessionBook::new();
@@ -1152,190 +950,6 @@ mod tests {
         let second = add(&mut book, "Two", "https://example.test/two");
 
         assert_ne!(first, second);
-    }
-
-    #[test]
-    fn a_session_added_with_a_slot_free_takes_the_lowest_numbered_one() {
-        let mut book = SessionBook::new();
-        book.set_layout(Layout::Grid);
-
-        add(&mut book, "One", "https://example.test/one");
-        let second = add(&mut book, "Two", "https://example.test/two");
-
-        let placed = book
-            .sessions()
-            .iter()
-            .find(|session| session.id() == &second)
-            .expect("the second session is in the book");
-        assert_eq!(placed.visibility(), Visibility::InSlot(SlotId::new(1)));
-    }
-
-    #[test]
-    fn a_session_added_with_every_slot_full_displaces_the_focused_slot() {
-        let mut book = SessionBook::new();
-        book.set_layout(Layout::SideBySide);
-        let first = add(&mut book, "One", "https://example.test/one");
-        add(&mut book, "Two", "https://example.test/two");
-        book.set_focused(SlotId::new(0));
-
-        add(&mut book, "Three", "https://example.test/three");
-
-        let displaced = book
-            .sessions()
-            .iter()
-            .find(|session| session.id() == &first)
-            .expect("the first session is still in the book");
-        assert_eq!(displaced.visibility(), Visibility::OffGrid);
-    }
-
-    #[test]
-    fn the_displacing_session_takes_the_focused_slot() {
-        let mut book = SessionBook::new();
-        book.set_layout(Layout::SideBySide);
-        add(&mut book, "One", "https://example.test/one");
-        add(&mut book, "Two", "https://example.test/two");
-        book.set_focused(SlotId::new(0));
-
-        let third = add(&mut book, "Three", "https://example.test/three");
-
-        let placed = book
-            .sessions()
-            .iter()
-            .find(|session| session.id() == &third)
-            .expect("the third session is in the book");
-        assert_eq!(placed.visibility(), Visibility::InSlot(SlotId::new(0)));
-    }
-
-    #[test]
-    fn shrinking_the_layout_leaves_the_sessions_that_still_fit_in_place() {
-        let mut book = SessionBook::new();
-        book.set_layout(Layout::Grid);
-        let first = add(&mut book, "One", "https://example.test/one");
-        let second = add(&mut book, "Two", "https://example.test/two");
-        add(&mut book, "Three", "https://example.test/three");
-        add(&mut book, "Four", "https://example.test/four");
-
-        book.set_layout(Layout::SideBySide);
-
-        let visibilities: Vec<Visibility> = [&first, &second]
-            .into_iter()
-            .map(|id| {
-                book.sessions()
-                    .iter()
-                    .find(|session| session.id() == id)
-                    .expect("session present")
-                    .visibility()
-            })
-            .collect();
-        assert_eq!(
-            visibilities,
-            vec![
-                Visibility::InSlot(SlotId::new(0)),
-                Visibility::InSlot(SlotId::new(1)),
-            ]
-        );
-    }
-
-    #[test]
-    fn shrinking_the_layout_pushes_the_sessions_that_no_longer_fit_off_grid() {
-        let mut book = SessionBook::new();
-        book.set_layout(Layout::Grid);
-        add(&mut book, "One", "https://example.test/one");
-        add(&mut book, "Two", "https://example.test/two");
-        let third = add(&mut book, "Three", "https://example.test/three");
-        let fourth = add(&mut book, "Four", "https://example.test/four");
-
-        book.set_layout(Layout::SideBySide);
-
-        let visibilities: Vec<Visibility> = [&third, &fourth]
-            .into_iter()
-            .map(|id| {
-                book.sessions()
-                    .iter()
-                    .find(|session| session.id() == id)
-                    .expect("session present")
-                    .visibility()
-            })
-            .collect();
-        assert_eq!(visibilities, vec![Visibility::OffGrid, Visibility::OffGrid]);
-    }
-
-    #[test]
-    fn growing_the_layout_returns_an_off_grid_session_to_its_remembered_slot() {
-        let mut book = SessionBook::new();
-        book.set_layout(Layout::Grid);
-        add(&mut book, "One", "https://example.test/one");
-        add(&mut book, "Two", "https://example.test/two");
-        let third = add(&mut book, "Three", "https://example.test/three");
-        book.set_layout(Layout::SideBySide);
-
-        book.set_layout(Layout::Grid);
-
-        let placed = book
-            .sessions()
-            .iter()
-            .find(|session| session.id() == &third)
-            .expect("session present");
-        assert_eq!(placed.visibility(), Visibility::InSlot(SlotId::new(2)));
-    }
-
-    #[test]
-    fn growing_the_layout_sends_a_session_whose_remembered_slot_was_taken_to_the_lowest_free_slot()
-    {
-        let mut book = SessionBook::new();
-        book.set_layout(Layout::SideBySide);
-        add(&mut book, "One", "https://example.test/one");
-        add(&mut book, "Two", "https://example.test/two");
-        book.set_focused(SlotId::new(0));
-        let third = add(&mut book, "Three", "https://example.test/three");
-
-        book.set_layout(Layout::Grid);
-
-        let placed = book
-            .sessions()
-            .iter()
-            .find(|session| session.id() == &third)
-            .expect("session present");
-        assert_eq!(placed.visibility(), Visibility::InSlot(SlotId::new(2)));
-    }
-
-    #[test]
-    fn focusing_a_visible_session_moves_the_books_focus_to_its_slot() {
-        let mut book = SessionBook::new();
-        book.set_layout(Layout::SideBySide);
-        add(&mut book, "One", "https://example.test/one");
-        let two = add(&mut book, "Two", "https://example.test/two");
-
-        book.focus_session(&two);
-
-        assert_eq!(book.focused(), SlotId::new(1));
-    }
-
-    #[test]
-    fn focusing_an_off_grid_session_swaps_it_into_the_focused_slot_in_the_book() {
-        let mut book = SessionBook::new();
-        book.set_layout(Layout::SideBySide);
-        let first = add(&mut book, "One", "https://example.test/one");
-        add(&mut book, "Two", "https://example.test/two");
-        book.set_focused(SlotId::new(0));
-        let third = add(&mut book, "Three", "https://example.test/three");
-
-        book.focus_session(&first);
-
-        let seats: Vec<Visibility> = [&first, &third]
-            .into_iter()
-            .map(|id| {
-                book.sessions()
-                    .iter()
-                    .find(|session| session.id() == id)
-                    .expect("session present")
-                    .visibility()
-            })
-            .collect();
-        assert_eq!(
-            seats,
-            vec![Visibility::InSlot(SlotId::new(0)), Visibility::OffGrid],
-        );
     }
 
     #[test]
@@ -1361,298 +975,143 @@ mod tests {
         );
     }
 
-    fn liveness_of(book: &SessionBook, id: &SessionId) -> Liveness {
-        book.sessions()
-            .iter()
-            .find(|session| session.id() == id)
-            .expect("session present")
-            .liveness()
-    }
-
-    fn visibility_of(book: &SessionBook, id: &SessionId) -> Visibility {
-        book.sessions()
-            .iter()
-            .find(|session| session.id() == id)
-            .expect("session present")
-            .visibility()
-    }
-
+    /// Acceptance: four accounts in `SideBySide` with the third focused —
+    /// `page()` is `1`, `page_count()` is `2`, `placement` answers `InSlot(0)`
+    /// and `InSlot(1)` for the third and fourth and `OffGrid` for the first
+    /// two.
     #[test]
-    fn a_session_added_to_the_book_starts_live() {
+    fn four_accounts_in_side_by_side_with_the_third_focused_show_the_second_page() {
         let mut book = SessionBook::new();
-
-        let id = add(&mut book, "One", "https://example.test/one");
-
-        assert_eq!(liveness_of(&book, &id), Liveness::Live);
-    }
-
-    #[test]
-    fn parking_a_live_session_returns_parked() {
-        let mut book = SessionBook::new();
-        let id = add(&mut book, "One", "https://example.test/one");
-
-        let state = book.park(&id);
-
-        assert_eq!(state, Liveness::Parked);
-    }
-
-    #[test]
-    fn parking_a_session_leaves_its_visibility_unchanged() {
-        let mut book = SessionBook::new();
-        let id = add(&mut book, "One", "https://example.test/one");
-        let visibility = visibility_of(&book, &id);
-
-        book.park(&id);
-
-        assert_eq!(visibility_of(&book, &id), visibility);
-    }
-
-    #[test]
-    fn unparking_a_parked_session_returns_starting() {
-        let mut book = SessionBook::new();
-        let id = add(&mut book, "One", "https://example.test/one");
-        book.park(&id);
-
-        let state = book.unpark(&id);
-
-        assert_eq!(state, Liveness::Starting);
-    }
-
-    #[test]
-    fn unparking_a_session_leaves_its_visibility_unchanged() {
-        let mut book = SessionBook::new();
-        let id = add(&mut book, "One", "https://example.test/one");
-        book.park(&id);
-        let visibility = visibility_of(&book, &id);
-
-        book.unpark(&id);
-
-        assert_eq!(visibility_of(&book, &id), visibility);
-    }
-
-    #[test]
-    fn ending_the_starting_interval_returns_live() {
-        let mut book = SessionBook::new();
-        let id = add(&mut book, "One", "https://example.test/one");
-        book.park(&id);
-        book.unpark(&id);
-
-        let state = book.mark_started(&id);
-
-        assert_eq!(state, Liveness::Live);
-    }
-
-    #[test]
-    fn parking_an_already_parked_session_returns_parked_and_changes_nothing_else() {
-        let mut book = SessionBook::new();
-        let id = add(&mut book, "One", "https://example.test/one");
-        book.park(&id);
-        let visibility = visibility_of(&book, &id);
-
-        let state = book.park(&id);
+        book.set_layout(Layout::SideBySide);
+        let one = add(&mut book, "One", "https://example.test/one");
+        let two = add(&mut book, "Two", "https://example.test/two");
+        let three = add(&mut book, "Three", "https://example.test/three");
+        let four = add(&mut book, "Four", "https://example.test/four");
+        book.focus_session(&three);
 
         assert_eq!(
-            (state, visibility_of(&book, &id)),
-            (Liveness::Parked, visibility)
+            (
+                book.page(),
+                book.page_count(),
+                book.placement(&three),
+                book.placement(&four),
+                book.placement(&one),
+                book.placement(&two),
+            ),
+            (
+                1,
+                2,
+                Some(Visibility::InSlot(SlotId::new(0))),
+                Some(Visibility::InSlot(SlotId::new(1))),
+                Some(Visibility::OffGrid),
+                Some(Visibility::OffGrid),
+            ),
         );
     }
 
+    /// Acceptance: switching from `Grid` to `Single` with the third of four
+    /// focused answers `InSlot(0)` for that account, and switching back to
+    /// `Grid` answers a slot for all four again.
     #[test]
-    fn unparking_a_live_session_returns_live_and_changes_nothing_else() {
-        let mut book = SessionBook::new();
-        let id = add(&mut book, "One", "https://example.test/one");
-        let visibility = visibility_of(&book, &id);
-
-        let state = book.unpark(&id);
-
-        assert_eq!(
-            (state, liveness_of(&book, &id), visibility_of(&book, &id)),
-            (Liveness::Live, Liveness::Live, visibility)
-        );
-    }
-
-    #[test]
-    fn the_live_session_count_is_the_number_of_running_accounts() {
-        let mut book = SessionBook::new();
-        book.set_layout(Layout::Grid);
-        add(&mut book, "One", "https://example.test/one");
-        add(&mut book, "Two", "https://example.test/two");
-
-        assert_eq!(book.live_session_count(), 2);
-    }
-
-    #[test]
-    fn a_parked_account_is_not_counted_among_the_live_sessions() {
+    fn switching_layout_keeps_the_focused_account_on_screen_and_back_shows_everyone_again() {
         let mut book = SessionBook::new();
         book.set_layout(Layout::Grid);
         let one = add(&mut book, "One", "https://example.test/one");
-        add(&mut book, "Two", "https://example.test/two");
+        let two = add(&mut book, "Two", "https://example.test/two");
+        let three = add(&mut book, "Three", "https://example.test/three");
+        let four = add(&mut book, "Four", "https://example.test/four");
+        book.focus_session(&three);
 
-        book.park(&one);
+        book.set_layout(Layout::Single);
+        let while_single = book.placement(&three);
 
-        assert_eq!(book.live_session_count(), 1);
+        book.set_layout(Layout::Grid);
+        let while_grid_again = [&one, &two, &three, &four].map(|id| book.placement(id));
+
+        assert_eq!(
+            (while_single, while_grid_again),
+            (
+                Some(Visibility::InSlot(SlotId::FIRST)),
+                [
+                    Some(Visibility::InSlot(SlotId::new(0))),
+                    Some(Visibility::InSlot(SlotId::new(1))),
+                    Some(Visibility::InSlot(SlotId::new(2))),
+                    Some(Visibility::InSlot(SlotId::new(3))),
+                ],
+            ),
+        );
     }
 
-    fn is_kept_awake(book: &SessionBook, id: &SessionId) -> bool {
-        book.sessions()
-            .iter()
-            .find(|session| session.id() == id)
-            .expect("session present")
-            .is_kept_awake()
-    }
-
+    /// Acceptance: `focus_slot` on a trailing slot past the end of the order
+    /// returns `false` and leaves `focused_session()` unchanged.
     #[test]
-    fn an_account_added_to_the_book_starts_with_keep_awake_off() {
-        let mut book = SessionBook::new();
-
-        let id = add(&mut book, "One", "https://example.test/one");
-
-        assert!(!is_kept_awake(&book, &id));
-    }
-
-    #[test]
-    fn turning_keep_awake_on_for_an_account_that_had_it_off_returns_true() {
-        let mut book = SessionBook::new();
-        let id = add(&mut book, "One", "https://example.test/one");
-
-        let changed = book.set_keep_awake(&id, true);
-
-        assert!(changed);
-    }
-
-    #[test]
-    fn turning_keep_awake_on_for_an_account_that_had_it_off_leaves_the_flag_on() {
-        let mut book = SessionBook::new();
-        let id = add(&mut book, "One", "https://example.test/one");
-
-        book.set_keep_awake(&id, true);
-
-        assert!(is_kept_awake(&book, &id));
-    }
-
-    #[test]
-    fn setting_keep_awake_to_its_current_value_reports_no_change() {
-        let mut book = SessionBook::new();
-        let id = add(&mut book, "One", "https://example.test/one");
-
-        let changed = book.set_keep_awake(&id, false);
-
-        assert!(!changed);
-    }
-
-    #[test]
-    fn setting_keep_awake_to_its_current_value_leaves_liveness_unchanged() {
-        let mut book = SessionBook::new();
-        let id = add(&mut book, "One", "https://example.test/one");
-        book.park(&id);
-        let liveness = liveness_of(&book, &id);
-
-        book.set_keep_awake(&id, false);
-
-        assert_eq!(liveness_of(&book, &id), liveness);
-    }
-
-    #[test]
-    fn turning_keep_awake_on_for_a_live_account_leaves_it_starting() {
-        let mut book = SessionBook::new();
-        let id = add(&mut book, "One", "https://example.test/one");
-
-        book.set_keep_awake(&id, true);
-
-        assert_eq!(liveness_of(&book, &id), Liveness::Starting);
-    }
-
-    #[test]
-    fn turning_keep_awake_on_for_a_parked_account_leaves_it_parked() {
-        let mut book = SessionBook::new();
-        let id = add(&mut book, "One", "https://example.test/one");
-        book.park(&id);
-
-        book.set_keep_awake(&id, true);
-
-        assert_eq!(liveness_of(&book, &id), Liveness::Parked);
-    }
-
-    #[test]
-    fn keep_awake_survives_a_layout_change_that_moves_the_account_between_slots() {
+    fn focus_slot_past_the_end_of_the_order_changes_nothing() {
         let mut book = SessionBook::new();
         book.set_layout(Layout::Grid);
-        let id = add(&mut book, "One", "https://example.test/one");
-        add(&mut book, "Two", "https://example.test/two");
-        add(&mut book, "Three", "https://example.test/three");
-        add(&mut book, "Four", "https://example.test/four");
-        book.set_keep_awake(&id, true);
+        let one = add(&mut book, "One", "https://example.test/one");
 
-        book.set_layout(Layout::SideBySide);
-        book.set_layout(Layout::Grid);
+        let changed = book.focus_slot(SlotId::new(3));
 
-        assert!(is_kept_awake(&book, &id));
+        assert_eq!(
+            (changed, book.focused_session().map(Session::id)),
+            (false, Some(&one)),
+        );
     }
 
+    /// Acceptance: `add` and `add_from_preset` append to the order and focus
+    /// the newcomer; `adopt` appends and leaves `focused_session()` as it was.
     #[test]
-    fn keep_awake_survives_being_pushed_off_grid_and_brought_back_into_focus() {
+    fn add_and_add_from_preset_focus_the_newcomer_while_adopt_leaves_focus_alone() {
         let mut book = SessionBook::new();
-        book.set_layout(Layout::SideBySide);
-        let first = add(&mut book, "One", "https://example.test/one");
-        add(&mut book, "Two", "https://example.test/two");
-        book.set_focused(SlotId::new(0));
-        add(&mut book, "Three", "https://example.test/three");
-        book.set_keep_awake(&first, true);
+        let one = add(&mut book, "One", "https://example.test/one");
 
-        book.focus_session(&first);
+        let two = add(&mut book, "Two", "https://example.test/two");
+        let focus_after_add = book.focused_session().map(Session::id).cloned();
 
-        assert!(is_kept_awake(&book, &first));
+        let three = add_from_preset(&mut book, "Alt", &a_preset());
+        let focus_after_add_from_preset = book.focused_session().map(Session::id).cloned();
+
+        let mut source = SessionBook::new();
+        let arriving_id = add(&mut source, "Filler", "https://example.test/filler");
+        let arriving = source.take(&arriving_id).expect("just added to source");
+        book.adopt(arriving);
+        let focus_after_adopt = book.focused_session().map(Session::id).cloned();
+
+        assert_eq!(
+            (
+                focus_after_add,
+                focus_after_add_from_preset,
+                focus_after_adopt,
+            ),
+            (Some(two), Some(three.clone()), Some(three)),
+        );
+        assert!(order(&book).contains(&one));
     }
 
+    /// Acceptance: taking the account before the focused one keeps
+    /// `focused_session()` the same account; taking the focused last account
+    /// clamps to the new last.
     #[test]
-    fn keep_awake_survives_being_parked() {
+    fn taking_an_account_keeps_focus_on_the_same_account_unless_it_is_the_one_taken() {
         let mut book = SessionBook::new();
-        let id = add(&mut book, "One", "https://example.test/one");
-        book.set_keep_awake(&id, true);
+        let one = add(&mut book, "One", "https://example.test/one");
+        let two = add(&mut book, "Two", "https://example.test/two");
+        let three = add(&mut book, "Three", "https://example.test/three");
+        book.focus_session(&three);
 
-        book.park(&id);
+        book.take(&one);
+        let focus_after_removing_before = book.focused_session().map(Session::id).cloned();
 
-        assert!(is_kept_awake(&book, &id));
-    }
+        book.take(&three);
+        let focus_after_removing_focused_last = book.focused_session().map(Session::id).cloned();
 
-    #[test]
-    fn keep_awake_survives_being_unparked() {
-        let mut book = SessionBook::new();
-        let id = add(&mut book, "One", "https://example.test/one");
-        book.set_keep_awake(&id, true);
-        book.park(&id);
-
-        book.unpark(&id);
-
-        assert!(is_kept_awake(&book, &id));
-    }
-
-    #[test]
-    fn setting_keep_awake_on_an_unknown_id_reports_no_change() {
-        let mut book = SessionBook::new();
-        let unknown = SessionId::new("session-9999");
-
-        let changed = book.set_keep_awake(&unknown, true);
-
-        assert!(!changed);
-    }
-
-    #[test]
-    fn setting_keep_awake_on_an_unknown_id_leaves_the_book_untouched() {
-        let mut book = SessionBook::new();
-        let id = add(&mut book, "One", "https://example.test/one");
-        let unknown = SessionId::new("session-9999");
-
-        book.set_keep_awake(&unknown, true);
-
-        assert!(!is_kept_awake(&book, &id));
-    }
-
-    fn session<'a>(book: &'a SessionBook, id: &SessionId) -> &'a Session {
-        book.sessions()
-            .iter()
-            .find(|session| session.id() == id)
-            .expect("session present")
+        assert_eq!(
+            (
+                focus_after_removing_before,
+                focus_after_removing_focused_last
+            ),
+            (Some(three), Some(two)),
+        );
     }
 
     fn a_preset() -> Preset {
@@ -1773,33 +1232,6 @@ mod tests {
     }
 
     #[test]
-    fn an_account_from_a_preset_takes_the_lowest_free_slot_like_a_typed_one() {
-        let mut book = SessionBook::new();
-        book.set_layout(Layout::Grid);
-        add(&mut book, "One", "https://example.test/one");
-
-        let id = add_from_preset(&mut book, "Alt", &a_preset());
-
-        assert_eq!(
-            session(&book, &id).visibility(),
-            Visibility::InSlot(SlotId::new(1))
-        );
-    }
-
-    #[test]
-    fn an_account_from_a_preset_into_a_full_grid_displaces_the_focused_slot() {
-        let mut book = SessionBook::new();
-        book.set_layout(Layout::SideBySide);
-        let first = add(&mut book, "One", "https://example.test/one");
-        add(&mut book, "Two", "https://example.test/two");
-        book.set_focused(SlotId::new(0));
-
-        add_from_preset(&mut book, "Alt", &a_preset());
-
-        assert_eq!(session(&book, &first).visibility(), Visibility::OffGrid);
-    }
-
-    #[test]
     fn an_account_from_a_typed_address_carries_no_identity_and_the_default_zoom() {
         let mut book = SessionBook::new();
 
@@ -1818,19 +1250,9 @@ mod tests {
             display_name: name.to_owned(),
             start_address: format!("https://example.test/{id}"),
             liveness: SavedLiveness::Running,
-            visibility: Visibility::OffGrid,
-            remembered_slot: None,
             is_kept_awake: false,
             browser_identity: None,
             zoom: ZoomLevel::DEFAULT,
-        }
-    }
-
-    fn in_slot(account: Account, slot: usize) -> Account {
-        Account {
-            visibility: Visibility::InSlot(SlotId::new(slot)),
-            remembered_slot: Some(SlotId::new(slot)),
-            ..account
         }
     }
 
@@ -1909,6 +1331,40 @@ mod tests {
     }
 
     #[test]
+    fn a_focused_position_past_the_restored_orders_end_clamps_to_the_last_account() {
+        let workspace = Workspace {
+            accounts: vec![
+                saved_account("session-0001", "A"),
+                saved_account("session-0002", "B"),
+            ],
+            focused: 9,
+            layout: Layout::Single,
+            ..Workspace::default()
+        };
+
+        let book = SessionBook::restore(workspace);
+
+        assert_eq!(
+            book.focused_session().map(Session::id),
+            Some(&SessionId::new("session-0002")),
+        );
+    }
+
+    #[test]
+    fn restoring_an_empty_workspace_with_a_nonzero_focused_position_stays_at_zero() {
+        let workspace = Workspace {
+            accounts: Vec::new(),
+            focused: 3,
+            layout: Layout::default(),
+            ..Workspace::default()
+        };
+
+        let book = SessionBook::restore(workspace);
+
+        assert!(book.focused_session().is_none());
+    }
+
+    #[test]
     fn the_start_order_lists_the_queued_accounts_in_workspace_order() {
         let workspace = Workspace {
             accounts: vec![
@@ -1954,27 +1410,6 @@ mod tests {
     }
 
     #[test]
-    fn an_account_whose_saved_slot_the_layout_cannot_show_comes_back_off_grid_then_reclaims_it() {
-        let workspace = Workspace {
-            accounts: vec![
-                in_slot(saved_account("session-0001", "A"), 0),
-                in_slot(saved_account("session-0002", "B"), 1),
-            ],
-            layout: Layout::Single,
-            ..Workspace::default()
-        };
-        let mut book = SessionBook::restore(workspace);
-        let while_single = book.sessions()[1].visibility();
-
-        book.set_layout(Layout::SideBySide);
-
-        assert_eq!(
-            (while_single, book.sessions()[1].visibility()),
-            (Visibility::OffGrid, Visibility::InSlot(SlotId::new(1))),
-        );
-    }
-
-    #[test]
     fn an_account_added_after_a_restore_gets_an_identifier_distinct_from_every_restored_one() {
         let workspace = Workspace {
             accounts: vec![
@@ -2005,14 +1440,15 @@ mod tests {
                     liveness: SavedLiveness::Running,
                     is_kept_awake: true,
                     zoom: ZoomLevel::new(1.2).expect("1.2 is an accepted multiplier"),
-                    ..in_slot(saved_account("session-0001", "A"), 0)
+                    ..saved_account("session-0001", "A")
                 },
                 Account {
                     liveness: SavedLiveness::Parked,
                     browser_identity: Some("UA/2".to_owned()),
-                    ..in_slot(saved_account("session-0002", "B"), 1)
+                    ..saved_account("session-0002", "B")
                 },
             ],
+            focused: 1,
             layout: Layout::SideBySide,
             ..Workspace::default()
         };
@@ -2052,6 +1488,228 @@ mod tests {
         let saved = book.workspace(WorkspaceId::ungrouped(), "Ungrouped".to_owned(), true);
 
         assert_eq!(saved.accounts[0].liveness, SavedLiveness::Running);
+    }
+
+    #[test]
+    fn a_session_added_to_the_book_starts_live() {
+        let mut book = SessionBook::new();
+
+        let id = add(&mut book, "One", "https://example.test/one");
+
+        assert_eq!(liveness_of(&book, &id), Liveness::Live);
+    }
+
+    #[test]
+    fn parking_a_live_session_returns_parked() {
+        let mut book = SessionBook::new();
+        let id = add(&mut book, "One", "https://example.test/one");
+
+        let state = book.park(&id);
+
+        assert_eq!(state, Liveness::Parked);
+    }
+
+    #[test]
+    fn unparking_a_parked_session_returns_starting() {
+        let mut book = SessionBook::new();
+        let id = add(&mut book, "One", "https://example.test/one");
+        book.park(&id);
+
+        let state = book.unpark(&id);
+
+        assert_eq!(state, Liveness::Starting);
+    }
+
+    #[test]
+    fn ending_the_starting_interval_returns_live() {
+        let mut book = SessionBook::new();
+        let id = add(&mut book, "One", "https://example.test/one");
+        book.park(&id);
+        book.unpark(&id);
+
+        let state = book.mark_started(&id);
+
+        assert_eq!(state, Liveness::Live);
+    }
+
+    #[test]
+    fn parking_an_already_parked_session_returns_parked_and_changes_nothing_else() {
+        let mut book = SessionBook::new();
+        let id = add(&mut book, "One", "https://example.test/one");
+        book.park(&id);
+        let placement = book.placement(&id);
+
+        let state = book.park(&id);
+
+        assert_eq!((state, book.placement(&id)), (Liveness::Parked, placement));
+    }
+
+    #[test]
+    fn unparking_a_live_session_returns_live_and_changes_nothing_else() {
+        let mut book = SessionBook::new();
+        let id = add(&mut book, "One", "https://example.test/one");
+        let placement = book.placement(&id);
+
+        let state = book.unpark(&id);
+
+        assert_eq!(
+            (state, liveness_of(&book, &id), book.placement(&id)),
+            (Liveness::Live, Liveness::Live, placement)
+        );
+    }
+
+    #[test]
+    fn the_live_session_count_is_the_number_of_running_accounts() {
+        let mut book = SessionBook::new();
+        book.set_layout(Layout::Grid);
+        add(&mut book, "One", "https://example.test/one");
+        add(&mut book, "Two", "https://example.test/two");
+
+        assert_eq!(book.live_session_count(), 2);
+    }
+
+    #[test]
+    fn a_parked_account_is_not_counted_among_the_live_sessions() {
+        let mut book = SessionBook::new();
+        book.set_layout(Layout::Grid);
+        let one = add(&mut book, "One", "https://example.test/one");
+        add(&mut book, "Two", "https://example.test/two");
+
+        book.park(&one);
+
+        assert_eq!(book.live_session_count(), 1);
+    }
+
+    #[test]
+    fn an_account_added_to_the_book_starts_with_keep_awake_off() {
+        let mut book = SessionBook::new();
+
+        let id = add(&mut book, "One", "https://example.test/one");
+
+        assert!(!is_kept_awake(&book, &id));
+    }
+
+    #[test]
+    fn turning_keep_awake_on_for_an_account_that_had_it_off_returns_true() {
+        let mut book = SessionBook::new();
+        let id = add(&mut book, "One", "https://example.test/one");
+
+        let changed = book.set_keep_awake(&id, true);
+
+        assert!(changed);
+    }
+
+    #[test]
+    fn turning_keep_awake_on_for_an_account_that_had_it_off_leaves_the_flag_on() {
+        let mut book = SessionBook::new();
+        let id = add(&mut book, "One", "https://example.test/one");
+
+        book.set_keep_awake(&id, true);
+
+        assert!(is_kept_awake(&book, &id));
+    }
+
+    #[test]
+    fn setting_keep_awake_to_its_current_value_reports_no_change() {
+        let mut book = SessionBook::new();
+        let id = add(&mut book, "One", "https://example.test/one");
+
+        let changed = book.set_keep_awake(&id, false);
+
+        assert!(!changed);
+    }
+
+    #[test]
+    fn setting_keep_awake_to_its_current_value_leaves_liveness_unchanged() {
+        let mut book = SessionBook::new();
+        let id = add(&mut book, "One", "https://example.test/one");
+        book.park(&id);
+        let liveness = liveness_of(&book, &id);
+
+        book.set_keep_awake(&id, false);
+
+        assert_eq!(liveness_of(&book, &id), liveness);
+    }
+
+    #[test]
+    fn turning_keep_awake_on_for_a_live_account_leaves_it_starting() {
+        let mut book = SessionBook::new();
+        let id = add(&mut book, "One", "https://example.test/one");
+
+        book.set_keep_awake(&id, true);
+
+        assert_eq!(liveness_of(&book, &id), Liveness::Starting);
+    }
+
+    #[test]
+    fn turning_keep_awake_on_for_a_parked_account_leaves_it_parked() {
+        let mut book = SessionBook::new();
+        let id = add(&mut book, "One", "https://example.test/one");
+        book.park(&id);
+
+        book.set_keep_awake(&id, true);
+
+        assert_eq!(liveness_of(&book, &id), Liveness::Parked);
+    }
+
+    #[test]
+    fn keep_awake_survives_a_layout_change_that_moves_the_account_between_pages() {
+        let mut book = SessionBook::new();
+        book.set_layout(Layout::Grid);
+        let id = add(&mut book, "One", "https://example.test/one");
+        add(&mut book, "Two", "https://example.test/two");
+        add(&mut book, "Three", "https://example.test/three");
+        add(&mut book, "Four", "https://example.test/four");
+        book.set_keep_awake(&id, true);
+
+        book.set_layout(Layout::SideBySide);
+        book.set_layout(Layout::Grid);
+
+        assert!(is_kept_awake(&book, &id));
+    }
+
+    #[test]
+    fn keep_awake_survives_being_parked() {
+        let mut book = SessionBook::new();
+        let id = add(&mut book, "One", "https://example.test/one");
+        book.set_keep_awake(&id, true);
+
+        book.park(&id);
+
+        assert!(is_kept_awake(&book, &id));
+    }
+
+    #[test]
+    fn keep_awake_survives_being_unparked() {
+        let mut book = SessionBook::new();
+        let id = add(&mut book, "One", "https://example.test/one");
+        book.set_keep_awake(&id, true);
+        book.park(&id);
+
+        book.unpark(&id);
+
+        assert!(is_kept_awake(&book, &id));
+    }
+
+    #[test]
+    fn setting_keep_awake_on_an_unknown_id_reports_no_change() {
+        let mut book = SessionBook::new();
+        let unknown = SessionId::new("session-9999");
+
+        let changed = book.set_keep_awake(&unknown, true);
+
+        assert!(!changed);
+    }
+
+    #[test]
+    fn setting_keep_awake_on_an_unknown_id_leaves_the_book_untouched() {
+        let mut book = SessionBook::new();
+        let id = add(&mut book, "One", "https://example.test/one");
+        let unknown = SessionId::new("session-9999");
+
+        book.set_keep_awake(&unknown, true);
+
+        assert!(!is_kept_awake(&book, &id));
     }
 
     fn accepted(multiplier: f64) -> ZoomLevel {
@@ -2338,15 +1996,15 @@ mod tests {
     }
 
     #[test]
-    fn a_step_leaves_the_accounts_liveness_and_visibility_exactly_as_they_were() {
+    fn a_step_leaves_the_accounts_liveness_and_placement_exactly_as_they_were() {
         let mut book = SessionBook::new();
         let id = add(&mut book, "One", "https://example.test/one");
         book.park(&id);
-        let before = (liveness_of(&book, &id), visibility_of(&book, &id));
+        let before = (liveness_of(&book, &id), book.placement(&id));
 
         book.zoom_in(&id);
 
-        assert_eq!((liveness_of(&book, &id), visibility_of(&book, &id)), before,);
+        assert_eq!((liveness_of(&book, &id), book.placement(&id)), before);
     }
 
     #[test]
@@ -2366,22 +2024,18 @@ mod tests {
     }
 
     #[test]
-    fn focused_session_returns_the_account_in_the_focused_slot() {
+    fn focused_session_returns_the_account_at_the_focused_position() {
         let mut book = SessionBook::new();
         book.set_layout(Layout::SideBySide);
         add(&mut book, "One", "https://example.test/one");
         let two = add(&mut book, "Two", "https://example.test/two");
-        book.set_focused(SlotId::new(1));
 
         assert_eq!(book.focused_session().map(Session::id), Some(&two));
     }
 
     #[test]
-    fn focused_session_is_none_when_the_focused_slot_holds_nothing() {
-        let mut book = SessionBook::new();
-        book.set_layout(Layout::SideBySide);
-        add(&mut book, "One", "https://example.test/one");
-        book.set_focused(SlotId::new(1));
+    fn focused_session_is_none_for_an_empty_book() {
+        let book = SessionBook::new();
 
         assert!(book.focused_session().is_none());
     }
@@ -2436,15 +2090,12 @@ mod tests {
         book.set_layout(Layout::SideBySide);
         let first = add(&mut book, "One", "https://example.test/one");
         add(&mut book, "Two", "https://example.test/two");
-        book.set_focused(SlotId::new(1));
-        let order = |book: &SessionBook| -> Vec<SessionId> {
-            book.sessions().iter().map(|s| s.id().clone()).collect()
-        };
+        book.focus_session(&first);
         let before = (
             liveness_of(&book, &first),
-            visibility_of(&book, &first),
+            book.placement(&first),
             is_kept_awake(&book, &first),
-            book.focused(),
+            book.focused_session().map(Session::id).cloned(),
             order(&book),
         );
 
@@ -2452,9 +2103,9 @@ mod tests {
 
         let after = (
             liveness_of(&book, &first),
-            visibility_of(&book, &first),
+            book.placement(&first),
             is_kept_awake(&book, &first),
-            book.focused(),
+            book.focused_session().map(Session::id).cloned(),
             order(&book),
         );
         assert_eq!(after, before);
@@ -2474,18 +2125,12 @@ mod tests {
     fn renaming_with_an_empty_name_leaves_the_book_unchanged() {
         let mut book = SessionBook::new();
         let id = add(&mut book, "One", "https://example.test/one");
-        let before = (
-            book.workspace(WorkspaceId::ungrouped(), "Ungrouped".to_owned(), true),
-            book.focused(),
-        );
+        let before = book.workspace(WorkspaceId::ungrouped(), "Ungrouped".to_owned(), true);
 
         book.rename(&id, "   ");
 
         assert_eq!(
-            (
-                book.workspace(WorkspaceId::ungrouped(), "Ungrouped".to_owned(), true),
-                book.focused()
-            ),
+            book.workspace(WorkspaceId::ungrouped(), "Ungrouped".to_owned(), true),
             before
         );
     }
@@ -2506,18 +2151,12 @@ mod tests {
         let mut book = SessionBook::new();
         add(&mut book, "One", "https://example.test/one");
         let unknown = SessionId::new("session-9999");
-        let before = (
-            book.workspace(WorkspaceId::ungrouped(), "Ungrouped".to_owned(), true),
-            book.focused(),
-        );
+        let before = book.workspace(WorkspaceId::ungrouped(), "Ungrouped".to_owned(), true);
 
         book.rename(&unknown, "New name");
 
         assert_eq!(
-            (
-                book.workspace(WorkspaceId::ungrouped(), "Ungrouped".to_owned(), true),
-                book.focused()
-            ),
+            book.workspace(WorkspaceId::ungrouped(), "Ungrouped".to_owned(), true),
             before
         );
     }
@@ -2584,15 +2223,17 @@ mod tests {
         );
     }
 
-    fn snapshot(book: &SessionBook) -> (Workspace, SlotId) {
+    fn snapshot(book: &SessionBook) -> (Workspace, usize) {
         (
             book.workspace(WorkspaceId::ungrouped(), "Ungrouped".to_owned(), true),
-            book.focused(),
+            book.focused_position(),
         )
     }
 
+    /// Acceptance (part 1 of 4): `move_to_slot` onto an occupied slot returns
+    /// `Swapped` and trades exactly those two positions.
     #[test]
-    fn moving_onto_an_occupied_slot_returns_swapped_and_trades_exactly_those_two_slots() {
+    fn moving_onto_an_occupied_slot_returns_swapped_and_trades_exactly_those_two_positions() {
         let mut book = SessionBook::new();
         book.set_layout(Layout::Grid);
         let one = add(&mut book, "One", "https://example.test/one");
@@ -2604,37 +2245,81 @@ mod tests {
         assert_eq!(
             (
                 outcome,
-                visibility_of(&book, &one),
-                visibility_of(&book, &two),
-                visibility_of(&book, &three),
+                book.placement(&one),
+                book.placement(&two),
+                book.placement(&three),
             ),
             (
                 MoveOutcome::Swapped { with: two.clone() },
-                Visibility::InSlot(SlotId::new(1)),
-                Visibility::InSlot(SlotId::new(0)),
-                Visibility::InSlot(SlotId::new(2)),
+                Some(Visibility::InSlot(SlotId::new(1))),
+                Some(Visibility::InSlot(SlotId::new(0))),
+                Some(Visibility::InSlot(SlotId::new(2))),
             ),
         );
     }
 
+    /// Acceptance (part 2 of 4): onto a position past the order's end,
+    /// `move_to_slot` returns `Filled` and moves the account to the end.
     #[test]
-    fn moving_onto_an_empty_slot_returns_filled_and_leaves_the_old_slot_empty() {
+    fn moving_onto_a_position_past_the_orders_end_returns_filled_and_moves_the_account_to_the_end()
+    {
         let mut book = SessionBook::new();
         book.set_layout(Layout::Grid);
         let one = add(&mut book, "One", "https://example.test/one");
-        add(&mut book, "Two", "https://example.test/two");
+        let two = add(&mut book, "Two", "https://example.test/two");
 
         let outcome = book.move_to_slot(&one, SlotId::new(2));
 
         assert_eq!(
-            (outcome, visibility_of(&book, &one)),
-            (MoveOutcome::Filled, Visibility::InSlot(SlotId::new(2))),
+            (outcome, order(&book), book.placement(&one)),
+            (
+                MoveOutcome::Filled,
+                vec![two, one],
+                Some(Visibility::InSlot(SlotId::new(1))),
+            ),
         );
-        assert!(
-            book.sessions()
-                .iter()
-                .all(|s| s.visibility() != Visibility::InSlot(SlotId::new(0)))
+    }
+
+    /// Acceptance (part 3 of 4): a move on the shown page never touches
+    /// another page's order or placement.
+    #[test]
+    fn a_move_on_the_shown_page_leaves_every_other_pages_order_and_placement_untouched() {
+        let mut book = SessionBook::new();
+        book.set_layout(Layout::SideBySide);
+        let one = add(&mut book, "One", "https://example.test/one");
+        add(&mut book, "Two", "https://example.test/two");
+        let three = add(&mut book, "Three", "https://example.test/three");
+        let four = add(&mut book, "Four", "https://example.test/four");
+        book.focus_session(&one);
+        let other_page_before = (
+            order(&book)[2..].to_vec(),
+            book.placement(&three),
+            book.placement(&four),
         );
+
+        book.move_to_slot(&one, SlotId::new(1));
+
+        let other_page_after = (
+            order(&book)[2..].to_vec(),
+            book.placement(&three),
+            book.placement(&four),
+        );
+        assert_eq!(other_page_after, other_page_before);
+    }
+
+    /// Acceptance (part 4 of 4): a move keeps focus on the account that had
+    /// it, wherever the move lands it.
+    #[test]
+    fn a_move_keeps_focus_on_the_same_account_wherever_it_lands() {
+        let mut book = SessionBook::new();
+        book.set_layout(Layout::Grid);
+        let one = add(&mut book, "One", "https://example.test/one");
+        add(&mut book, "Two", "https://example.test/two");
+        book.focus_session(&one);
+
+        book.move_to_slot(&one, SlotId::new(1));
+
+        assert_eq!(book.focused_session().map(Session::id), Some(&one));
     }
 
     #[test]
@@ -2664,14 +2349,14 @@ mod tests {
     }
 
     #[test]
-    fn moving_an_off_grid_account_returns_unchanged_and_leaves_the_book_equal() {
+    fn moving_an_off_page_account_returns_unchanged_and_leaves_the_book_equal() {
         let mut book = SessionBook::new();
         book.set_layout(Layout::SideBySide);
         let one = add(&mut book, "One", "https://example.test/one");
         add(&mut book, "Two", "https://example.test/two");
-        book.set_focused(SlotId::new(0));
-        add(&mut book, "Three", "https://example.test/three");
-        assert_eq!(visibility_of(&book, &one), Visibility::OffGrid);
+        let three = add(&mut book, "Three", "https://example.test/three");
+        book.focus_session(&three);
+        assert_eq!(book.placement(&one), Some(Visibility::OffGrid));
         let before = snapshot(&book);
 
         let outcome = book.move_to_slot(&one, SlotId::new(1));
@@ -2694,84 +2379,7 @@ mod tests {
     }
 
     #[test]
-    fn a_swap_where_focus_was_on_the_movers_slot_moves_focus_to_the_target() {
-        let mut book = SessionBook::new();
-        book.set_layout(Layout::SideBySide);
-        let one = add(&mut book, "One", "https://example.test/one");
-        add(&mut book, "Two", "https://example.test/two");
-        book.set_focused(SlotId::new(0));
-
-        book.move_to_slot(&one, SlotId::new(1));
-
-        assert_eq!(book.focused(), SlotId::new(1));
-    }
-
-    #[test]
-    fn a_fill_where_focus_was_on_the_movers_slot_moves_focus_to_the_target() {
-        let mut book = SessionBook::new();
-        book.set_layout(Layout::Grid);
-        let one = add(&mut book, "One", "https://example.test/one");
-        add(&mut book, "Two", "https://example.test/two");
-        book.set_focused(SlotId::new(0));
-
-        book.move_to_slot(&one, SlotId::new(2));
-
-        assert_eq!(book.focused(), SlotId::new(2));
-    }
-
-    #[test]
-    fn a_swap_where_focus_was_on_the_target_moves_focus_to_the_movers_old_slot() {
-        let mut book = SessionBook::new();
-        book.set_layout(Layout::SideBySide);
-        let one = add(&mut book, "One", "https://example.test/one");
-        add(&mut book, "Two", "https://example.test/two");
-        book.set_focused(SlotId::new(1));
-
-        book.move_to_slot(&one, SlotId::new(1));
-
-        assert_eq!(book.focused(), SlotId::new(0));
-    }
-
-    #[test]
-    fn a_swap_where_focus_was_on_neither_slot_leaves_focus_unchanged() {
-        let mut book = SessionBook::new();
-        book.set_layout(Layout::Grid);
-        let one = add(&mut book, "One", "https://example.test/one");
-        add(&mut book, "Two", "https://example.test/two");
-        add(&mut book, "Three", "https://example.test/three");
-        book.set_focused(SlotId::new(2));
-
-        book.move_to_slot(&one, SlotId::new(1));
-
-        assert_eq!(book.focused(), SlotId::new(2));
-    }
-
-    #[test]
-    fn a_swap_survives_a_layout_switch_and_back() {
-        let mut book = SessionBook::new();
-        book.set_layout(Layout::Grid);
-        let one = add(&mut book, "One", "https://example.test/one");
-        let two = add(&mut book, "Two", "https://example.test/two");
-
-        book.move_to_slot(&one, SlotId::new(1));
-        book.set_layout(Layout::SideBySide);
-        book.set_layout(Layout::Grid);
-
-        assert_eq!(
-            (visibility_of(&book, &one), visibility_of(&book, &two)),
-            (
-                Visibility::InSlot(SlotId::new(1)),
-                Visibility::InSlot(SlotId::new(0)),
-            ),
-        );
-    }
-
-    fn order(book: &SessionBook) -> Vec<SessionId> {
-        book.sessions().iter().map(|s| s.id().clone()).collect()
-    }
-
-    #[test]
-    fn a_real_move_reorders_in_slot_accounts_by_slot_index_with_no_off_grid_accounts_present() {
+    fn a_real_move_reorders_the_two_traded_positions_only() {
         let mut book = SessionBook::new();
         book.set_layout(Layout::SideBySide);
         let one = add(&mut book, "One", "https://example.test/one");
@@ -2780,23 +2388,6 @@ mod tests {
         book.move_to_slot(&one, SlotId::new(1));
 
         assert_eq!(order(&book), vec![two, one]);
-    }
-
-    #[test]
-    fn a_real_move_puts_in_slot_accounts_first_then_off_grid_accounts_in_their_old_relative_order()
-    {
-        let mut book = SessionBook::new();
-        book.set_layout(Layout::SideBySide);
-        let one = add(&mut book, "One", "https://example.test/one");
-        let two = add(&mut book, "Two", "https://example.test/two");
-        book.set_focused(SlotId::new(0));
-        let three = add(&mut book, "Three", "https://example.test/three");
-        // One is now off-grid, Three took slot 0, Two still holds slot 1.
-        assert_eq!(order(&book), vec![one.clone(), two.clone(), three.clone()]);
-
-        book.move_to_slot(&two, SlotId::new(0));
-
-        assert_eq!(order(&book), vec![two, three, one]);
     }
 
     #[test]
@@ -2839,7 +2430,7 @@ mod tests {
     }
 
     #[test]
-    fn restoring_from_the_workspace_of_a_moved_book_reproduces_the_same_slots_and_order() {
+    fn restoring_from_the_workspace_of_a_moved_book_reproduces_the_same_order() {
         let mut book = SessionBook::new();
         book.set_layout(Layout::Grid);
         add(&mut book, "One", "https://example.test/one");
@@ -2849,13 +2440,7 @@ mod tests {
 
         book.move_to_slot(&one, SlotId::new(2));
 
-        let slots_and_order = |b: &SessionBook| -> Vec<(SessionId, Visibility)> {
-            b.sessions()
-                .iter()
-                .map(|s| (s.id().clone(), s.visibility()))
-                .collect()
-        };
-        let before = slots_and_order(&book);
+        let before = order(&book);
 
         let restored = SessionBook::restore(book.workspace(
             WorkspaceId::ungrouped(),
@@ -2863,11 +2448,11 @@ mod tests {
             true,
         ));
 
-        assert_eq!(slots_and_order(&restored), before);
+        assert_eq!(order(&restored), before);
     }
 
     #[test]
-    fn take_removes_the_session_and_its_remembered_slot_leaving_others_seated() {
+    fn take_removes_the_session_leaving_others_in_place() {
         let mut book = SessionBook::new();
         book.set_layout(Layout::Grid);
         let one = add(&mut book, "One", "https://example.test/one");
@@ -2879,9 +2464,9 @@ mod tests {
             (
                 taken.id().clone(),
                 book.sessions().iter().any(|s| s.id() == &one),
-                visibility_of(&book, &two),
+                book.placement(&two),
             ),
-            (one, false, Visibility::InSlot(SlotId::new(1))),
+            (one, false, Some(Visibility::InSlot(SlotId::new(0)))),
         );
     }
 
@@ -2903,9 +2488,8 @@ mod tests {
     }
 
     #[test]
-    fn adopt_appends_to_the_end_and_seats_in_the_lowest_free_slot() {
+    fn adopt_appends_to_the_end_of_the_order() {
         let mut book = SessionBook::new();
-        book.set_layout(Layout::Grid);
         add(&mut book, "One", "https://example.test/one");
         let mut source = SessionBook::new();
         add(&mut source, "Filler", "https://example.test/filler");
@@ -2914,31 +2498,7 @@ mod tests {
 
         book.adopt(arriving);
 
-        assert_eq!(
-            (
-                book.sessions().last().map(Session::id),
-                book.sessions().last().map(Session::visibility),
-            ),
-            (Some(&two), Some(Visibility::InSlot(SlotId::new(1)))),
-        );
-    }
-
-    #[test]
-    fn adopt_into_a_full_book_seats_the_arrival_off_grid_without_displacing_anyone() {
-        let mut book = SessionBook::new();
-        book.set_layout(Layout::Single);
-        let one = add(&mut book, "One", "https://example.test/one");
-        let mut source = SessionBook::new();
-        add(&mut source, "Filler", "https://example.test/filler");
-        let two = add(&mut source, "Two", "https://example.test/two");
-        let arriving = source.take(&two).expect("two is in the source book");
-
-        book.adopt(arriving);
-
-        assert_eq!(
-            (visibility_of(&book, &one), visibility_of(&book, &two)),
-            (Visibility::InSlot(SlotId::FIRST), Visibility::OffGrid),
-        );
+        assert_eq!(book.sessions().last().map(Session::id), Some(&two));
     }
 
     #[test]

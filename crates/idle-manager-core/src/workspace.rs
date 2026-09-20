@@ -8,9 +8,9 @@
 //! [`SessionBook::workspace`]: crate::SessionBook::workspace
 //! [`SessionBook::restore`]: crate::SessionBook::restore
 
-use crate::layout::{Layout, SlotId};
+use crate::layout::Layout;
 use crate::preset::ZoomLevel;
-use crate::session::{SessionId, Visibility, WorkspaceId};
+use crate::session::{SessionId, WorkspaceId};
 
 /// Whether a saved account was running or had been parked.
 ///
@@ -47,12 +47,6 @@ pub struct Account {
     pub start_address: String,
     /// Whether the account was running or parked.
     pub liveness: SavedLiveness,
-    /// Where the account sat: a visible slot, or out of sight.
-    pub visibility: Visibility,
-    /// The slot the account returns to when a layout that has it is chosen,
-    /// even while it is out of sight. `None` for an account that has never held
-    /// a slot.
-    pub remembered_slot: Option<SlotId>,
     /// Whether the account keeps running at full speed while hidden.
     pub is_kept_awake: bool,
     /// The identity to present to the game, or `None` for the engine's own.
@@ -83,10 +77,11 @@ pub struct Workspace {
     pub id: WorkspaceId,
     /// The name shown on the workspace's sidebar heading.
     pub name: String,
-    /// The place a full-grid addition to this workspace displaces, and the
-    /// place it returns to when this workspace becomes the one shown
-    /// (`FR.15.1`).
-    pub focused: SlotId,
+    /// The position, in `accounts`, of the account focused when this
+    /// workspace was last the one shown (`FR.15.1`, `FR.22.2`). The page shown
+    /// and every account's slot are derived from this and `layout`, never
+    /// stored beside it (code standards rule 1).
+    pub focused: usize,
     /// Whether this workspace's sidebar heading is expanded. Carried here,
     /// not invented in the shell, because it must survive a relaunch
     /// (`FR.16.2`) and this is the only value the store sees.
@@ -105,7 +100,7 @@ impl Default for Workspace {
         Self {
             id: WorkspaceId::ungrouped(),
             name: "Ungrouped".to_owned(),
-            focused: SlotId::FIRST,
+            focused: 0,
             is_expanded: true,
             accounts: Vec::new(),
             layout: Layout::default(),

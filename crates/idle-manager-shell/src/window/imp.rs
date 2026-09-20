@@ -199,10 +199,14 @@ impl ObjectImpl for Window {
         self.grid.connect_slot_focused(move |slot| {
             if let Some(window) = window.upgrade() {
                 let imp = window.imp();
-                imp.book.borrow_mut().active_mut().set_focused(slot);
-                // The sidebar marks the focused-slot row as current, so a focus
-                // change made in the grid has to reach it too.
-                imp.redraw();
+                let focused = imp.book.borrow_mut().active_mut().focus_slot(slot);
+                // A click on an empty trailing slot leaves the focus where it
+                // was (architecture rule 8) — the sidebar marks the
+                // focused-slot row as current, so a real focus change has to
+                // reach it too, but a no-op redraws nothing.
+                if focused {
+                    imp.redraw();
+                }
             }
         });
 

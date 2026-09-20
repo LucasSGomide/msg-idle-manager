@@ -132,33 +132,33 @@ on the answers this one gives.
 
 ## Acceptance criteria
 
-- [ ] `(unit)` four accounts in `SideBySide` with the third focused: `page()`
+- [x] `(unit)` four accounts in `SideBySide` with the third focused: `page()`
       is `1`, `page_count()` is `2`, `placement` answers `InSlot(0)` and
       `InSlot(1)` for the third and fourth and `OffGrid` for the first two
-- [ ] `(unit)` switching from `Grid` to `Single` with the third of four focused
+- [x] `(unit)` switching from `Grid` to `Single` with the third of four focused
       answers `InSlot(0)` for that account, and switching back to `Grid`
       answers a slot for all four again
-- [ ] `(unit)` `focus_slot` on a trailing slot past the end of the order
+- [x] `(unit)` `focus_slot` on a trailing slot past the end of the order
       returns `false` and leaves `focused_session()` unchanged
-- [ ] `(unit)` `add` and `add_from_preset` append to the order and focus the
+- [x] `(unit)` `add` and `add_from_preset` append to the order and focus the
       newcomer; `adopt` appends and leaves `focused_session()` as it was
-- [ ] `(unit)` taking the account before the focused one keeps
+- [x] `(unit)` taking the account before the focused one keeps
       `focused_session()` the same account; taking the focused last account
       clamps to the new last
-- [ ] `(unit)` `move_to_slot` onto an occupied slot returns `Swapped` and trades
+- [x] `(unit)` `move_to_slot` onto an occupied slot returns `Swapped` and trades
       exactly those two positions, onto a trailing empty slot returns `Filled`
       and moves the account to the end, and every position off the shown page
       is unchanged either way, with focus following the mover
-- [ ] `(unit)` `leave_mobile_mode` restores each snapshotted workspace's layout
+- [x] `(unit)` `leave_mobile_mode` restores each snapshotted workspace's layout
       and focused position, and `saved()` while the mode is on reports the
       pre-mobile layout and position
-- [ ] `(integration)` a version 3 file round-trips: `focused` is written as a
+- [x] `(integration)` a version 3 file round-trips: `focused` is written as a
       position, no account carries a `slot` key, and the list read back equals
       the one saved
-- [ ] `(integration)` a version 2 file whose `focused` slot is held maps to
+- [x] `(integration)` a version 2 file whose `focused` slot is held maps to
       that account's position, one whose `focused` slot no account holds maps
       to `0`, and a version 1 file lands in the version 3 shape
-- [ ] `(integration)` the first `save` over a version 2 file writes
+- [x] `(integration)` the first `save` over a version 2 file writes
       `sessions.v2.toml` byte-identical to the original exactly once, and a
       second `save` leaves it untouched
 

@@ -15,7 +15,7 @@ mod session;
 mod workspace;
 mod workspace_book;
 
-pub use layout::{Layout, MoveOutcome, Outcome, Placement, SlotId, arrange};
+pub use layout::{Layout, MoveOutcome, SlotId};
 pub use memory::{BudgetVerdict, MemoryReading};
 pub use ports::{
     MemoryProbe, MemoryProbeError, PhoneLink, PhoneRecordError, PhoneRecordStore, PresetCatalogue,

@@ -19,7 +19,7 @@ use gtk::subclass::prelude::*;
 use gtk4 as gtk;
 
 use idle_manager_core::{
-    Destinations, MemoryProbe, SessionId, Visibility, WorkspaceBook, WorkspaceId,
+    Destinations, MemoryProbe, Session, SessionId, Visibility, WorkspaceBook, WorkspaceId,
 };
 
 use super::MoveTarget;
@@ -281,7 +281,7 @@ impl SessionSidebar {
         let root = self.root.get().expect("root set in constructed");
         root.remove_all();
 
-        let active_focused = book.active().focused();
+        let current_id = book.active().focused_session().map(Session::id);
         for workspace in book.workspaces() {
             let rows: Vec<Row> = workspace
                 .book()
@@ -289,7 +289,7 @@ impl SessionSidebar {
                 .iter()
                 .map(|session| {
                     let visibility = book.placement(session.id()).unwrap_or(Visibility::OffGrid);
-                    let current = visibility == Visibility::InSlot(active_focused);
+                    let current = current_id == Some(session.id());
                     Row::new(session, visibility, current)
                 })
                 .collect();

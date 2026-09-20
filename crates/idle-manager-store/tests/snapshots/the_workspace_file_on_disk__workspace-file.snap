@@ -2,7 +2,7 @@
 source: crates/idle-manager-store/tests/the-workspace-file-on-disk.rs
 expression: on_disk
 ---
-version = 2
+version = 3
 active = "workspace-0001"
 next_account = 4
 next_workspace = 2
@@ -19,7 +19,6 @@ id = "session-0001"
 name = "Main account"
 url = "https://session-0001.test/"
 liveness = "running"
-slot = 0
 keep_awake = true
 zoom = 0.9
 user_agent = "ProbeUA/1.0"

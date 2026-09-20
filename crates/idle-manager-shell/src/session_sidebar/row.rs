@@ -306,8 +306,16 @@ mod tests {
             .find(|s| s.id() == &awake)
             .expect("just added to the book");
 
-        let plain_key = status_key(plain_session.liveness(), plain_session.visibility(), false);
-        let awake_key = status_key(awake_session.liveness(), awake_session.visibility(), false);
+        let plain_key = status_key(
+            plain_session.liveness(),
+            book.placement(&plain).expect("plain is in the book"),
+            false,
+        );
+        let awake_key = status_key(
+            awake_session.liveness(),
+            book.placement(&awake).expect("awake is in the book"),
+            false,
+        );
 
         assert_eq!(plain_key, awake_key);
     }
