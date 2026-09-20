@@ -114,15 +114,15 @@ adds is a caller of what is built here.
 
 ## Acceptance criteria
 
-- [ ] `(unit)` `shortcut_for` maps `F5` and `Ctrl`+`r` to `Reload`, `Ctrl`
+- [x] `(unit)` `shortcut_for` maps `F5` and `Ctrl`+`r` to `Reload`, `Ctrl`
       plus each zoom key to the matching `Zoom(step)`, and every other key
       without a modifier to `None`
-- [ ] `(unit)` `shortcut_for` maps `Shift` plus `Tab`, `ISO_Left_Tab` and
+- [x] `(unit)` `shortcut_for` maps `Shift` plus `Tab`, `ISO_Left_Tab` and
       `KP_Tab` to `NextAccount` and `Ctrl` plus the same three to
       `NextWorkspace`; `Tab` alone is `None`
-- [ ] `(unit)` `shortcut_for` with `LOCK_MASK` and `MOD2_MASK` added to a
+- [x] `(unit)` `shortcut_for` with `LOCK_MASK` and `MOD2_MASK` added to a
       matching chord still returns the same shortcut
-- [ ] `(integration)` `make verify` passes
+- [x] `(integration)` `make verify` passes
 - [ ] `(manual)` on X11 with four accounts in `2` and a game canvas focused,
       `Shift`+`Tab` four times walks A, B, page turn, C, D, page turn, A, the
       sidebar bold following, and the page's own input shows no `Tab`

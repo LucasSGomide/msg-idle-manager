@@ -18,10 +18,11 @@ use gtk4 as gtk;
 use idle_manager_core::{
     DEFAULT_MOBILE_VIEWPORT, Frame, Layout, Liveness, MoveOutcome, PhoneLink, PhoneStatus, Preset,
     PresetCatalogue, ProfileLocator, ProfileRemoval, RemoteIntent, RemoteState, Session, SessionId,
-    SlotId, Viewport, WorkspaceBook, WorkspaceId, WorkspaceList, WorkspaceReadError, ZoomLevel,
-    ZoomMemory, account_name, scroll_script, tap_script, workspace_name,
+    SlotId, Switch, Viewport, WorkspaceBook, WorkspaceId, WorkspaceList, WorkspaceReadError,
+    ZoomLevel, ZoomMemory, account_name, scroll_script, tap_script, workspace_name,
 };
 
+use super::shortcut::{Shortcut, shortcut_for};
 use crate::account_deletion;
 use crate::add_game_dialog::{AddGameDialog, Confirmed};
 use crate::delete_account_dialog::DeleteAccountDialog;
@@ -156,6 +157,13 @@ pub struct Window {
     /// phone's taps arrive in that grid, and this is what maps them back to
     /// the page's own CSS pixels.
     frame_width: Cell<Option<u32>>,
+    /// Whether a navigation shortcut (`NextAccount` or `NextWorkspace`) is
+    /// currently held down. GTK 4 exposes no repeat flag on a key event, so
+    /// this latch stands in for one (code standards rule 18): set on the
+    /// press that runs the shortcut, cleared on the matching key's release,
+    /// a press that arrives while it is set is consumed and ignored
+    /// (`FR.23.3`).
+    tab_held: Cell<bool>,
 }
 
 impl std::fmt::Debug for Window {
@@ -273,11 +281,13 @@ impl ObjectImpl for Window {
             }
         });
 
-        // The zoom gesture (item 09) joins this one controller rather than
-        // adding a second, so one place decides what a keypress means. Capture
-        // phase because `FR.11.1` says neither the reload nor the zoom keys are
-        // gated on a web view holding keyboard focus — a game that binds them
-        // on its own canvas must not swallow them first.
+        // The zoom gesture (item 09) and, now, the two navigation keys (item
+        // 14) join this one controller rather than adding a second, so one
+        // place decides what a keypress means. Capture phase because
+        // `FR.11.1` says neither the reload nor the zoom keys are gated on a
+        // web view holding keyboard focus, and `FR.23.3` asks the same of
+        // `Shift`+`Tab` and `Ctrl`+`Tab` — a game that binds any of them on
+        // its own canvas must not swallow them first.
         let key_controller = gtk::EventControllerKey::new();
         key_controller.set_propagation_phase(gtk::PropagationPhase::Capture);
         let window = self.obj().downgrade();
@@ -288,6 +298,22 @@ impl ObjectImpl for Window {
                 return glib::Propagation::Stop;
             }
             glib::Propagation::Proceed
+        });
+        // GTK 4 exposes no repeat flag on a key event (code standards rule
+        // 18): `tab_held` is the substitute, and only this release clears it.
+        // The release itself is left to propagate — WebKitGTK re-queues an
+        // unhandled press but never sees the one stopped in capture, so the
+        // page receives a release with no matching press and ignores it.
+        let window = self.obj().downgrade();
+        key_controller.connect_key_released(move |_, key, _, _modifiers| {
+            if let Some(window) = window.upgrade()
+                && matches!(
+                    key,
+                    gdk::Key::Tab | gdk::Key::ISO_Left_Tab | gdk::Key::KP_Tab
+                )
+            {
+                window.imp().tab_held.set(false);
+            }
         });
         self.obj().add_controller(key_controller);
 
@@ -1638,15 +1664,27 @@ impl Window {
     /// (`FR.4.3`).
     fn focus_session(&self, id: &SessionId) {
         let switch = self.book.borrow_mut().focus_account(id);
-        if let Some(switch) = switch {
-            let layout = self.book.borrow().active().layout();
-            self.select_layout_toggle(layout);
-            self.snap_zoom_for_active();
-            tracing::debug!(from = %switch.from(), to = %switch.to(), "switched the shown workspace");
+        if let Some(switch) = &switch {
+            self.after_workspace_switch(switch);
         }
         self.sync_watched();
         self.redraw();
         self.request_save();
+    }
+
+    /// What a switch to another shown workspace always does beyond focusing
+    /// the account: flip the header's layout toggles to match its
+    /// arrangement and snap its accounts to their sizes for it, without
+    /// treating the flip as a second layout switch of its own
+    /// (`connect_layout_toggle`'s own guard, `FR.16.3`). Both
+    /// [`Window::focus_session`] and [`Window::run_shortcut`]'s
+    /// `NextWorkspace` arm land here, so a click on a sidebar name and
+    /// `Ctrl`+`Tab` can never disagree about what switching a workspace does.
+    fn after_workspace_switch(&self, switch: &Switch) {
+        let layout = self.book.borrow().active().layout();
+        self.select_layout_toggle(layout);
+        self.snap_zoom_for_active();
+        tracing::debug!(from = %switch.from(), to = %switch.to(), "switched the shown workspace");
     }
 
     /// The park/start button was pressed. The direction is the book's to
@@ -1849,10 +1887,9 @@ impl Window {
         }
     }
 
-    /// Runs the window's own keyboard shortcuts for `key` under `modifiers`:
-    /// F5 / `Ctrl`+R reloads the focused view, and `Ctrl` plus a zoom key
-    /// steps the focused account's zoom (item 09). Returns whether the key
-    /// was consumed.
+    /// Decides what `key` under `modifiers` means with [`shortcut_for`] and,
+    /// for a match, runs it with [`Window::run_shortcut`]. Returns whether
+    /// the key was consumed.
     ///
     /// Both the GTK key controller wired in `constructed` (Linux, and
     /// Windows whenever a GTK widget — not a game's `WebView2` child window —
@@ -1861,25 +1898,67 @@ impl Window {
     /// two engines can never disagree about what a shortcut does. `pub(crate)`
     /// for that second caller in `web_engine/webview2`, across the module
     /// boundary but inside the one crate (architecture rules 8, 12).
+    ///
+    /// A navigation shortcut (`NextAccount`, `NextWorkspace`) held down runs
+    /// once, not on every repeat event the platform delivers: GTK 4 exposes
+    /// no repeat flag on a key event, so `tab_held` latches on the press that
+    /// runs one and a matching key release (wired in `constructed`) clears it
+    /// (code standards rule 18, `FR.23.3`). The key is consumed either way.
     pub(crate) fn handle_shortcut_key(&self, key: gdk::Key, modifiers: gdk::ModifierType) -> bool {
-        let ctrl = modifiers.contains(gdk::ModifierType::CONTROL_MASK);
+        let Some(shortcut) = shortcut_for(key, modifiers) else {
+            return false;
+        };
 
-        if key == gdk::Key::F5 || (ctrl && key == gdk::Key::r) {
-            self.grid.reload_focused();
+        let is_navigation = matches!(shortcut, Shortcut::NextAccount | Shortcut::NextWorkspace);
+        if is_navigation && self.tab_held.replace(true) {
             return true;
         }
 
-        if ctrl && let Some(step) = zoom_step_for(key) {
-            // Zoom is locked in `Mobile` (Remote Access `FR.3.2`): the key is
-            // still the window's, so it is consumed, but it changes nothing
-            // and flashes no readout (design rule 10).
-            if !self.is_mobile_layout_shown() {
-                self.zoom_focused_account(step);
+        self.run_shortcut(shortcut);
+        true
+    }
+
+    /// Runs `shortcut`, as [`handle_shortcut_key`](Window::handle_shortcut_key)
+    /// decided it. `Reload` and `Zoom` act exactly as before this table
+    /// existed; `NextAccount` and `NextWorkspace` return before acting while
+    /// `self.sidebar.is_selecting()` (`FR.23.4`) — the sidebar's multi-select
+    /// mode owns the screen while it is open, so a navigation key must change
+    /// nothing under it. The shown workspace being empty, or holding only one
+    /// account or one other workspace, makes either a no-op by the book's own
+    /// answer, with nothing extra to check here.
+    pub(crate) fn run_shortcut(&self, shortcut: Shortcut) {
+        match shortcut {
+            Shortcut::Reload => self.grid.reload_focused(),
+            Shortcut::Zoom(step) => {
+                // Zoom is locked in `Mobile` (Remote Access `FR.3.2`): the key
+                // is still the window's, so it is consumed, but it changes
+                // nothing and flashes no readout (design rule 10).
+                if !self.is_mobile_layout_shown() {
+                    self.zoom_focused_account(step);
+                }
             }
-            return true;
+            Shortcut::NextAccount => {
+                if self.sidebar.is_selecting() {
+                    return;
+                }
+                self.book.borrow_mut().focus_next_account();
+                self.sync_watched();
+                self.redraw();
+                self.request_save();
+            }
+            Shortcut::NextWorkspace => {
+                if self.sidebar.is_selecting() {
+                    return;
+                }
+                let switch = self.book.borrow_mut().focus_next_workspace();
+                if let Some(switch) = switch {
+                    self.after_workspace_switch(&switch);
+                    self.sync_watched();
+                    self.redraw();
+                    self.request_save();
+                }
+            }
         }
-
-        false
     }
 
     /// Whether the shown workspace is arranged for [`Layout::Mobile`], where
@@ -2251,7 +2330,7 @@ const ZOOM_SAVE_SETTLE_MILLIS: u64 = 500;
 // `pub(crate)`: `web_engine/webview2.rs`'s ipc handler constructs this too
 // (roadmap item 12 task 03), across the module boundary but inside the one
 // crate.
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum ZoomStep {
     /// One step larger.
     In,
@@ -2260,23 +2339,6 @@ pub(crate) enum ZoomStep {
     /// Back to the game file's size, forgetting the current arrangement's
     /// chosen size.
     Reset,
-}
-
-/// The zoom step a key names under the control modifier, or `None` for any
-/// other key.
-///
-/// Plus, equals and keypad-add all mean "in" because which one a keyboard
-/// delivers for `Ctrl`+`+` depends on its layout; minus and keypad-subtract
-/// mean "out"; zero and keypad-zero mean reset. The exact set the keyboard
-/// under test delivers is recorded in this item's `test-script.md` (code
-/// standards rule 18).
-fn zoom_step_for(key: gdk::Key) -> Option<ZoomStep> {
-    match key {
-        gdk::Key::plus | gdk::Key::equal | gdk::Key::KP_Add => Some(ZoomStep::In),
-        gdk::Key::minus | gdk::Key::KP_Subtract => Some(ZoomStep::Out),
-        gdk::Key::_0 | gdk::Key::KP_0 => Some(ZoomStep::Reset),
-        _ => None,
-    }
 }
 
 /// The one line the message strip shows for a workspace that would not load:

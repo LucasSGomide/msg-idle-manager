@@ -2,6 +2,7 @@
 //! shows either the empty state or the session grid.
 
 mod imp;
+mod shortcut;
 
 // `window/imp.rs` keeps its own module private, as every other widget's does
 // (code standards rule 12); this one type is re-exported, Windows only,

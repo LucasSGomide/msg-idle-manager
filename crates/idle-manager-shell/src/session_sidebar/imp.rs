@@ -157,8 +157,10 @@ pub struct SessionSidebar {
     /// click nobody made.
     applying_expansion: Cell<bool>,
     /// Whether a click ticks a row instead of switching to it (item 11 task
-    /// 05, `FR.17.1`).
-    is_selecting: Cell<bool>,
+    /// 05, `FR.17.1`). `pub(super)`: `SessionSidebar::is_selecting` (item 14
+    /// task 04) reads it so the window's navigation shortcuts can tell
+    /// whether the sidebar owns the screen right now (`FR.23.4`).
+    pub(super) is_selecting: Cell<bool>,
     /// The ticked account ids — a set of ids, not the list's own positional
     /// selection, since a collapsed heading leaves the model and would take a
     /// positional selection with it (`FR.17.4`).

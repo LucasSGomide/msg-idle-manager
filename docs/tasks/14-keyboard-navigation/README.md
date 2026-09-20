@@ -24,7 +24,7 @@ runs alone last.
 | [01](01-the-seat-model-and-the-version-3-file.md) | The seat model: pages derived from one order, and the version 3 file | full-stack | — | 10/10 | done |
 | [02](02-the-shortcuts-window-and-the-main-menu.md) | The shortcuts window and the main menu | front-end | — | 2/5 | in-progress |
 | [03](03-stepping-and-paging-in-the-domain.md) | Stepping and paging in the domain | back-end | 01 | 9/9 | done |
-| [04](04-one-shortcut-table-and-the-keys-on-the-gtk-controller.md) | One shortcut table, and the keys on the GTK controller | front-end | 03 | 0/9 | not-started |
+| [04](04-one-shortcut-table-and-the-keys-on-the-gtk-controller.md) | One shortcut table, and the keys on the GTK controller | front-end | 03 | 4/9 | in-progress |
 | [05](05-the-keys-on-windows.md) | The keys on Windows | front-end | 04 | 0/6 | not-started |
 | [06](06-the-header-bar-pager.md) | The header-bar pager | front-end | 02, 04 | 0/8 | not-started |
 | [07](07-park-all-and-start-all.md) | Park all and Start all | full-stack | 06 | 0/10 | not-started |

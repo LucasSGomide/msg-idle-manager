@@ -193,6 +193,15 @@ impl SessionSidebar {
     pub fn forget_ticked(&self, id: &SessionId) {
         self.imp().forget_ticked(id);
     }
+
+    /// Whether a click ticks a row instead of switching to it right now
+    /// (item 11 task 05). The window's navigation shortcuts read this before
+    /// acting: while the owner is choosing accounts to move, `Shift`+`Tab`
+    /// and `Ctrl`+`Tab` must change nothing on screen (`FR.23.4`).
+    #[must_use]
+    pub(crate) fn is_selecting(&self) -> bool {
+        self.imp().is_selecting.get()
+    }
 }
 
 impl Default for SessionSidebar {
