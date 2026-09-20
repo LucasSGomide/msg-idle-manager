@@ -50,6 +50,13 @@
                 <property name="group">layout_single</property>
               </object>
             </child>
+            <child>
+              <object class="GtkToggleButton" id="layout_mobile">
+                <property name="label">Phone</property>
+                <property name="tooltip-text">Show one game at a phone's size</property>
+                <property name="group">layout_single</property>
+              </object>
+            </child>
           </object>
         </child>
       </object>

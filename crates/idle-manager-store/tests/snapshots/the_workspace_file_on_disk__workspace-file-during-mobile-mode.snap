@@ -1,0 +1,49 @@
+---
+source: crates/idle-manager-store/tests/the-workspace-file-on-disk.rs
+expression: on_disk
+---
+version = 2
+active = "workspace-0001"
+next_account = 4
+next_workspace = 2
+
+[[workspace]]
+id = "workspace-0001"
+name = "Party"
+layout = "grid"
+focused = 0
+expanded = true
+
+[[workspace.account]]
+id = "session-0001"
+name = "Main account"
+url = "https://session-0001.test/"
+liveness = "running"
+slot = 0
+keep_awake = false
+zoom = 1.0
+
+[[workspace.account]]
+id = "session-0002"
+name = "Alt"
+url = "https://session-0002.test/"
+liveness = "running"
+slot = 1
+keep_awake = false
+zoom = 1.0
+
+[[workspace]]
+id = "ungrouped"
+name = "Ungrouped"
+layout = "single"
+focused = 0
+expanded = true
+
+[[workspace.account]]
+id = "session-0003"
+name = "Farm"
+url = "https://session-0003.test/"
+liveness = "parked"
+slot = 0
+keep_awake = false
+zoom = 1.0

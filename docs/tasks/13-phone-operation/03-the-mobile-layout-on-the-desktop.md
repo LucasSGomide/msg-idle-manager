@@ -95,21 +95,21 @@ return. The phone later drives the same switch through the same code.
 
 ## Acceptance criteria
 
-- [ ] `(unit)` `enter_mobile_mode` on a `Grid` workspace with four seated
+- [x] `(unit)` `enter_mobile_mode` on a `Grid` workspace with four seated
       accounts leaves the focused account in slot 0 and the other three
       off-grid, and `leave_mobile_mode` returns all four to their previous
       slots with the previous focus
-- [ ] `(unit)` after entering, focusing another account (swapping slot 0),
+- [x] `(unit)` after entering, focusing another account (swapping slot 0),
       then leaving, the arrangement equals the pre-mobile one exactly
-- [ ] `(unit)` an account removed while the mode is on is skipped on leave,
+- [x] `(unit)` an account removed while the mode is on is skipped on leave,
       and an account added while it is on keeps its current placement
-- [ ] `(unit)` `saved()` while the mode is on reports the pre-mobile layout
+- [x] `(unit)` `saved()` while the mode is on reports the pre-mobile layout
       and slots, and a park performed meanwhile is reflected in the saved
       liveness
-- [ ] `(unit)` `zoom_for(Layout::Mobile)` is 1.0 for an account with a stored
+- [x] `(unit)` `zoom_for(Layout::Mobile)` is 1.0 for an account with a stored
       `Single` override, and `zoom_in` in `Mobile` returns `None` and writes
       no `mobile` key
-- [ ] `(unit)` the store maps `Layout::Mobile` to the `single` record spelling
+- [x] `(unit)` the store maps `Layout::Mobile` to the `single` record spelling
       and the snapshot of a saved file written during mobile mode is
       unchanged from the pre-mobile one
 - [ ] `(integration)` `make verify` passes

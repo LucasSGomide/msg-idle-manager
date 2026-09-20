@@ -15,9 +15,9 @@ use gtk::subclass::prelude::*;
 use gtk4 as gtk;
 
 use idle_manager_core::{
-    Layout, Liveness, MoveOutcome, Preset, PresetCatalogue, ProfileLocator, ProfileRemoval,
-    Session, SessionId, SlotId, WorkspaceBook, WorkspaceId, WorkspaceList, WorkspaceReadError,
-    ZoomLevel, ZoomMemory, account_name, workspace_name,
+    DEFAULT_MOBILE_VIEWPORT, Layout, Liveness, MoveOutcome, Preset, PresetCatalogue,
+    ProfileLocator, ProfileRemoval, Session, SessionId, SlotId, WorkspaceBook, WorkspaceId,
+    WorkspaceList, WorkspaceReadError, ZoomLevel, ZoomMemory, account_name, workspace_name,
 };
 
 use crate::account_deletion;
@@ -58,6 +58,8 @@ pub struct Window {
     layout_side_by_side: TemplateChild<gtk::ToggleButton>,
     #[template_child]
     layout_grid: TemplateChild<gtk::ToggleButton>,
+    #[template_child]
+    layout_mobile: TemplateChild<gtk::ToggleButton>,
     #[template_child]
     sidebar_toggle: TemplateChild<gtk::ToggleButton>,
     #[template_child]
@@ -148,6 +150,7 @@ impl ObjectImpl for Window {
         self.content.append(&self.grid);
 
         arm_debug_minimise(&self.obj());
+        arm_debug_layout(&self.obj());
 
         let window = self.obj().downgrade();
         self.grid.connect_slot_focused(move |slot| {
@@ -244,6 +247,7 @@ impl ObjectImpl for Window {
         self.connect_layout_toggle(&self.layout_single, Layout::Single);
         self.connect_layout_toggle(&self.layout_side_by_side, Layout::SideBySide);
         self.connect_layout_toggle(&self.layout_grid, Layout::Grid);
+        self.connect_layout_toggle(&self.layout_mobile, Layout::Mobile);
 
         // The one place a save is allowed to be waited on: a change made a
         // moment before quitting has nothing else to trigger its write, so
@@ -447,21 +451,21 @@ impl Window {
     }
 
     /// Sets the header's layout toggle group to `layout` without the user
-    /// touching it — for a restore, where the book's layout is set directly.
+    /// touching it — for a restore, where the book's layout is set directly,
+    /// and for a workspace switch into or out of mobile mode, where the book
+    /// already holds `Mobile` and the `Phone` toggle has to follow.
     fn select_layout_toggle(&self, layout: Layout) {
         let toggle = match layout {
             Layout::Single => &self.layout_single,
             Layout::SideBySide => &self.layout_side_by_side,
             Layout::Grid => &self.layout_grid,
+            Layout::Mobile => &self.layout_mobile,
         };
         toggle.set_active(true);
     }
 
-    /// A layout toggle was pressed. Returns early when it already names the
-    /// shown workspace's layout — reached after
-    /// [`Window::focus_session`] flips the toggle to match an incoming
-    /// workspace, so that never triggers a second arrangement or a second
-    /// save (`FR.16.4`).
+    /// A layout toggle was pressed: the book is asked for `layout` through
+    /// [`Window::choose_layout`].
     fn connect_layout_toggle(&self, toggle: &gtk::ToggleButton, layout: Layout) {
         let window = self.obj().downgrade();
         toggle.connect_toggled(move |toggle| {
@@ -469,16 +473,41 @@ impl Window {
                 return;
             }
             if let Some(window) = window.upgrade() {
-                let imp = window.imp();
-                if imp.book.borrow().active().layout() == layout {
-                    return;
-                }
-                imp.book.borrow_mut().set_layout(layout);
-                imp.redraw();
-                imp.snap_zoom_for_active();
-                imp.request_save();
+                window.imp().choose_layout(layout);
             }
         });
+    }
+
+    /// Arranges the shown workspace for `layout`. Returns early when it
+    /// already names the shown workspace's layout — reached after
+    /// [`Window::focus_session`] flips the toggle to match an incoming
+    /// workspace, so that never triggers a second arrangement or a second
+    /// save (`FR.16.4`). `Mobile` enters mobile mode with the default phone
+    /// viewport — roadmap item 13 task 06 passes an attached phone's own —
+    /// and `1`, `2` or `4` while the mode is on leaves it first, which puts
+    /// the arrangement from before back, then switches only if the chosen
+    /// layout differs from the restored one (Remote Access `FR.3.5`). Either
+    /// way the grid is redrawn, every account snapped to its size for the
+    /// layout now in force, and a save requested.
+    fn choose_layout(&self, layout: Layout) {
+        {
+            let mut book = self.book.borrow_mut();
+            if book.active().layout() == layout {
+                return;
+            }
+            match layout {
+                Layout::Mobile => book.enter_mobile_mode(DEFAULT_MOBILE_VIEWPORT),
+                Layout::Single | Layout::SideBySide | Layout::Grid => {
+                    book.leave_mobile_mode();
+                    if book.active().layout() != layout {
+                        book.set_layout(layout);
+                    }
+                }
+            }
+        }
+        self.redraw();
+        self.snap_zoom_for_active();
+        self.request_save();
     }
 
     /// After an arrangement switch, redraw every account in the **shown**
@@ -1420,11 +1449,22 @@ impl Window {
         }
 
         if ctrl && let Some(step) = zoom_step_for(key) {
-            self.zoom_focused_account(step);
+            // Zoom is locked in `Mobile` (Remote Access `FR.3.2`): the key is
+            // still the window's, so it is consumed, but it changes nothing
+            // and flashes no readout (design rule 10).
+            if !self.is_mobile_layout_shown() {
+                self.zoom_focused_account(step);
+            }
             return true;
         }
 
         false
+    }
+
+    /// Whether the shown workspace is arranged for [`Layout::Mobile`], where
+    /// every zoom gesture is a no-op.
+    fn is_mobile_layout_shown(&self) -> bool {
+        self.book.borrow().active().layout() == Layout::Mobile
     }
 
     /// A window-level zoom gesture from the keyboard: step the account in the
@@ -1456,6 +1496,13 @@ impl Window {
     /// 03) — a third caller, same reasoning as `handle_shortcut_key`, so
     /// Linux's wheel gesture and Windows' can never disagree either.
     pub(crate) fn apply_zoom_step(&self, id: &SessionId, step: ZoomStep) {
+        // The book already answers `None` for every step in `Mobile`; the
+        // guard here says so at the call site, so no reader has to trace it
+        // through the domain to see that no readout can flash (design rule
+        // 10).
+        if self.is_mobile_layout_shown() {
+            return;
+        }
         let resolved = match step {
             ZoomStep::In => self.book.borrow_mut().zoom_in(id),
             ZoomStep::Out => self.book.borrow_mut().zoom_out(id),
@@ -1634,4 +1681,50 @@ fn arm_debug_minimise(window: &super::Window) {
             window.minimize();
         }
     });
+}
+
+/// Setting this in the environment to one of `single`, `side-by-side`,
+/// `grid` or `mobile` makes the window select that layout toggle
+/// [`DEBUG_LAYOUT_DELAY_SECS`] after it is built (roadmap item 13 task 03),
+/// so a headless run can exercise the `Mobile` path — the grid's allocation
+/// log line and the file `saved()` writes meanwhile — with nobody there to
+/// press `Phone`. Off unless set; an unknown word is ignored with a warning.
+const DEBUG_LAYOUT_ENV: &str = "IDLE_MANAGER_DEBUG_LAYOUT";
+
+/// How long after the window is built [`DEBUG_LAYOUT_ENV`]'s toggle is
+/// selected — long enough for the restore and the first starts to have
+/// happened, so the switch acts on a populated grid.
+const DEBUG_LAYOUT_DELAY_SECS: u64 = 5;
+
+/// Arms [`DEBUG_LAYOUT_ENV`]'s timer when the variable is set.
+fn arm_debug_layout(window: &super::Window) {
+    let Some(raw) = std::env::var_os(DEBUG_LAYOUT_ENV) else {
+        return;
+    };
+    let Some(layout) = raw.to_str().and_then(layout_named) else {
+        tracing::warn!(
+            variable = DEBUG_LAYOUT_ENV,
+            "not one of single, side-by-side, grid or mobile; ignored"
+        );
+        return;
+    };
+    let weak = window.downgrade();
+    glib::timeout_add_local_once(Duration::from_secs(DEBUG_LAYOUT_DELAY_SECS), move || {
+        if let Some(window) = weak.upgrade() {
+            tracing::info!(?layout, "debug switch: selecting the layout toggle");
+            window.imp().select_layout_toggle(layout);
+        }
+    });
+}
+
+/// The layout [`DEBUG_LAYOUT_ENV`] names, spelt as the session file spells
+/// it, or `None` for any other word.
+fn layout_named(name: &str) -> Option<Layout> {
+    match name {
+        "single" => Some(Layout::Single),
+        "side-by-side" => Some(Layout::SideBySide),
+        "grid" => Some(Layout::Grid),
+        "mobile" => Some(Layout::Mobile),
+        _ => None,
+    }
 }

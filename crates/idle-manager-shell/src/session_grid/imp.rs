@@ -22,7 +22,10 @@ use gtk::prelude::*;
 use gtk::subclass::prelude::*;
 use gtk4 as gtk;
 
-use idle_manager_core::{Layout, Liveness, SessionId, SlotId, Visibility, WorkspaceBook};
+use idle_manager_core::{
+    DEFAULT_MOBILE_VIEWPORT, Layout, Liveness, SessionId, SlotId, Viewport, Visibility,
+    WorkspaceBook,
+};
 
 use crate::slot_placeholder::SlotPlaceholder;
 use crate::web_engine::EngineView;
@@ -121,6 +124,15 @@ pub struct SessionGrid {
     slots: RefCell<Vec<SlotEntry>>,
     layout: Cell<Layout>,
     focused: Cell<usize>,
+    /// The phone viewport the one `Mobile` slot is shaped as, read off the
+    /// book on every [`Self::sync`]; `None` while the mode is off (roadmap
+    /// item 13). Falls back to [`DEFAULT_MOBILE_VIEWPORT`] if the layout is
+    /// `Mobile` with no viewport, which `WorkspaceBook::enter_mobile_mode`
+    /// never produces.
+    mobile_viewport: Cell<Option<Viewport>>,
+    /// The `Mobile` slot's last logged allocation, so the debug line is
+    /// written when it changes and not on every allocation pass.
+    mobile_allocation: Cell<Option<SlotRect>>,
     /// The slot under the pointer during a drag, tinted by [`Self::snapshot`]
     /// until the pointer leaves the grid or the drag ends (task 05). Not the
     /// same state as `focused`: grabbing or dropping never moves the current
@@ -331,6 +343,14 @@ impl SessionGrid {
             let Some(grid) = scroll_grid.upgrade() else {
                 return glib::Propagation::Proceed;
             };
+            // Zoom is locked in `Mobile` — the slot's pixel size is the
+            // phone's viewport — so the gesture changes nothing and flashes
+            // no readout there (Remote Access `FR.3.2`, design rule 10). It
+            // is still swallowed, so the page underneath never sees a
+            // `Ctrl`+wheel it could act on itself.
+            if grid.imp().layout.get() == Layout::Mobile {
+                return glib::Propagation::Stop;
+            }
             // `FR.11.8`: the gesture is gated on the click — it acts on the
             // place under the pointer, but only once that place is the focused
             // one, narrowing `FR.11.3`. Passing the
@@ -399,15 +419,15 @@ impl SessionGrid {
         // Shows the grip while the pointer is anywhere inside the place —
         // over the game's page or the parked panel alike — and hides it on
         // leave (`FR.14.1`). Gated on layout here rather than only in `sync`:
-        // `Single` never shows a grip at all, even for the one place that is
-        // on screen, so there is nowhere to move an account (design's grip
-        // rule this slice owes; wireframe "one-place arrangement").
+        // a one-slot layout never shows a grip at all, even for the one place
+        // that is on screen, so there is nowhere to move an account (design's
+        // grip rule this slice owes; wireframe "one-place arrangement").
         let hover = gtk::EventControllerMotion::new();
         let enter_owner = self.obj().downgrade();
         let enter_handle = handle.clone();
         hover.connect_enter(move |_, _, _| {
             if let Some(owner) = enter_owner.upgrade()
-                && owner.imp().layout.get() != Layout::Single
+                && has_somewhere_to_drop(owner.imp().layout.get())
             {
                 enter_handle.set_visible(true);
             }
@@ -480,7 +500,7 @@ impl SessionGrid {
                 return;
             };
             owner.imp().clear_hovered_slot();
-            if end_hover.contains_pointer() && owner.imp().layout.get() != Layout::Single {
+            if end_hover.contains_pointer() && has_somewhere_to_drop(owner.imp().layout.get()) {
                 end_handle.set_visible(true);
             }
 
@@ -655,8 +675,9 @@ impl SessionGrid {
     pub(super) fn sync(&self, book: &WorkspaceBook) {
         self.layout.set(book.active().layout());
         self.focused.set(book.active().focused().index());
+        self.mobile_viewport.set(book.mobile_viewport());
 
-        let single = self.layout.get() == Layout::Single;
+        let nowhere_to_drop = !has_somewhere_to_drop(self.layout.get());
         for entry in self.slots.borrow_mut().iter_mut() {
             if let Some(session) = book
                 .workspaces()
@@ -676,10 +697,10 @@ impl SessionGrid {
             // its stale placement, which with several workspaces would leave a
             // hidden one's view drawn in a place (`FR.18.1`).
             entry.placement = book.placement(&entry.id).unwrap_or(Visibility::OffGrid);
-            // There is nowhere to drop an account off-grid or in `Single`, so
-            // the grip never shows there — a hidden widget is never picked,
-            // so a hidden grip cannot take a press either.
-            if single || entry.placement == Visibility::OffGrid {
+            // There is nowhere to drop an account off-grid or in a one-slot
+            // layout, so the grip never shows there — a hidden widget is never
+            // picked, so a hidden grip cannot take a press either.
+            if nowhere_to_drop || entry.placement == Visibility::OffGrid {
                 entry.grip.set_visible(false);
             }
             // The row the grip lives in on Windows follows the same rule one
@@ -695,39 +716,61 @@ impl SessionGrid {
     /// Allocates every child. Called by [`super::SlotLayout`].
     pub(super) fn allocate_slots(&self, width: i32, height: i32) {
         let layout = self.layout.get();
-        let (columns, rows) = grid_dimensions(layout);
-        let slot_width = width / i32::try_from(columns).unwrap_or(1);
-        let slot_height = height / i32::try_from(rows).unwrap_or(1);
+        let viewport = self.viewport();
+        let cell = slot_rect(layout, viewport, 0, width, height);
 
         for entry in self.slots.borrow().iter() {
-            let allocation = match entry.placement {
+            let rect = match entry.placement {
                 Visibility::InSlot(slot) => {
-                    let index = slot.index();
-                    let column = i32::try_from(index % columns).unwrap_or(0);
-                    let row = i32::try_from(index / columns).unwrap_or(0);
-                    gdk::Rectangle::new(
-                        column * slot_width,
-                        row * slot_height,
-                        slot_width,
-                        slot_height,
-                    )
+                    slot_rect(layout, viewport, slot.index(), width, height)
                 }
-                Visibility::OffGrid => {
-                    // Outside our own bounds and clipped by
-                    // `set_overflow(Hidden)`: still realised, mapped and
-                    // allocated, so WebKit keeps it running. A `GtkStack` would
-                    // unrealise it, and WebKit throttles a view it believes
-                    // hidden — for an idle game that is lost progress
-                    // (code-standards rule 18).
-                    gdk::Rectangle::new(
-                        width + slot_width.max(1),
-                        height + slot_height.max(1),
-                        slot_width.max(1),
-                        slot_height.max(1),
-                    )
-                }
+                // Outside our own bounds and clipped by
+                // `set_overflow(Hidden)`: still realised, mapped and
+                // allocated, so WebKit keeps it running. A `GtkStack` would
+                // unrealise it, and WebKit throttles a view it believes
+                // hidden — for an idle game that is lost progress
+                // (code-standards rule 18).
+                Visibility::OffGrid => SlotRect {
+                    x: width + cell.width.max(1),
+                    y: height + cell.height.max(1),
+                    width: cell.width.max(1),
+                    height: cell.height.max(1),
+                },
             };
-            entry.mount.size_allocate(&allocation, -1);
+            entry.mount.size_allocate(
+                &gdk::Rectangle::new(rect.x, rect.y, rect.width, rect.height),
+                -1,
+            );
+        }
+
+        self.log_mobile_allocation(layout, cell, width, height);
+    }
+
+    /// The viewport the `Mobile` slot is shaped as right now.
+    fn viewport(&self) -> Viewport {
+        self.mobile_viewport
+            .get()
+            .unwrap_or(DEFAULT_MOBILE_VIEWPORT)
+    }
+
+    /// Writes the `Mobile` slot's rectangle at debug level whenever it
+    /// changes — the one line a headless run has to prove the slot took the
+    /// phone's shape (roadmap item 13 task 03) — and nothing at all in the
+    /// other layouts.
+    fn log_mobile_allocation(&self, layout: Layout, cell: SlotRect, width: i32, height: i32) {
+        let allocation = (layout == Layout::Mobile).then_some(cell);
+        if self.mobile_allocation.replace(allocation) == allocation {
+            return;
+        }
+        if let Some(rect) = allocation {
+            tracing::debug!(
+                size = %format_args!("{}x{}", rect.width, rect.height),
+                x = rect.x,
+                y = rect.y,
+                grid_width = width,
+                grid_height = height,
+                "mobile slot allocated"
+            );
         }
     }
 
@@ -770,6 +813,10 @@ impl SessionGrid {
         }
 
         let layout = self.layout.get();
+        if layout == Layout::Mobile {
+            let rect = slot_rect(layout, self.viewport(), 0, width, height);
+            return rect.contains(x, y).then_some(SlotId::FIRST);
+        }
         let (columns, rows) = grid_dimensions(layout);
         let column = ((x * columns as f64 / f64::from(width)) as usize).min(columns - 1);
         let row = ((y * rows as f64 / f64::from(height)) as usize).min(rows - 1);
@@ -810,28 +857,15 @@ impl SessionGrid {
         };
 
         let obj = self.obj();
-        let (width, height) = (obj.width() as f32, obj.height() as f32);
         let layout = self.layout.get();
         if index >= layout.slot_count() {
             return;
         }
-        let (columns, rows) = grid_dimensions(layout);
-        let slot_width = width / columns as f32;
-        let slot_height = height / rows as f32;
-        let column = (index % columns) as f32;
-        let row = (index / columns) as f32;
+        let rect = slot_rect(layout, self.viewport(), index, obj.width(), obj.height());
 
         let base = obj.color();
         let tint = gdk::RGBA::new(base.red(), base.green(), base.blue(), DROP_HIGHLIGHT_ALPHA);
-        snapshot.append_color(
-            &tint,
-            &graphene::Rect::new(
-                column * slot_width,
-                row * slot_height,
-                slot_width,
-                slot_height,
-            ),
-        );
+        snapshot.append_color(&tint, &rect.to_graphene());
     }
 
     fn draw_slot_lines(&self, snapshot: &gtk::Snapshot) {
@@ -840,8 +874,9 @@ impl SessionGrid {
         }
 
         let obj = self.obj();
-        let (width, height) = (obj.width() as f32, obj.height() as f32);
+        let (width, height) = (obj.width(), obj.height());
         let layout = self.layout.get();
+        let viewport = self.viewport();
         let (columns, rows) = grid_dimensions(layout);
 
         let base = obj.color();
@@ -849,42 +884,141 @@ impl SessionGrid {
         let marker = gdk::RGBA::new(base.red(), base.green(), base.blue(), 0.55);
 
         for column in 1..columns {
-            let x = width * column as f32 / columns as f32;
-            snapshot.append_color(&hairline, &graphene::Rect::new(x - 0.5, 0.0, 1.0, height));
+            let x = width as f32 * column as f32 / columns as f32;
+            snapshot.append_color(
+                &hairline,
+                &graphene::Rect::new(x - 0.5, 0.0, 1.0, height as f32),
+            );
         }
         for row in 1..rows {
-            let y = height * row as f32 / rows as f32;
-            snapshot.append_color(&hairline, &graphene::Rect::new(0.0, y - 0.5, width, 1.0));
+            let y = height as f32 * row as f32 / rows as f32;
+            snapshot.append_color(
+                &hairline,
+                &graphene::Rect::new(0.0, y - 0.5, width as f32, 1.0),
+            );
+        }
+
+        // The `Mobile` slot does not reach the grid's edges, so the hairlines
+        // above have nothing to divide; its own outline is what shows the
+        // phone shape against the window background (roadmap item 13's new
+        // pattern).
+        if layout == Layout::Mobile {
+            outline(
+                snapshot,
+                &hairline,
+                slot_rect(layout, viewport, 0, width, height),
+                1.0,
+            );
         }
 
         let focused = self.focused.get();
         if focused < layout.slot_count() {
-            let slot_width = width / columns as f32;
-            let slot_height = height / rows as f32;
-            let column = (focused % columns) as f32;
-            let row = (focused / columns) as f32;
-            let (x, y) = (column * slot_width, row * slot_height);
-            let thickness = 2.0;
-            snapshot.append_color(&marker, &graphene::Rect::new(x, y, slot_width, thickness));
-            snapshot.append_color(
+            outline(
+                snapshot,
                 &marker,
-                &graphene::Rect::new(x, y + slot_height - thickness, slot_width, thickness),
-            );
-            snapshot.append_color(&marker, &graphene::Rect::new(x, y, thickness, slot_height));
-            snapshot.append_color(
-                &marker,
-                &graphene::Rect::new(x + slot_width - thickness, y, thickness, slot_height),
+                slot_rect(layout, viewport, focused, width, height),
+                2.0,
             );
         }
     }
 }
 
-/// Columns and rows for each layout: one cell, two side by side, or two by two.
+/// Draws `rect`'s four edges `thickness` pixels wide, inside the rectangle.
+fn outline(snapshot: &gtk::Snapshot, color: &gdk::RGBA, rect: SlotRect, thickness: f32) {
+    let (x, y) = (rect.x as f32, rect.y as f32);
+    let (width, height) = (rect.width as f32, rect.height as f32);
+    snapshot.append_color(color, &graphene::Rect::new(x, y, width, thickness));
+    snapshot.append_color(
+        color,
+        &graphene::Rect::new(x, y + height - thickness, width, thickness),
+    );
+    snapshot.append_color(color, &graphene::Rect::new(x, y, thickness, height));
+    snapshot.append_color(
+        color,
+        &graphene::Rect::new(x + width - thickness, y, thickness, height),
+    );
+}
+
+/// Columns and rows for each layout: one cell, two side by side, two by two,
+/// or the one phone-shaped cell.
 fn grid_dimensions(layout: Layout) -> (usize, usize) {
     match layout {
-        Layout::Single => (1, 1),
+        Layout::Single | Layout::Mobile => (1, 1),
         Layout::SideBySide => (2, 1),
         Layout::Grid => (2, 2),
+    }
+}
+
+/// Whether `layout` has a second slot an account could be dragged to. The
+/// grip, its strip and the drop tint all follow this one answer: a one-slot
+/// layout — `Single` or `Mobile` — offers nowhere to drop.
+fn has_somewhere_to_drop(layout: Layout) -> bool {
+    layout.slot_count() > 1
+}
+
+/// One slot's rectangle in the grid's own logical pixels — plain integers
+/// rather than a `gdk::Rectangle` so the geometry is unit-tested without a
+/// display (code standards rule 25).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct SlotRect {
+    x: i32,
+    y: i32,
+    width: i32,
+    height: i32,
+}
+
+impl SlotRect {
+    /// Whether the point `(x, y)` falls inside this rectangle.
+    fn contains(self, x: f64, y: f64) -> bool {
+        x >= f64::from(self.x)
+            && y >= f64::from(self.y)
+            && x < f64::from(self.x + self.width)
+            && y < f64::from(self.y + self.height)
+    }
+
+    fn to_graphene(self) -> graphene::Rect {
+        graphene::Rect::new(
+            self.x as f32,
+            self.y as f32,
+            self.width as f32,
+            self.height as f32,
+        )
+    }
+}
+
+/// The rectangle slot `index` occupies in a grid `width` by `height` under
+/// `layout`. The ordinary layouts divide the grid evenly; `Mobile` gives its
+/// one slot exactly `viewport`'s size, centred horizontally and top-aligned,
+/// never scaled — a grid shorter than the slot clips its bottom through the
+/// grid's `set_overflow(Hidden)`, because the page's size is the whole point
+/// (Remote Access `FR.3.2`). `index` is not checked against the layout; a
+/// caller passes a slot the layout has.
+fn slot_rect(
+    layout: Layout,
+    viewport: Viewport,
+    index: usize,
+    width: i32,
+    height: i32,
+) -> SlotRect {
+    if layout == Layout::Mobile {
+        let slot_width = i32::try_from(viewport.width).unwrap_or(i32::MAX);
+        let slot_height = i32::try_from(viewport.height).unwrap_or(i32::MAX);
+        return SlotRect {
+            x: width.saturating_sub(slot_width) / 2,
+            y: 0,
+            width: slot_width,
+            height: slot_height,
+        };
+    }
+
+    let (columns, rows) = grid_dimensions(layout);
+    let slot_width = width / i32::try_from(columns).unwrap_or(1);
+    let slot_height = height / i32::try_from(rows).unwrap_or(1);
+    SlotRect {
+        x: i32::try_from(index % columns).unwrap_or(0) * slot_width,
+        y: i32::try_from(index / columns).unwrap_or(0) * slot_height,
+        width: slot_width,
+        height: slot_height,
     }
 }
 
@@ -1122,7 +1256,7 @@ struct SlotMount {
 fn sync_grip_strip(entry: &SlotEntry, layout: Layout) {
     #[cfg(windows)]
     entry.strip.set_visible(
-        layout != Layout::Single
+        has_somewhere_to_drop(layout)
             && entry.placement != Visibility::OffGrid
             && entry.view.borrow().is_some(),
     );
@@ -1234,5 +1368,67 @@ mod tests {
     #[test]
     fn a_live_account_shows_no_panel() {
         assert_eq!(placeholder_panel(Liveness::Live), None);
+    }
+
+    #[test]
+    fn the_mobile_slot_is_the_viewport_centred_horizontally_and_top_aligned() {
+        let rect = slot_rect(Layout::Mobile, DEFAULT_MOBILE_VIEWPORT, 0, 1000, 800);
+
+        assert_eq!(
+            rect,
+            SlotRect {
+                x: 294,
+                y: 0,
+                width: 412,
+                height: 915,
+            }
+        );
+    }
+
+    #[test]
+    fn the_mobile_slot_keeps_the_viewports_size_in_a_grid_narrower_than_it() {
+        let rect = slot_rect(Layout::Mobile, DEFAULT_MOBILE_VIEWPORT, 0, 300, 800);
+
+        assert_eq!((rect.x, rect.width), (-56, 412));
+    }
+
+    #[test]
+    fn a_grid_slot_is_its_share_of_the_grid() {
+        let rect = slot_rect(Layout::Grid, DEFAULT_MOBILE_VIEWPORT, 3, 1000, 800);
+
+        assert_eq!(
+            rect,
+            SlotRect {
+                x: 500,
+                y: 400,
+                width: 500,
+                height: 400,
+            }
+        );
+    }
+
+    #[test]
+    fn only_the_one_slot_layouts_offer_nowhere_to_drop() {
+        let answers: Vec<bool> = [
+            Layout::Single,
+            Layout::SideBySide,
+            Layout::Grid,
+            Layout::Mobile,
+        ]
+        .into_iter()
+        .map(has_somewhere_to_drop)
+        .collect();
+
+        assert_eq!(answers, vec![false, true, true, false]);
+    }
+
+    #[test]
+    fn a_point_inside_the_mobile_slot_is_in_it_and_one_beside_it_is_not() {
+        let rect = slot_rect(Layout::Mobile, DEFAULT_MOBILE_VIEWPORT, 0, 1000, 800);
+
+        assert_eq!(
+            (rect.contains(500.0, 10.0), rect.contains(100.0, 10.0)),
+            (true, false)
+        );
     }
 }

@@ -24,6 +24,17 @@
 - [x] `IDLE_MANAGER_MINIMISE_AFTER_SECS=16` with the dump switch, two accounts on an animating local page (one keep-awake on, one off), 80 s under `dbus-run-session` with throwaway `XDG_*_HOME` → the log shows `debug switch: minimising the window after_secs=16`, 39 frames per account are written, and every frame's `sha256sum` differs from the previous one for both accounts through the minimised minute (2026-09-19: the engine paints a current picture of a minimised page; the first Blocker is cleared)
 - [ ] `IDLE_MANAGER_DUMP_FRAMES=/nonexistent/dir …` → one `frame not written; the frame dump for this account stops here` warning per account and no further frame lines; the app keeps running
 
+## 03 — The Mobile layout on the desktop
+
+- [x] `cargo nextest run -p idle-manager-core -E 'test(/workspace_book::tests::.*(mobile|mode)/)'` → `16 tests run: 16 passed`
+- [x] `cargo nextest run -p idle-manager-core -E 'test(/session::tests::zoom.*mobile/)'` → `3 tests run: 3 passed`; `zoom_in_in_mobile_returns_none_and_writes_no_mobile_key` proves `RememberedZoom` stays empty
+- [x] `cargo nextest run -p idle-manager-store --test the-workspace-file-on-disk mobile` → `3 tests run: 3 passed`; the insta snapshot `the_workspace_file_on_disk__workspace-file-during-mobile-mode.snap` shows `layout = "grid"` and `slot = 0` / `slot = 1`, never `mobile`
+- [x] `cargo nextest run -p idle-manager-shell session_grid::imp::tests` → `8 tests run: 8 passed`; `the_mobile_slot_is_the_viewport_centred_horizontally_and_top_aligned` pins `x=294 y=0 412×915` in a 1000×800 grid
+- [x] Copy `~/.config/idle-manager/sessions.toml` and `presets/` into a throwaway `$T/config/idle-manager/`, then `XDG_CONFIG_HOME=$T/config XDG_DATA_HOME=$T/data XDG_CACHE_HOME=$T/cache RUST_LOG=idle_manager_shell=debug IDLE_MANAGER_DEBUG_LAYOUT=mobile timeout 40 dbus-run-session -- target/debug/idle-manager` → the log shows `debug switch: selecting the layout toggle layout=Mobile` at ~5 s, then `mobile slot allocated size=412x915 x=334 y=0 grid_width=1080 grid_height=753` (clipped, not scaled), then `workspace saved`; `grep -c Gtk-CRITICAL` → `0`
+- [x] After that run, `diff` the throwaway `sessions.toml` against its pre-run copy → no output; a save made during mobile mode records the pre-mobile layouts
+- [ ] With a screen: press `Phone` → one outlined 412 × 915 slot centred at the top with the focused game inside, no grip on hover, bottom edge clipped at the default 800 px height; `Ctrl`+`+` and `Ctrl`+wheel over it change nothing and flash no readout
+- [ ] Press `2` → the two-slot arrangement returns with the same accounts in the same slots; press `Phone`, quit, relaunch → the window opens in `2`
+
 ## 04 — The remote server: enrolment, the socket and its proof
 
 - [x] `cargo nextest run -p idle-manager-remote` → `85 tests run: 85 passed, 1 skipped`

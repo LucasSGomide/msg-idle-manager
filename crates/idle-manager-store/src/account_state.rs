@@ -133,7 +133,9 @@ impl ZoomMemory for TomlZoomMemory {
         let file = StateFile {
             zoom: remembered
                 .entries()
-                .map(|(layout, zoom)| (key_for_layout(layout).to_owned(), zoom.multiplier()))
+                .filter_map(|(layout, zoom)| {
+                    key_for_layout(layout).map(|key| (key.to_owned(), zoom.multiplier()))
+                })
                 .collect(),
         };
         let body = toml::to_string(&file).map_err(|error| ZoomMemoryError::NotStored {
@@ -181,11 +183,16 @@ fn layout_for_key(key: &str) -> Option<Layout> {
     }
 }
 
-fn key_for_layout(layout: Layout) -> &'static str {
+/// The on-disk key for `layout`, or `None` for [`Layout::Mobile`], which has
+/// no key: the size is locked there, `SessionBook` never records one for it,
+/// and a `mobile` key would be a word the file never needs (Remote Access
+/// `FR.3.2`).
+fn key_for_layout(layout: Layout) -> Option<&'static str> {
     match layout {
-        Layout::Single => LAYOUT_KEY_SINGLE,
-        Layout::SideBySide => LAYOUT_KEY_SIDE_BY_SIDE,
-        Layout::Grid => LAYOUT_KEY_GRID,
+        Layout::Single => Some(LAYOUT_KEY_SINGLE),
+        Layout::SideBySide => Some(LAYOUT_KEY_SIDE_BY_SIDE),
+        Layout::Grid => Some(LAYOUT_KEY_GRID),
+        Layout::Mobile => None,
     }
 }
 

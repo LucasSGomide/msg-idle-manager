@@ -145,7 +145,8 @@ struct SessionEntry {
 }
 
 /// The on-disk spelling of [`Layout`]. A string the domain cannot map is a
-/// parse failure, never a default.
+/// parse failure, never a default. There is deliberately no `mobile`: mobile
+/// mode is never saved (Remote Access `FR.3.4`).
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 enum LayoutRecord {
@@ -157,7 +158,11 @@ enum LayoutRecord {
 impl From<Layout> for LayoutRecord {
     fn from(layout: Layout) -> Self {
         match layout {
-            Layout::Single => LayoutRecord::Single,
+            // `WorkspaceBook::saved()` substitutes the pre-mobile arrangement
+            // while the mode is on, so it never hands `Mobile` over; a caller
+            // that builds a `Workspace` by hand with it gets the one other
+            // single-slot spelling rather than a new word in the file.
+            Layout::Single | Layout::Mobile => LayoutRecord::Single,
             Layout::SideBySide => LayoutRecord::SideBySide,
             Layout::Grid => LayoutRecord::Grid,
         }

@@ -121,13 +121,10 @@ pub struct RemoteState {
 
 impl RemoteState {
     /// The snapshot of `book` as it stands: every workspace with every account
-    /// listed exactly once under it, and `current` the shown workspace's
-    /// focused account.
-    ///
-    /// Mobile mode and its viewport are reported off and
-    /// [`DEFAULT_MOBILE_VIEWPORT`] until the book learns them.
-    // TODO(13): read `mobile_mode` and `viewport` from the book once task 03
-    // adds `is_mobile_mode` and `mobile_viewport` to `WorkspaceBook`.
+    /// listed exactly once under it, `current` the shown workspace's focused
+    /// account, and mobile mode with its viewport as the book reports them —
+    /// [`DEFAULT_MOBILE_VIEWPORT`] while the mode is off, since the phone
+    /// still needs a shape to lay its page out for.
     #[must_use]
     pub fn from_book(book: &WorkspaceBook) -> Self {
         let workspaces = book
@@ -152,8 +149,8 @@ impl RemoteState {
             .map(|session| session.id().clone());
 
         Self {
-            mobile_mode: false,
-            viewport: DEFAULT_MOBILE_VIEWPORT,
+            mobile_mode: book.is_mobile_mode(),
+            viewport: book.mobile_viewport().unwrap_or(DEFAULT_MOBILE_VIEWPORT),
             current,
             workspaces,
         }
@@ -442,6 +439,20 @@ mod tests {
         let state = RemoteState::from_book(&book);
 
         assert_eq!(state.current, Some(c));
+    }
+
+    #[test]
+    fn from_book_reports_mobile_mode_and_its_viewport_once_entered() {
+        let mut book = WorkspaceBook::default();
+        let phone = Viewport {
+            width: 390,
+            height: 844,
+        };
+
+        book.enter_mobile_mode(phone);
+        let state = RemoteState::from_book(&book);
+
+        assert_eq!((state.mobile_mode, state.viewport), (true, phone));
     }
 
     #[test]

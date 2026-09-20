@@ -295,9 +295,15 @@ impl Session {
 
     /// The size to draw this account's page at in `layout`: the size its owner
     /// chose for that arrangement if there is one, the baseline otherwise. The
-    /// whole resolution rule, in one place (`FR.12.1`).
+    /// whole resolution rule, in one place (`FR.12.1`). In [`Layout::Mobile`]
+    /// it is always [`ZoomLevel::DEFAULT`]: the slot's pixel size *is* the
+    /// phone's viewport, and any other size would change the page's viewport
+    /// out from under the game (Remote Access `FR.3.2`).
     #[must_use]
     pub fn zoom_for(&self, layout: Layout) -> ZoomLevel {
+        if layout == Layout::Mobile {
+            return ZoomLevel::DEFAULT;
+        }
         self.remembered_zoom.get(layout).unwrap_or(self.preset_zoom)
     }
 
@@ -308,6 +314,31 @@ impl Session {
     pub fn remembered_zoom(&self) -> &RememberedZoom {
         &self.remembered_zoom
     }
+}
+
+/// Where one account sat in an [`Arrangement`]: its visibility then, and the
+/// slot it would return to.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct Seat {
+    visibility: Visibility,
+    remembered: Option<SlotId>,
+}
+
+/// One workspace's seating as a value that can be put back later: its layout,
+/// its focused slot, and where every account sat and would return to. Taken
+/// by [`SessionBook::arrangement`] before mobile mode rearranges the book and
+/// handed back to [`SessionBook::restore_arrangement`] when the mode ends, so
+/// leaving puts back exactly what entering found (Remote Access `FR.3.5`).
+///
+/// Carries the visibility as well as the remembered slot because the
+/// placement pass alone cannot reproduce a seating: an account displaced
+/// off-grid by a focus swap still remembers the slot it lost, and a slot
+/// freed by a removal stays empty rather than being refilled.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct Arrangement {
+    layout: Layout,
+    focused: SlotId,
+    seats: HashMap<SessionId, Seat>,
 }
 
 /// The application's sessions in the order they sit in, together with the
@@ -431,35 +462,169 @@ impl SessionBook {
     /// those describe a moment, not a wish.
     #[must_use]
     pub fn workspace(&self, id: WorkspaceId, name: String, is_expanded: bool) -> Workspace {
+        self.workspace_as(&self.arrangement(), id, name, is_expanded)
+    }
+
+    /// [`SessionBook::workspace`] with `arrangement` in place of the live
+    /// seating — what mobile mode saves, so the file never records
+    /// [`Layout::Mobile`] and a relaunch opens in the arrangement from before
+    /// (Remote Access `FR.3.4`). Every field that is not a seat — name,
+    /// address, liveness, keep-awake, identity, zoom — is still the live one,
+    /// so a park made while the mode is on is written. An account
+    /// `arrangement` does not know is seated as
+    /// [`SessionBook::restore_arrangement`] would seat it.
+    #[must_use]
+    pub(crate) fn workspace_as(
+        &self,
+        arrangement: &Arrangement,
+        id: WorkspaceId,
+        name: String,
+        is_expanded: bool,
+    ) -> Workspace {
+        let seats = self.seats_under(arrangement);
         let accounts = self
             .sessions
             .iter()
-            .map(|session| Account {
-                id: session.id.clone(),
-                display_name: session.display_name.clone(),
-                start_address: session.start_address.clone(),
-                liveness: match session.liveness {
-                    Liveness::Parked => SavedLiveness::Parked,
-                    Liveness::Live | Liveness::Starting | Liveness::Queued => {
-                        SavedLiveness::Running
-                    }
-                },
-                visibility: session.visibility,
-                remembered_slot: self.remembered.get(&session.id).copied(),
-                is_kept_awake: session.is_kept_awake,
-                browser_identity: session.browser_identity.clone(),
-                zoom: session.preset_zoom,
+            .map(|session| {
+                let seat = seats.get(&session.id).copied().unwrap_or(Seat {
+                    visibility: Visibility::OffGrid,
+                    remembered: None,
+                });
+                Account {
+                    id: session.id.clone(),
+                    display_name: session.display_name.clone(),
+                    start_address: session.start_address.clone(),
+                    liveness: match session.liveness {
+                        Liveness::Parked => SavedLiveness::Parked,
+                        Liveness::Live | Liveness::Starting | Liveness::Queued => {
+                            SavedLiveness::Running
+                        }
+                    },
+                    visibility: seat.visibility,
+                    remembered_slot: seat.remembered,
+                    is_kept_awake: session.is_kept_awake,
+                    browser_identity: session.browser_identity.clone(),
+                    zoom: session.preset_zoom,
+                }
             })
             .collect();
 
         Workspace {
             id,
             name,
-            focused: self.focused,
+            focused: focused_or_first(arrangement.focused, arrangement.layout),
             is_expanded,
             accounts,
-            layout: self.layout,
+            layout: arrangement.layout,
         }
+    }
+
+    /// This book's seating right now, as a value [`SessionBook::restore_arrangement`]
+    /// puts back later — taken before mobile mode rearranges the book
+    /// (Remote Access `FR.3.5`).
+    #[must_use]
+    pub(crate) fn arrangement(&self) -> Arrangement {
+        Arrangement {
+            layout: self.layout,
+            focused: self.focused,
+            seats: self.current_seats(),
+        }
+    }
+
+    /// Puts `arrangement` back: its layout, its focused slot, and every
+    /// account it knows in the seat it had. An account removed since is
+    /// skipped; an account added since keeps the slot it holds when the
+    /// layout has it and nobody returning claims it, and otherwise takes the
+    /// lowest free slot or goes off-grid — the placement pass's own rule
+    /// (Remote Access `FR.3.5`). Liveness, keep-awake and zoom are untouched.
+    pub(crate) fn restore_arrangement(&mut self, arrangement: &Arrangement) {
+        let seats = self.seats_under(arrangement);
+
+        self.layout = arrangement.layout;
+        self.focused = focused_or_first(arrangement.focused, arrangement.layout);
+        for session in &mut self.sessions {
+            let Some(seat) = seats.get(&session.id) else {
+                continue;
+            };
+            session.visibility = seat.visibility;
+            match seat.remembered {
+                Some(slot) => {
+                    self.remembered.insert(session.id.clone(), slot);
+                }
+                None => {
+                    self.remembered.remove(&session.id);
+                }
+            }
+        }
+    }
+
+    fn current_seats(&self) -> HashMap<SessionId, Seat> {
+        self.sessions
+            .iter()
+            .map(|session| {
+                (
+                    session.id.clone(),
+                    Seat {
+                        visibility: session.visibility,
+                        remembered: self.remembered.get(&session.id).copied(),
+                    },
+                )
+            })
+            .collect()
+    }
+
+    /// Where every session of this book sits under `arrangement`: a session
+    /// the arrangement knows sits exactly where it did; one it does not —
+    /// added since it was taken — keeps its own slot if `arrangement`'s
+    /// layout has it and no returning session holds it, else the lowest free
+    /// slot, else off-grid. In session order, so two newcomers never land in
+    /// one slot.
+    fn seats_under(&self, arrangement: &Arrangement) -> HashMap<SessionId, Seat> {
+        let mut taken: Vec<SlotId> = self
+            .sessions
+            .iter()
+            .filter_map(|session| arrangement.seats.get(&session.id))
+            .filter_map(|seat| match seat.visibility {
+                Visibility::InSlot(slot) => Some(slot),
+                Visibility::OffGrid => None,
+            })
+            .collect();
+
+        let mut seats = HashMap::with_capacity(self.sessions.len());
+        for session in &self.sessions {
+            if let Some(seat) = arrangement.seats.get(&session.id) {
+                seats.insert(session.id.clone(), *seat);
+                continue;
+            }
+
+            let kept = match session.visibility {
+                Visibility::InSlot(slot)
+                    if arrangement.layout.contains(slot) && !taken.contains(&slot) =>
+                {
+                    Some(slot)
+                }
+                Visibility::InSlot(_) | Visibility::OffGrid => arrangement
+                    .layout
+                    .slots()
+                    .find(|slot| !taken.contains(slot)),
+            };
+            let seat = match kept {
+                Some(slot) => {
+                    taken.push(slot);
+                    Seat {
+                        visibility: Visibility::InSlot(slot),
+                        remembered: Some(slot),
+                    }
+                }
+                None => Seat {
+                    visibility: Visibility::OffGrid,
+                    remembered: self.remembered.get(&session.id).copied(),
+                },
+            };
+            seats.insert(session.id.clone(), seat);
+        }
+
+        seats
     }
 
     /// The queued accounts in book order, and nothing else.
@@ -700,8 +865,10 @@ impl SessionBook {
 
     /// Steps `account`'s size one step larger for the book's **current**
     /// layout, records it against that arrangement only, and returns the new
-    /// size. `None` for an id the book does not hold. Liveness and visibility
-    /// are untouched — a zoom is not a reload (`FR.11.5`).
+    /// size. `None` for an id the book does not hold, and `None` with nothing
+    /// recorded while the layout is [`Layout::Mobile`], where the size is
+    /// locked (Remote Access `FR.3.2`). Liveness and visibility are untouched
+    /// — a zoom is not a reload (`FR.11.5`).
     pub fn zoom_in(&mut self, account: &SessionId) -> Option<ZoomLevel> {
         self.step_zoom(account, ZoomLevel::stepped_in)
     }
@@ -718,6 +885,9 @@ impl SessionBook {
         step: impl FnOnce(ZoomLevel) -> ZoomLevel,
     ) -> Option<ZoomLevel> {
         let layout = self.layout;
+        if layout == Layout::Mobile {
+            return None;
+        }
         let session = self.sessions.iter_mut().find(|s| &s.id == account)?;
         let stepped = step(session.zoom_for(layout));
         session.remembered_zoom.set(layout, stepped);
@@ -727,9 +897,13 @@ impl SessionBook {
     /// Drops `account`'s remembered size for the book's current layout and
     /// returns the baseline the game file supplied. Entries for the other
     /// arrangements are left in place. `None` for an id the book does not hold
-    /// (`FR.11.2`).
+    /// (`FR.11.2`), and `None` with nothing changed in [`Layout::Mobile`],
+    /// exactly as [`SessionBook::zoom_in`].
     pub fn reset_zoom(&mut self, account: &SessionId) -> Option<ZoomLevel> {
         let layout = self.layout;
+        if layout == Layout::Mobile {
+            return None;
+        }
         let session = self.sessions.iter_mut().find(|s| &s.id == account)?;
         session.remembered_zoom.clear(layout);
         Some(session.preset_zoom)
@@ -1910,6 +2084,57 @@ mod tests {
                 session.zoom_for(Layout::SideBySide),
             ),
             (accepted(1.5), ZoomLevel::DEFAULT, ZoomLevel::DEFAULT),
+        );
+    }
+
+    #[test]
+    fn zoom_for_mobile_is_the_default_size_despite_a_stored_single_override() {
+        let mut book = SessionBook::new();
+        let id = add_from_preset(
+            &mut book,
+            "Alt",
+            &Preset {
+                zoom: accepted(0.8),
+                ..a_preset()
+            },
+        );
+        book.restore_zoom(&id, [(Layout::Single, accepted(2.0))].into_iter().collect());
+
+        assert_eq!(
+            session(&book, &id).zoom_for(Layout::Mobile),
+            ZoomLevel::DEFAULT
+        );
+    }
+
+    #[test]
+    fn zoom_in_in_mobile_returns_none_and_writes_no_mobile_key() {
+        let mut book = SessionBook::new();
+        let id = add(&mut book, "One", "https://example.test/one");
+        book.set_layout(Layout::Mobile);
+
+        let stepped = book.zoom_in(&id);
+
+        assert_eq!(
+            (stepped, session(&book, &id).remembered_zoom().is_empty()),
+            (None, true),
+        );
+    }
+
+    #[test]
+    fn zoom_out_and_reset_in_mobile_return_none_and_leave_the_other_arrangements_alone() {
+        let mut book = SessionBook::new();
+        let id = add(&mut book, "One", "https://example.test/one");
+        book.restore_zoom(&id, [(Layout::Grid, accepted(1.5))].into_iter().collect());
+        book.set_layout(Layout::Mobile);
+
+        let outcomes = (book.zoom_out(&id), book.reset_zoom(&id));
+
+        assert_eq!(
+            (
+                outcomes,
+                session(&book, &id).remembered_zoom().get(Layout::Grid)
+            ),
+            ((None, None), Some(accepted(1.5))),
         );
     }
 

@@ -2,15 +2,15 @@
 //! back, round-tripping every field, migrating a version 1 file, repairing an
 //! oversized named workspace, telling a missing file from a malformed one
 //! from an unknown version, keeping an unreadable file aside intact, keeping a
-//! version 1 file's bytes beside its migrated replacement, and never leaving a
-//! temporary behind.
+//! version 1 file's bytes beside its migrated replacement, never leaving a
+//! temporary behind, and never spelling mobile mode into the file.
 
 mod common;
 
 use common::TempDir;
 use idle_manager_core::{
-    Account, Layout, SavedLiveness, SessionId, SlotId, Visibility, Workspace, WorkspaceId,
-    WorkspaceList, WorkspaceStore, ZoomLevel,
+    Account, DEFAULT_MOBILE_VIEWPORT, Layout, SavedLiveness, SessionId, SlotId, Visibility,
+    Workspace, WorkspaceBook, WorkspaceId, WorkspaceList, WorkspaceStore, ZoomLevel,
 };
 use idle_manager_store::{SessionFileError, TomlWorkspaceStore};
 
@@ -146,6 +146,92 @@ fn the_written_file_matches_its_snapshot_with_the_version_key() {
     let on_disk = std::fs::read_to_string(store.path()).expect("read the written file");
 
     insta::assert_snapshot!("workspace-file", on_disk);
+}
+
+/// A list every seat of which the placement pass leaves alone, so a book
+/// restored from it saves back exactly this list: `Party` in `Grid` with two
+/// seated accounts, Ungrouped in `Single` with one parked account seated.
+fn a_settled_list() -> WorkspaceList {
+    let list = a_list(
+        vec![
+            named(
+                "workspace-0001",
+                "Party",
+                vec![
+                    in_slot(account("session-0001", "Main account"), 0),
+                    in_slot(account("session-0002", "Alt"), 1),
+                ],
+                Layout::Grid,
+            ),
+            ungrouped(
+                vec![in_slot(
+                    Account {
+                        liveness: SavedLiveness::Parked,
+                        ..account("session-0003", "Farm")
+                    },
+                    0,
+                )],
+                Layout::Single,
+            ),
+        ],
+        "workspace-0001",
+    );
+    WorkspaceList {
+        next_account_number: 4,
+        next_workspace_number: 2,
+        ..list
+    }
+}
+
+#[test]
+fn a_workspace_arranged_for_mobile_is_written_with_the_single_spelling() {
+    let dir = TempDir::new("workspace-mobile-spelling");
+    let store = TomlWorkspaceStore::under(dir.path());
+    let list = a_list(
+        vec![ungrouped(
+            vec![in_slot(account("session-0001", "A"), 0)],
+            Layout::Mobile,
+        )],
+        "ungrouped",
+    );
+    store.save(&list).expect("write the workspace list");
+
+    let on_disk = std::fs::read_to_string(store.path()).expect("read the written file");
+
+    assert!(
+        on_disk.contains("layout = \"single\""),
+        "expected the single spelling, got:\n{on_disk}"
+    );
+}
+
+#[test]
+fn the_file_written_during_mobile_mode_matches_its_snapshot_in_the_pre_mobile_layout() {
+    let dir = TempDir::new("workspace-mobile-snapshot");
+    let store = TomlWorkspaceStore::under(dir.path());
+    let mut book = WorkspaceBook::restore(a_settled_list());
+    book.enter_mobile_mode(DEFAULT_MOBILE_VIEWPORT);
+    book.focus_account(&SessionId::new("session-0002"));
+    store.save(&book.saved()).expect("write the workspace list");
+
+    let on_disk = std::fs::read_to_string(store.path()).expect("read the written file");
+
+    insta::assert_snapshot!("workspace-file-during-mobile-mode", on_disk);
+}
+
+#[test]
+fn the_file_written_during_mobile_mode_is_byte_equal_to_the_one_written_before_it() {
+    let dir = TempDir::new("workspace-mobile-unchanged");
+    let store = TomlWorkspaceStore::under(dir.path());
+    let mut book = WorkspaceBook::restore(a_settled_list());
+    store.save(&book.saved()).expect("write before mobile mode");
+    let before = std::fs::read_to_string(store.path()).expect("read the pre-mobile file");
+
+    book.enter_mobile_mode(DEFAULT_MOBILE_VIEWPORT);
+    book.focus_account(&SessionId::new("session-0002"));
+    store.save(&book.saved()).expect("write during mobile mode");
+
+    let during = std::fs::read_to_string(store.path()).expect("read the mobile-mode file");
+    assert_eq!(during, before);
 }
 
 #[test]

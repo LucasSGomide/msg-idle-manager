@@ -6,7 +6,11 @@ use std::collections::HashMap;
 
 use crate::session::{SessionId, Visibility};
 
-/// One of the three ways the window divides itself between sessions.
+/// One of the four ways the window divides itself between sessions.
+///
+/// `Mobile` is a layout and nothing more (Remote Access `FR.3.1`): one slot the
+/// shape of a phone screen, entered and left through
+/// [`crate::WorkspaceBook::enter_mobile_mode`] and never written to disk.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
 pub enum Layout {
     /// One session fills the window.
@@ -16,14 +20,18 @@ pub enum Layout {
     SideBySide,
     /// Four sessions in a two-by-two grid.
     Grid,
+    /// One session in a slot the size of a phone's viewport, centred on the
+    /// window background; every other session is off-grid (roadmap item 13).
+    Mobile,
 }
 
 impl Layout {
-    /// How many slots this layout shows at once: 1, 2 or 4.
+    /// How many slots this layout shows at once: 1, 2 or 4 — `Mobile` shows
+    /// one, like `Single`.
     #[must_use]
     pub const fn slot_count(self) -> usize {
         match self {
-            Layout::Single => 1,
+            Layout::Single | Layout::Mobile => 1,
             Layout::SideBySide => 2,
             Layout::Grid => 4,
         }
@@ -334,12 +342,17 @@ mod tests {
 
     #[test]
     fn each_layout_exposes_its_own_slot_count() {
-        let counts: Vec<usize> = [Layout::Single, Layout::SideBySide, Layout::Grid]
-            .into_iter()
-            .map(Layout::slot_count)
-            .collect();
+        let counts: Vec<usize> = [
+            Layout::Single,
+            Layout::SideBySide,
+            Layout::Grid,
+            Layout::Mobile,
+        ]
+        .into_iter()
+        .map(Layout::slot_count)
+        .collect();
 
-        assert_eq!(counts, vec![1, 2, 4]);
+        assert_eq!(counts, vec![1, 2, 4, 1]);
     }
 
     #[test]

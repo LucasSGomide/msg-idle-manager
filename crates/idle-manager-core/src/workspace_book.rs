@@ -9,9 +9,14 @@
 //! app-wide and a deleted account's number is never handed to a new one
 //! (`FR.21.7`).
 
+use std::collections::HashMap;
+
 use crate::layout::Layout;
 use crate::preset::Preset;
-use crate::session::{Liveness, SessionBook, SessionId, Visibility, WorkspaceId, workspace_name};
+use crate::remote::Viewport;
+use crate::session::{
+    Arrangement, Liveness, SessionBook, SessionId, Visibility, WorkspaceId, workspace_name,
+};
 use crate::workspace::{Workspace, WorkspaceList};
 
 /// What [`WorkspaceBook::focus_account`] did beyond focusing the account: it
@@ -172,19 +177,33 @@ pub enum WorkspaceRefusal {
     UnknownAccount,
 }
 
+/// Mobile mode while it is on: the phone-shaped viewport the one slot takes,
+/// and the arrangement each workspace had before the mode reached it, keyed
+/// by workspace (roadmap item 13, Remote Access `FR.3.1`–`FR.3.5`).
+///
+/// `Option<MobileMode>` on the book is the whole state: off means no
+/// viewport and nothing to restore, on means both, and no third combination
+/// can be written (code standards rule 1).
+#[derive(Debug)]
+struct MobileMode {
+    viewport: Viewport,
+    snapshots: HashMap<WorkspaceId, Arrangement>,
+}
+
 /// The runtime parent of every workspace's [`SessionBook`].
 ///
 /// An ordered list of workspaces, each one [`SessionBook`] plus the identity,
 /// name and expansion state that book does not carry itself, the active
-/// (shown) workspace's id, and the two counters every mint reads from. The
-/// built-in Ungrouped workspace always exists, is never renamed or removed,
-/// and always sits last.
+/// (shown) workspace's id, the two counters every mint reads from, and
+/// mobile mode while it is on. The built-in Ungrouped workspace always
+/// exists, is never renamed or removed, and always sits last.
 #[derive(Debug)]
 pub struct WorkspaceBook {
     entries: Vec<Entry>,
     active: WorkspaceId,
     next_account_number: u64,
     next_workspace_number: u64,
+    mobile: Option<MobileMode>,
 }
 
 impl WorkspaceBook {
@@ -245,19 +264,40 @@ impl WorkspaceBook {
             active,
             next_account_number,
             next_workspace_number: list.next_workspace_number,
+            mobile: None,
         }
     }
 
     /// The whole book as one value, ready to be saved.
+    ///
+    /// While mobile mode is on, every workspace the mode has reached is
+    /// written in the arrangement it had before — layout, focus and seats —
+    /// so the file never records [`Layout::Mobile`] and a relaunch opens in
+    /// the ordinary layout (Remote Access `FR.3.4`). Everything else about
+    /// those accounts, a park made meanwhile included, is written live.
     #[must_use]
     pub fn saved(&self) -> WorkspaceList {
         let workspaces = self
             .entries
             .iter()
             .map(|entry| {
-                entry
-                    .book
-                    .workspace(entry.id.clone(), entry.name.clone(), entry.is_expanded)
+                let snapshot = self
+                    .mobile
+                    .as_ref()
+                    .and_then(|mode| mode.snapshots.get(&entry.id));
+                match snapshot {
+                    Some(arrangement) => entry.book.workspace_as(
+                        arrangement,
+                        entry.id.clone(),
+                        entry.name.clone(),
+                        entry.is_expanded,
+                    ),
+                    None => entry.book.workspace(
+                        entry.id.clone(),
+                        entry.name.clone(),
+                        entry.is_expanded,
+                    ),
+                }
             })
             .collect();
 
@@ -512,15 +552,107 @@ impl WorkspaceBook {
             to: target.clone(),
         });
         self.active = target;
+        self.apply_mobile_to_active();
 
         self.active_mut().focus_session(id);
         switch
     }
 
     /// Sets the shown workspace's layout (`FR.16.4`) — a layout switch acts
-    /// only on what is on screen.
+    /// only on what is on screen. Not the way into mobile mode: that is
+    /// [`WorkspaceBook::enter_mobile_mode`], which also takes the snapshot
+    /// leaving restores.
     pub fn set_layout(&mut self, layout: Layout) {
         self.active_mut().set_layout(layout);
+    }
+
+    /// Switches mobile mode on with the one slot shaped as `viewport`: the
+    /// shown workspace's arrangement is snapshotted, it is switched to
+    /// [`Layout::Mobile`] through the ordinary placement pass, and the
+    /// account that held its focused slot is brought into the one slot; every
+    /// other account goes off-grid, still running (Remote Access `FR.3.1`,
+    /// `FR.3.2`). Already on, only the viewport changes — the snapshot from
+    /// the first entry is kept, since it is the arrangement leaving must put
+    /// back.
+    pub fn enter_mobile_mode(&mut self, viewport: Viewport) {
+        if let Some(mode) = self.mobile.as_mut() {
+            mode.viewport = viewport;
+            return;
+        }
+        self.mobile = Some(MobileMode {
+            viewport,
+            snapshots: HashMap::new(),
+        });
+        self.apply_mobile_to_active();
+    }
+
+    /// Switches mobile mode off: every workspace the mode reached gets the
+    /// arrangement it had back — layout, focused slot and every account's
+    /// seat — with an account removed meanwhile skipped and one added
+    /// meanwhile seated by the placement pass (Remote Access `FR.3.5`). A
+    /// no-op while the mode is off.
+    pub fn leave_mobile_mode(&mut self) {
+        let Some(mode) = self.mobile.take() else {
+            return;
+        };
+        for (workspace, arrangement) in &mode.snapshots {
+            if let Some(book) = self.book_mut(workspace) {
+                book.restore_arrangement(arrangement);
+            }
+        }
+    }
+
+    /// Whether mobile mode is on.
+    #[must_use]
+    pub fn is_mobile_mode(&self) -> bool {
+        self.mobile.is_some()
+    }
+
+    /// The viewport the one mobile slot is shaped as, or `None` while the
+    /// mode is off.
+    #[must_use]
+    pub fn mobile_viewport(&self) -> Option<Viewport> {
+        self.mobile.as_ref().map(|mode| mode.viewport)
+    }
+
+    /// Reshapes the mobile slot to `viewport` — an attached phone reporting
+    /// its own screen (Remote Access `FR.3.2`). A no-op while the mode is
+    /// off: a viewport with no mode to apply it to is not a state this book
+    /// holds.
+    pub fn set_mobile_viewport(&mut self, viewport: Viewport) {
+        if let Some(mode) = self.mobile.as_mut() {
+            mode.viewport = viewport;
+        }
+    }
+
+    /// Puts the shown workspace into [`Layout::Mobile`] if the mode is on and
+    /// it has not been reached yet: its arrangement is snapshotted first, so
+    /// leaving can put it back, then the account in its focused slot is
+    /// brought into the one slot. The one place a workspace crosses into the
+    /// mode — entering and switching workspace both land here.
+    fn apply_mobile_to_active(&mut self) {
+        let active = self.active.clone();
+        let Some(mode) = self.mobile.as_mut() else {
+            return;
+        };
+        if mode.snapshots.contains_key(&active) {
+            return;
+        }
+        let Some(book) = self
+            .entries
+            .iter_mut()
+            .find(|entry| entry.id == active)
+            .map(|entry| &mut entry.book)
+        else {
+            return;
+        };
+
+        mode.snapshots.insert(active, book.arrangement());
+        let focused = book.focused_session().map(|session| session.id().clone());
+        book.set_layout(Layout::Mobile);
+        if let Some(id) = focused {
+            book.focus_session(&id);
+        }
     }
 
     /// Sets whether `workspace`'s sidebar heading is expanded, carried into
@@ -756,8 +888,12 @@ impl WorkspaceBook {
             }
         }
 
+        if let Some(mode) = self.mobile.as_mut() {
+            mode.snapshots.remove(id);
+        }
         if &self.active == id {
             self.active = WorkspaceId::ungrouped();
+            self.apply_mobile_to_active();
         }
 
         Ok(())
@@ -841,6 +977,7 @@ mod tests {
     use super::*;
     use crate::layout::SlotId;
     use crate::preset::ZoomLevel;
+    use crate::remote::DEFAULT_MOBILE_VIEWPORT;
     use crate::session::Visibility;
     use crate::workspace::{Account, SavedLiveness, Workspace};
 
@@ -1511,5 +1648,304 @@ mod tests {
             .expect("ungrouped has room");
 
         assert_eq!((removed, next == id), (true, false));
+    }
+
+    /// A `Grid` workspace `Party` with four accounts seated in slots 0–3,
+    /// focused on slot 2, shown; Ungrouped holds one account in `Single`.
+    fn a_seated_grid_book() -> (WorkspaceBook, Vec<SessionId>) {
+        let ids: Vec<SessionId> = (1..=4)
+            .map(|n| SessionId::new(format!("session-000{n}")))
+            .collect();
+        let party = Workspace {
+            layout: Layout::Grid,
+            focused: SlotId::new(2),
+            ..named_workspace(
+                "workspace-0001",
+                "Party",
+                ids.iter()
+                    .enumerate()
+                    .map(|(slot, id)| in_slot(saved_account(id.as_str(), id.as_str()), slot))
+                    .collect(),
+            )
+        };
+        let ungrouped = Workspace {
+            accounts: vec![in_slot(saved_account("session-0005", "Farm"), 0)],
+            ..Workspace::default()
+        };
+        let book = WorkspaceBook::restore(WorkspaceList {
+            workspaces: vec![party, ungrouped],
+            active: WorkspaceId::new("workspace-0001"),
+            next_account_number: 6,
+            next_workspace_number: 2,
+        });
+        (book, ids)
+    }
+
+    fn visibilities(book: &WorkspaceBook, ids: &[SessionId]) -> Vec<Option<Visibility>> {
+        ids.iter().map(|id| book.placement(id)).collect()
+    }
+
+    #[test]
+    fn entering_mobile_mode_leaves_the_focused_account_in_slot_zero_and_the_rest_off_grid() {
+        let (mut book, ids) = a_seated_grid_book();
+
+        book.enter_mobile_mode(DEFAULT_MOBILE_VIEWPORT);
+
+        assert_eq!(
+            visibilities(&book, &ids),
+            vec![
+                Some(Visibility::OffGrid),
+                Some(Visibility::OffGrid),
+                Some(Visibility::InSlot(SlotId::FIRST)),
+                Some(Visibility::OffGrid),
+            ],
+        );
+    }
+
+    #[test]
+    fn entering_mobile_mode_switches_the_shown_workspace_to_the_mobile_layout_only() {
+        let (mut book, _) = a_seated_grid_book();
+
+        book.enter_mobile_mode(DEFAULT_MOBILE_VIEWPORT);
+
+        let layouts: Vec<Layout> = book.workspaces().map(|w| w.book().layout()).collect();
+        assert_eq!(layouts, vec![Layout::Mobile, Layout::Single]);
+    }
+
+    #[test]
+    fn leaving_mobile_mode_returns_every_account_to_its_previous_slot_with_the_previous_focus() {
+        let (mut book, _) = a_seated_grid_book();
+        let before = book.saved();
+
+        book.enter_mobile_mode(DEFAULT_MOBILE_VIEWPORT);
+        book.leave_mobile_mode();
+
+        assert_eq!(book.saved(), before);
+    }
+
+    #[test]
+    fn focusing_another_account_while_the_mode_is_on_does_not_change_what_leaving_restores() {
+        let (mut book, ids) = a_seated_grid_book();
+        let before = book.saved();
+
+        book.enter_mobile_mode(DEFAULT_MOBILE_VIEWPORT);
+        book.focus_account(&ids[3]);
+        book.leave_mobile_mode();
+
+        assert_eq!(book.saved(), before);
+    }
+
+    #[test]
+    fn focusing_another_account_while_the_mode_is_on_swaps_it_into_the_one_slot() {
+        let (mut book, ids) = a_seated_grid_book();
+        book.enter_mobile_mode(DEFAULT_MOBILE_VIEWPORT);
+
+        book.focus_account(&ids[3]);
+
+        assert_eq!(
+            (book.placement(&ids[3]), book.placement(&ids[2])),
+            (
+                Some(Visibility::InSlot(SlotId::FIRST)),
+                Some(Visibility::OffGrid)
+            ),
+        );
+    }
+
+    #[test]
+    fn an_account_removed_while_the_mode_is_on_is_skipped_on_leave() {
+        let (mut book, ids) = a_seated_grid_book();
+        book.enter_mobile_mode(DEFAULT_MOBILE_VIEWPORT);
+
+        book.remove_account(&ids[1]);
+        book.leave_mobile_mode();
+
+        assert_eq!(
+            visibilities(&book, &ids),
+            vec![
+                Some(Visibility::InSlot(SlotId::new(0))),
+                None,
+                Some(Visibility::InSlot(SlotId::new(2))),
+                Some(Visibility::InSlot(SlotId::new(3))),
+            ],
+        );
+    }
+
+    #[test]
+    fn an_account_added_while_the_mode_is_on_is_seated_by_the_placement_pass_on_leave() {
+        let (mut book, ids) = a_seated_grid_book();
+        book.remove_account(&ids[3]);
+        book.enter_mobile_mode(DEFAULT_MOBILE_VIEWPORT);
+
+        let added = book
+            .add(
+                &WorkspaceId::new("workspace-0001"),
+                "New",
+                "https://example.test/new",
+            )
+            .expect("a slot was freed above");
+        book.leave_mobile_mode();
+
+        assert_eq!(
+            visibilities(
+                &book,
+                &[ids[0].clone(), ids[1].clone(), ids[2].clone(), added]
+            ),
+            vec![
+                Some(Visibility::InSlot(SlotId::new(0))),
+                Some(Visibility::InSlot(SlotId::new(1))),
+                Some(Visibility::InSlot(SlotId::new(2))),
+                Some(Visibility::InSlot(SlotId::new(3))),
+            ],
+        );
+    }
+
+    #[test]
+    fn an_account_added_into_a_full_grid_while_the_mode_is_on_goes_off_grid_on_leave() {
+        let ids: Vec<SessionId> = (1..=4)
+            .map(|n| SessionId::new(format!("session-000{n}")))
+            .collect();
+        let ungrouped = Workspace {
+            layout: Layout::Grid,
+            accounts: ids
+                .iter()
+                .enumerate()
+                .map(|(slot, id)| in_slot(saved_account(id.as_str(), id.as_str()), slot))
+                .collect(),
+            ..Workspace::default()
+        };
+        let mut book = WorkspaceBook::restore(a_list(vec![ungrouped], "ungrouped"));
+        book.enter_mobile_mode(DEFAULT_MOBILE_VIEWPORT);
+
+        let added = book
+            .add(&WorkspaceId::ungrouped(), "New", "https://example.test/new")
+            .expect("ungrouped always has room");
+        book.leave_mobile_mode();
+
+        assert_eq!(
+            visibilities(&book, &[ids[0].clone(), ids[3].clone(), added]),
+            vec![
+                Some(Visibility::InSlot(SlotId::new(0))),
+                Some(Visibility::InSlot(SlotId::new(3))),
+                Some(Visibility::OffGrid),
+            ],
+        );
+    }
+
+    #[test]
+    fn saved_while_the_mode_is_on_reports_the_pre_mobile_layout_focus_and_slots() {
+        let (mut book, ids) = a_seated_grid_book();
+        let before = book.saved();
+
+        book.enter_mobile_mode(DEFAULT_MOBILE_VIEWPORT);
+        book.focus_account(&ids[0]);
+
+        assert_eq!(book.saved(), before);
+    }
+
+    #[test]
+    fn a_park_while_the_mode_is_on_is_written_into_the_saved_liveness() {
+        let (mut book, ids) = a_seated_grid_book();
+        book.enter_mobile_mode(DEFAULT_MOBILE_VIEWPORT);
+
+        book.park(&ids[1]);
+
+        let saved = book.saved();
+        assert_eq!(
+            saved.workspaces[0].accounts[1].liveness,
+            SavedLiveness::Parked
+        );
+    }
+
+    #[test]
+    fn a_workspace_shown_for_the_first_time_while_the_mode_is_on_is_switched_to_mobile_too() {
+        let (mut book, _) = a_seated_grid_book();
+        book.enter_mobile_mode(DEFAULT_MOBILE_VIEWPORT);
+
+        book.focus_account(&SessionId::new("session-0005"));
+
+        assert_eq!(book.active().layout(), Layout::Mobile);
+    }
+
+    #[test]
+    fn leaving_restores_every_workspace_the_mode_reached_not_only_the_shown_one() {
+        let (mut book, _) = a_seated_grid_book();
+        let before = book.saved();
+        book.enter_mobile_mode(DEFAULT_MOBILE_VIEWPORT);
+        book.focus_account(&SessionId::new("session-0005"));
+
+        book.leave_mobile_mode();
+
+        assert_eq!(
+            book.saved(),
+            WorkspaceList {
+                active: WorkspaceId::ungrouped(),
+                ..before
+            }
+        );
+    }
+
+    #[test]
+    fn entering_again_while_the_mode_is_on_changes_the_viewport_and_keeps_the_first_snapshot() {
+        let (mut book, ids) = a_seated_grid_book();
+        let before = book.saved();
+        book.enter_mobile_mode(DEFAULT_MOBILE_VIEWPORT);
+        book.focus_account(&ids[0]);
+        let phone = Viewport {
+            width: 390,
+            height: 844,
+        };
+
+        book.enter_mobile_mode(phone);
+        let viewport = book.mobile_viewport();
+        book.leave_mobile_mode();
+
+        assert_eq!((viewport, book.saved()), (Some(phone), before));
+    }
+
+    #[test]
+    fn the_mode_and_its_viewport_are_reported_only_while_on() {
+        let (mut book, _) = a_seated_grid_book();
+        let off = (book.is_mobile_mode(), book.mobile_viewport());
+
+        book.enter_mobile_mode(DEFAULT_MOBILE_VIEWPORT);
+        let on = (book.is_mobile_mode(), book.mobile_viewport());
+        book.leave_mobile_mode();
+        let off_again = (book.is_mobile_mode(), book.mobile_viewport());
+
+        assert_eq!(
+            (off, on, off_again),
+            (
+                (false, None),
+                (true, Some(DEFAULT_MOBILE_VIEWPORT)),
+                (false, None)
+            ),
+        );
+    }
+
+    #[test]
+    fn set_mobile_viewport_reshapes_the_slot_while_on_and_does_nothing_while_off() {
+        let (mut book, _) = a_seated_grid_book();
+        let phone = Viewport {
+            width: 390,
+            height: 844,
+        };
+
+        book.set_mobile_viewport(phone);
+        let while_off = book.mobile_viewport();
+        book.enter_mobile_mode(DEFAULT_MOBILE_VIEWPORT);
+        book.set_mobile_viewport(phone);
+
+        assert_eq!((while_off, book.mobile_viewport()), (None, Some(phone)));
+    }
+
+    #[test]
+    fn removing_the_shown_workspace_while_the_mode_is_on_shows_ungrouped_in_mobile() {
+        let (mut book, _) = a_seated_grid_book();
+        book.enter_mobile_mode(DEFAULT_MOBILE_VIEWPORT);
+
+        book.remove_workspace(&WorkspaceId::new("workspace-0001"))
+            .expect("a named workspace can be removed");
+
+        assert_eq!(book.active().layout(), Layout::Mobile);
     }
 }
