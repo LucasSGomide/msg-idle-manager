@@ -588,6 +588,7 @@
       var context = el.frame.getContext('2d');
 
       var secretHex = null;
+      var deviceIdHex = null;
       var socket = null;
       // 'connecting' until welcome proves the desktop, 'open' after, 'refused'
       // for good, 'replaced' until this page is looked at again.
@@ -624,23 +625,41 @@
         if (metas.deviceId) { metas.deviceId.parentNode.removeChild(metas.deviceId); }
         if (metas.secret) { metas.secret.parentNode.removeChild(metas.secret); }
         var stored = null;
+        var storedDeviceId = null;
         try {
           if (fresh.secret) {
             window.localStorage.setItem(STORAGE_DEVICE_ID, fresh.deviceId);
             window.localStorage.setItem(STORAGE_SECRET, fresh.secret);
           }
           stored = window.localStorage.getItem(STORAGE_SECRET);
+          storedDeviceId = window.localStorage.getItem(STORAGE_DEVICE_ID);
         } catch (error) {
           stored = null;
+          storedDeviceId = null;
         }
         var secret = fresh.secret || stored || '';
-        if (fresh.secret && window.history && typeof window.history.replaceState === 'function'
-            && window.location.pathname.indexOf('/enrol/') === 0) {
-          // The address the phone bookmarks must be `/`, not the one-shot
-          // enrolment code that is already spent.
-          window.history.replaceState(null, '', '/');
+        deviceIdHex = fresh.deviceId || storedDeviceId || queryDeviceId() || null;
+        if (deviceIdHex !== null && window.history && typeof window.history.replaceState === 'function'
+            && window.location.pathname + window.location.search !== pageAddress()) {
+          // The address the phone keeps — in its history, its bookmark, its
+          // home-screen icon — is `/?d=<device id>`: never the one-shot
+          // enrolment code, which is already spent, and never a bare `/`,
+          // which needs the cookie a home-screen web app's own jar may not
+          // hold. The id names this phone; the secret in storage proves it.
+          window.history.replaceState(null, '', pageAddress());
         }
         return pure.hexToBytes(secret) !== null && secret.length > 0 ? secret : null;
+      }
+
+      function queryDeviceId() {
+        var match = /[?&]d=([0-9a-f]+)/.exec(window.location.search);
+        return match ? match[1] : null;
+      }
+
+      // `/?d=<device id>`: the page's own address, and the socket's, so both
+      // work whether or not this browser sends the cookie.
+      function pageAddress() {
+        return deviceIdHex === null ? '/' : '/?d=' + deviceIdHex;
       }
 
       function show(screen) {
@@ -930,7 +949,7 @@
 
       function socketUrl() {
         var scheme = window.location.protocol === 'https:' ? 'wss://' : 'ws://';
-        return scheme + window.location.host + '/ws';
+        return scheme + window.location.host + '/ws' + (deviceIdHex === null ? '' : '?d=' + deviceIdHex);
       }
 
       function connect() {
@@ -1041,7 +1060,7 @@
       // phone is still enrolled, since the browser hides why the upgrade failed.
       function probeEnrolment(afterAuth) {
         if (typeof window.fetch !== 'function') { scheduleRetry(); return; }
-        window.fetch('/', { method: 'GET', cache: 'no-store', credentials: 'same-origin' }).then(function (response) {
+        window.fetch(pageAddress(), { method: 'GET', cache: 'no-store', credentials: 'same-origin' }).then(function (response) {
           if (response.status === 404) { refuse(); return; }
           if (afterAuth) {
             authFailures += 1;

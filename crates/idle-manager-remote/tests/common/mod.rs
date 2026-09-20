@@ -101,6 +101,15 @@ impl Credential {
     pub(crate) fn cookie(&self) -> String {
         format!("{COOKIE_NAME}={}", self.device_id)
     }
+
+    /// The `Set-Cookie` value enrolment answers with, and the root answers
+    /// with again when named by the device query.
+    pub(crate) fn set_cookie(&self) -> String {
+        format!(
+            "{COOKIE_NAME}={}; Path=/; Max-Age=31536000; SameSite=Strict; HttpOnly",
+            self.device_id
+        )
+    }
 }
 
 /// A running server on a loopback port of the system's choosing.
@@ -343,12 +352,22 @@ impl WsClient {
     /// Opens `/ws` with `cookie`. `Err` carries the HTTP answer when the
     /// server did not upgrade; a 101 is checked for the right accept value.
     pub(crate) fn connect(addr: SocketAddr, cookie: Option<&str>) -> Result<Self, Response> {
+        Self::connect_at(addr, "/ws", cookie)
+    }
+
+    /// [`WsClient::connect`] against `target` — `/ws` with a query, for the
+    /// device id the page puts there in place of the cookie.
+    pub(crate) fn connect_at(
+        addr: SocketAddr,
+        target: &str,
+        cookie: Option<&str>,
+    ) -> Result<Self, Response> {
         let mut stream = TcpStream::connect(addr).expect("the server accepts a connection");
         stream
             .set_read_timeout(Some(PROMPT))
             .expect("the read timeout is set");
         let mut request = format!(
-            "GET /ws HTTP/1.1\r\nHost: {addr}\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Key: {CLIENT_KEY}\r\nSec-WebSocket-Version: 13\r\n"
+            "GET {target} HTTP/1.1\r\nHost: {addr}\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Key: {CLIENT_KEY}\r\nSec-WebSocket-Version: 13\r\n"
         );
         if let Some(cookie) = cookie {
             write!(request, "Cookie: {cookie}\r\n").expect("writing to a String cannot fail");

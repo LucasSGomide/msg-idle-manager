@@ -15,7 +15,11 @@ interaction diagram in `## User Experience`.
 
 A small modal window titled `Phone`. Top: one status line, one of
 `No phone enrolled`, `Phone enrolled`, `Phone connected`, or, in dim text,
-`Not listening: no mesh network address found`. Middle: while a code is live, a
+`Not listening: no mesh network address found`. While a phone is enrolled and
+no code is live, beneath it: a dim caption `The phone's own address, for a
+bookmark or a home-screen icon:` over the selectable line
+`http://100.101.12.7:7466/?d=<device id>` — the way back in for a browser
+that lost the cookie, without scanning again. Middle: while a code is live, a
 QR picture, the same address as a selectable single line beneath it, and a
 countdown `Valid for 9:41`; otherwise this block is empty. When the countdown
 reaches zero the block empties and the status line reads `The code expired;
@@ -34,6 +38,15 @@ dialog is open, so scanning flips it to `Phone enrolled` without a click.
 │          ▙▄▄▄▄▄▄▄▄▄▄▄▄▟                │
 │  http://100.101.12.7:7466/enrol/3fa9…  │
 │  Valid for 9:41                        │
+│                                        │
+│                  [ Enrol… ] [Un-enrol] │
+└────────────────────────────────────────┘
+
+┌ Phone ─────────────────────────────────┐
+│ Phone enrolled                         │
+│ The phone's own address, for a         │
+│ bookmark or a home-screen icon:        │
+│ http://100.101.12.7:7466/?d=d98598c3…  │
 │                                        │
 │                  [ Enrol… ] [Un-enrol] │
 └────────────────────────────────────────┘

@@ -368,6 +368,15 @@ pub trait PhoneLink: std::fmt::Debug + Send + Sync {
 
     /// What the desktop can say about its phone right now.
     fn phone_status(&self) -> PhoneStatus;
+
+    /// The address the enrolled phone opens the page at from then on —
+    /// the desktop's listening address with the phone's device id in the
+    /// query, so it works from a browser that dropped or never shared the
+    /// cookie, such as a home-screen web app with a jar of its own. `None`
+    /// while no phone is enrolled or the desktop is not listening. The id
+    /// names the phone; it never proves it — the socket still demands the
+    /// secret's proof.
+    fn phone_address(&self) -> Option<String>;
 }
 
 /// Keeps the one enrolled phone between runs, without the domain or the server

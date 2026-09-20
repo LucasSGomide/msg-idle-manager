@@ -64,14 +64,14 @@ sequenceDiagram
     participant Http as http.rs (connection thread)
     participant Handle as RemoteHandle (shared state)
 
-    Browser->>Http: GET / with Cookie idle-manager-phone=<device id>
+    Browser->>Http: GET / with Cookie idle-manager-phone=<device id>, or GET /?d=<device id>
     Http->>Handle: enrolled_device_id()
-    alt no phone enrolled, cookie missing or id mismatched
+    alt no phone enrolled, neither cookie nor d names it, or id mismatched
         Handle-->>Http: no match
         Http-->>Browser: 404, empty body, no Server header
     else match
         Handle-->>Http: match
-        Http-->>Browser: 200 text/html phone.html (no credential embedded)
+        Http-->>Browser: 200 text/html phone.html (no credential embedded; Set-Cookie again when named by d alone)
     end
 ```
 
@@ -93,8 +93,8 @@ sequenceDiagram
     participant Window as Window (GTK main context)
     participant Record as TomlPhoneRecord
 
-    Page->>Http: GET /ws, Upgrade: websocket, Cookie idle-manager-phone=<id>
-    alt cookie missing or mismatched
+    Page->>Http: GET /ws (or /ws?d=<id>), Upgrade: websocket, Cookie idle-manager-phone=<id>
+    alt neither cookie nor d names the enrolled phone
         Http-->>Page: 404, empty body
     else
         Http-->>Page: 101, Sec-WebSocket-Accept

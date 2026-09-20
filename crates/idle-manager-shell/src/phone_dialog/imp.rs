@@ -57,6 +57,10 @@ pub struct PhoneDialog {
     #[template_child]
     status_label: TemplateChild<gtk::Label>,
     #[template_child]
+    link_block: TemplateChild<gtk::Box>,
+    #[template_child]
+    link_label: TemplateChild<gtk::Label>,
+    #[template_child]
     code_block: TemplateChild<gtk::Box>,
     #[template_child]
     code_picture: TemplateChild<gtk::Picture>,
@@ -253,6 +257,17 @@ impl PhoneDialog {
         {
             self.clear_code(CodePhase::Idle);
         }
+
+        // The enrolled phone's own address stands in for the code once one
+        // is enrolled: what to bookmark, and the way back in for a browser
+        // that lost the cookie. Hidden while a code shows, which is the
+        // moment a second address would only confuse.
+        let address = self
+            .link()
+            .filter(|_| !matches!(self.phase.get(), CodePhase::Live { .. }))
+            .and_then(|link| link.phone_address());
+        self.link_label.set_label(address.as_deref().unwrap_or(""));
+        self.link_block.set_visible(address.is_some());
 
         let line = status_line(&status, self.phase.get());
         self.status_label.set_label(&line.text);

@@ -5,7 +5,7 @@
 //! a stranger on the network learns nothing (`FR.6.1`).
 
 use std::io::{self, Read as _, Write as _};
-use std::net::{Shutdown, TcpStream};
+use std::net::{Shutdown, SocketAddr, TcpStream};
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -23,6 +23,11 @@ const MAX_REQUEST_BYTES: usize = 16 * 1024;
 
 /// The cookie that names the enrolled phone.
 pub(crate) const COOKIE_NAME: &str = "idle-manager-phone";
+
+/// The query parameter that names the enrolled phone when the cookie is not
+/// there: `/?d=<device id>`, the address the page gives itself after
+/// enrolment.
+pub(crate) const DEVICE_QUERY: &str = "d";
 
 /// How long the phone keeps its cookie: one year.
 const COOKIE_MAX_AGE_SECS: u64 = 31_536_000;
@@ -141,6 +146,19 @@ impl Request {
             .map_or(self.target.as_str(), |(path, _)| path)
     }
 
+    /// The value of query parameter `name`, from the first `name=value`
+    /// pair naming it. No percent-decoding: the one parameter served here
+    /// is a hex device id.
+    pub(crate) fn query(&self, name: &str) -> Option<&str> {
+        self.target
+            .split_once('?')
+            .into_iter()
+            .flat_map(|(_, query)| query.split('&'))
+            .filter_map(|pair| pair.split_once('='))
+            .find(|(candidate, _)| *candidate == name)
+            .map(|(_, value)| value)
+    }
+
     /// The first header named `name`, case-insensitively.
     pub(crate) fn header(&self, name: &str) -> Option<&str> {
         self.headers
@@ -210,24 +228,50 @@ fn route(request: &Request, shared: &Shared) -> Route {
     if let Some(code) = path.strip_prefix("/enrol/") {
         return Route::Respond(enrol(code, shared));
     }
-    let is_enrolled_phone = request
-        .cookie(COOKIE_NAME)
+    // The phone names itself by cookie, or by the `d` query the page puts in
+    // its own address after enrolment — the same id, for a browser that
+    // dropped the cookie or keeps a jar of its own (a home-screen web app).
+    // Either way it is only a name: the socket still demands the secret's
+    // proof, and an id that is not the enrolled phone's is a 404 like any
+    // other unknown request.
+    let by_cookie = request.cookie(COOKIE_NAME);
+    let by_query = request.query(DEVICE_QUERY);
+    let is_enrolled_phone = by_cookie
+        .or(by_query)
         .is_some_and(|device_id| shared.is_enrolled_device(device_id));
     match path {
-        "/" if is_enrolled_phone => Route::Respond(ok_html(&render_page(None), None)),
+        "/" if is_enrolled_phone => {
+            // Named by the query alone: hand this jar the cookie too, so the
+            // socket upgrade that follows carries it.
+            let cookie = by_cookie
+                .is_none()
+                .then(|| by_query.map(device_cookie))
+                .flatten();
+            Route::Respond(ok_html(&render_page(None), cookie.as_deref()))
+        }
         "/ws" if is_enrolled_phone => upgrade(request),
         _ => Route::Respond(not_found()),
     }
+}
+
+/// The `Set-Cookie` value that names `device_id` as this phone.
+fn device_cookie(device_id: &str) -> String {
+    format!(
+        "{COOKIE_NAME}={device_id}; Path=/; Max-Age={COOKIE_MAX_AGE_SECS}; SameSite=Strict; HttpOnly"
+    )
+}
+
+/// The page's address for the enrolled phone: the listening address with
+/// the device id in the query, so it opens without the cookie.
+pub(crate) fn page_address(bind: &SocketAddr, device_id: &str) -> String {
+    format!("http://{bind}/?{DEVICE_QUERY}={device_id}")
 }
 
 fn enrol(code: &str, shared: &Shared) -> Vec<u8> {
     let Some(phone) = shared.enrol(code) else {
         return not_found();
     };
-    let cookie = format!(
-        "{COOKIE_NAME}={}; Path=/; Max-Age={COOKIE_MAX_AGE_SECS}; SameSite=Strict; HttpOnly",
-        phone.device_id
-    );
+    let cookie = device_cookie(&phone.device_id);
     ok_html(&render_page(Some(&phone)), Some(&cookie))
 }
 
@@ -319,6 +363,30 @@ mod tests {
         .expect("parses");
 
         assert_eq!(request.cookie(COOKIE_NAME), Some("abc123"));
+    }
+
+    #[test]
+    fn the_device_query_is_read_from_the_target_and_only_by_its_own_name() {
+        let request =
+            Request::parse("GET /?x=1&d=abc123&dd=zzz HTTP/1.1\r\nHost: h").expect("parses");
+
+        assert_eq!(
+            (
+                request.query(DEVICE_QUERY),
+                request.query("dd"),
+                request.query("q")
+            ),
+            (Some("abc123"), Some("zzz"), None)
+        );
+    }
+
+    #[test]
+    fn the_page_address_carries_the_device_id_in_the_query() {
+        let bind: SocketAddr = "100.101.12.7:7466".parse().expect("an address");
+
+        let address = page_address(&bind, "abc123");
+
+        assert_eq!(address, "http://100.101.12.7:7466/?d=abc123");
     }
 
     #[test]

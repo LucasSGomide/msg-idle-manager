@@ -1,6 +1,8 @@
-//! `GET /` and `GET /ws` answer only a request carrying the enrolled phone's
-//! cookie; every other path, method, missing or mismatched cookie is an empty
-//! 404 with no `Server` header, so a stranger learns nothing.
+//! `GET /` and `GET /ws` answer only a request naming the enrolled phone —
+//! by its cookie, or by the same device id in a `d` query, the address the
+//! page gives itself for a browser with no cookie; every other path, method,
+//! missing or mismatched id is an empty 404 with no `Server` header, so a
+//! stranger learns nothing.
 
 mod common;
 
@@ -8,6 +10,7 @@ use std::io::Write as _;
 use std::net::TcpStream;
 
 use common::{COOKIE_NAME, Server, WsClient, hex, http_get};
+use idle_manager_core::PhoneLink as _;
 
 fn is_empty_404(response: &common::Response) -> bool {
     response.status == 404
@@ -69,6 +72,69 @@ fn the_root_with_the_right_cookie_serves_the_page_without_the_secret() {
         "{}\n{page}",
         response.head
     );
+}
+
+#[test]
+fn the_root_named_by_the_device_query_serves_the_page_and_hands_over_the_cookie() {
+    let server = Server::start();
+    let credential = server.enrol();
+
+    let response = http_get(server.addr(), &format!("/?d={}", credential.device_id), &[]);
+
+    let page = response.body_text();
+    assert!(
+        response.status == 200
+            && page.contains("<title>Idle Manager</title>")
+            && !page.contains(&hex(&credential.secret))
+            && response.header("Set-Cookie") == Some(credential.set_cookie().as_str()),
+        "{}\n{page}",
+        response.head
+    );
+}
+
+#[test]
+fn the_root_named_by_a_wrong_device_query_is_an_empty_404() {
+    let server = Server::start();
+    server.enrol();
+
+    let response = http_get(server.addr(), &format!("/?d={}", "f".repeat(32)), &[]);
+
+    assert!(is_empty_404(&response), "{}", response.head);
+}
+
+#[test]
+fn the_phone_address_is_the_root_with_the_device_query() {
+    let server = Server::start();
+    let before = server.handle.phone_address();
+    let credential = server.enrol();
+
+    let after = server.handle.phone_address();
+
+    assert_eq!(
+        (before, after),
+        (
+            None,
+            Some(format!(
+                "http://{}/?d={}",
+                server.addr(),
+                credential.device_id
+            ))
+        )
+    );
+}
+
+#[test]
+fn the_socket_upgrade_named_by_the_device_query_answers_101() {
+    let server = Server::start();
+    let credential = server.enrol();
+
+    let connected = WsClient::connect_at(
+        server.addr(),
+        &format!("/ws?d={}", credential.device_id),
+        None,
+    );
+
+    assert!(connected.is_ok());
 }
 
 #[test]

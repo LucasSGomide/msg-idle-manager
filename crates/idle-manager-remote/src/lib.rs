@@ -253,6 +253,10 @@ impl PhoneLink for RemoteHandle {
     fn phone_status(&self) -> PhoneStatus {
         self.shared.phone_status()
     }
+
+    fn phone_address(&self) -> Option<String> {
+        self.shared.phone_address()
+    }
 }
 
 /// A [`PhoneLink`] for a desktop whose server could not start: every status
@@ -294,6 +298,10 @@ impl PhoneLink for NotListeningLink {
         PhoneStatus::NotListening {
             reason: self.reason.clone(),
         }
+    }
+
+    fn phone_address(&self) -> Option<String> {
+        None
     }
 }
 
@@ -529,6 +537,13 @@ impl Shared {
             },
             None => PhoneStatus::NotEnrolled,
         }
+    }
+
+    /// `http://<bind>/?d=<device id>`: the page's address for the enrolled
+    /// phone, as [`PhoneLink::phone_address`] describes it.
+    fn phone_address(&self) -> Option<String> {
+        self.enrolled_phone()
+            .map(|phone| http::page_address(&self.bind, &phone.device_id))
     }
 }
 

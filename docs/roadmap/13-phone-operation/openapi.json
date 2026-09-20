@@ -31,8 +31,8 @@
     "/": {
       "get": {
         "summary": "The phone page",
-        "description": "Serves `phone.html` only to a request carrying the enrolled device id in the `idle-manager-phone` cookie.",
-        "parameters": [ { "$ref": "#/components/parameters/DeviceCookie" } ],
+        "description": "Serves `phone.html` to a request naming the enrolled phone: by the `idle-manager-phone` cookie, or by the same device id in the `d` query. Named by the query alone, the answer also sets the cookie, so the socket upgrade that follows carries it.",
+        "parameters": [ { "$ref": "#/components/parameters/DeviceCookie" }, { "$ref": "#/components/parameters/DeviceQuery" } ],
         "responses": {
           "200": { "description": "The client page, without any credential embedded", "content": { "text/html": { "schema": { "type": "string" } } } },
           "404": { "$ref": "#/components/responses/Nothing" }
@@ -42,9 +42,10 @@
     "/ws": {
       "get": {
         "summary": "Open the phone's socket",
-        "description": "RFC 6455 upgrade, accepted only with the enrolled device cookie. After the upgrade the server sends `ServerHello` and nothing else until the phone's `PhoneAuth` proves the secret; the server then sends `ServerWelcome` and thereafter `ServerState` on every change, binary frames (`BinaryFrame`) while the phone is attached and mobile mode is on, and `ServerBye` before closing on revocation. The phone sends `PhoneMessage` variants; any other message is dropped with a logged warning and no reply. A second authenticated socket replaces the first. A wrong proof closes the socket with no message.",
+        "description": "RFC 6455 upgrade, accepted only from a request naming the enrolled phone — by the device cookie, or by the same id in the `d` query, as on `/`. After the upgrade the server sends `ServerHello` and nothing else until the phone's `PhoneAuth` proves the secret; the server then sends `ServerWelcome` and thereafter `ServerState` on every change, binary frames (`BinaryFrame`) while the phone is attached and mobile mode is on, and `ServerBye` before closing on revocation. The phone sends `PhoneMessage` variants; any other message is dropped with a logged warning and no reply. A second authenticated socket replaces the first. A wrong proof closes the socket with no message.",
         "parameters": [
           { "$ref": "#/components/parameters/DeviceCookie" },
+          { "$ref": "#/components/parameters/DeviceQuery" },
           { "name": "Upgrade", "in": "header", "required": true, "schema": { "type": "string", "const": "websocket" } },
           { "name": "Sec-WebSocket-Key", "in": "header", "required": true, "schema": { "type": "string" } },
           { "name": "Sec-WebSocket-Version", "in": "header", "required": true, "schema": { "type": "string", "const": "13" } }
@@ -66,9 +67,16 @@
       "DeviceCookie": {
         "name": "Cookie",
         "in": "header",
-        "required": true,
+        "required": false,
         "schema": { "type": "string" },
-        "description": "`idle-manager-phone=<device id>`; the id `GET /enrol/{code}` set. Absent or mismatched → 404 with an empty body."
+        "description": "`idle-manager-phone=<device id>`; the id `GET /enrol/{code}` set. One of this and `d` must name the enrolled phone; neither, or a mismatch → 404 with an empty body."
+      },
+      "DeviceQuery": {
+        "name": "d",
+        "in": "query",
+        "required": false,
+        "schema": { "type": "string", "pattern": "^[0-9a-f]{32}$" },
+        "description": "The enrolled phone's device id, the same value the cookie carries, for a browser that dropped the cookie or keeps a jar of its own (a home-screen web app). The page gives itself this address, `/?d=<id>`, after enrolment and the desktop's phone dialog shows it. A name only: the socket still demands the secret's proof, and an id that is not the enrolled phone's → 404."
       }
     },
     "responses": {
