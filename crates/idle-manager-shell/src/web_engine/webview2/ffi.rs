@@ -7,6 +7,7 @@
 
 #![allow(unsafe_code)]
 
+use gtk::gdk;
 use gtk::glib;
 use gtk4 as gtk;
 use raw_window_handle::{
@@ -14,8 +15,8 @@ use raw_window_handle::{
 };
 use webview2_com::Microsoft::Web::WebView2::Win32::{
     COREWEBVIEW2_CAPTURE_PREVIEW_IMAGE_FORMAT_JPEG, COREWEBVIEW2_KEY_EVENT_KIND,
-    COREWEBVIEW2_KEY_EVENT_KIND_KEY_DOWN, COREWEBVIEW2_PROCESS_FAILED_KIND,
-    COREWEBVIEW2_PROCESS_FAILED_KIND_BROWSER_PROCESS_EXITED,
+    COREWEBVIEW2_KEY_EVENT_KIND_KEY_DOWN, COREWEBVIEW2_PHYSICAL_KEY_STATUS,
+    COREWEBVIEW2_PROCESS_FAILED_KIND, COREWEBVIEW2_PROCESS_FAILED_KIND_BROWSER_PROCESS_EXITED,
     COREWEBVIEW2_PROCESS_FAILED_KIND_RENDER_PROCESS_EXITED,
     COREWEBVIEW2_PROCESS_FAILED_KIND_RENDER_PROCESS_UNRESPONSIVE, ICoreWebView2, ICoreWebView2_13,
     ICoreWebView2Controller, ICoreWebView2Profile8,
@@ -27,7 +28,7 @@ use webview2_com::{
 use windows::Win32::Foundation::{HGLOBAL, HWND};
 use windows::Win32::System::Com::StructuredStorage::CreateStreamOnHGlobal;
 use windows::Win32::System::Com::{IStream, STATFLAG_NONAME, STATSTG, STREAM_SEEK_SET};
-use windows::Win32::UI::Input::KeyboardAndMouse::{GetKeyState, VK_CONTROL};
+use windows::Win32::UI::Input::KeyboardAndMouse::{GetKeyState, VK_CONTROL, VK_SHIFT};
 use windows::core::Interface;
 use wry::WebViewExtWindows;
 
@@ -67,18 +68,24 @@ pub(super) fn disable_zoom_control(view: &wry::WebView) -> windows::core::Result
     unsafe { webview.Settings()?.SetIsZoomControlEnabled(false) }
 }
 
-/// Subscribes `AcceleratorKeyPressed` on `controller`. For a key-down held
-/// with `Ctrl`, it maps the Win32 virtual key and calls `on_key` with it;
-/// `on_key` returning `true` — it consumed the key — marks the event handled,
-/// so the page underneath never also sees it (`FR.1.7`). Every other key
-/// event is left alone, for `WebView2` to handle as it normally would.
+/// Subscribes `AcceleratorKeyPressed` on `controller`. For a key-down, it
+/// reads the held modifiers and the Win32 virtual key and calls `on_key` with
+/// both; `on_key` returning `true` — it consumed the key — marks the event
+/// handled, so the page underneath never also sees it (`FR.1.7`). Every other
+/// key event is left alone, for `WebView2` to handle as it normally would.
+///
+/// A key already down when this fires again — the platform's own auto-repeat,
+/// reported here as `PhysicalKeyStatus().WasKeyDown` rather than through a
+/// latch the way GTK's key controller needs one (GTK 4 exposes no repeat flag
+/// of its own, code standards rule 18) — is dropped before `on_key` ever sees
+/// it, so a shortcut held down runs once.
 ///
 /// `on_key` is `'static` and owns whatever it needs (a `glib::WeakRef`, code
 /// standards rule 18) — this subscription outlives the call that installs it,
 /// for as long as the controller itself does.
 pub(super) fn watch_accelerator_keys(
     controller: &ICoreWebView2Controller,
-    on_key: impl Fn(u32) -> bool + 'static,
+    on_key: impl Fn(u32, gdk::ModifierType) -> bool + 'static,
 ) -> windows::core::Result<()> {
     let handler = AcceleratorKeyPressedEventHandler::create(Box::new(move |_controller, args| {
         let Some(args) = args else {
@@ -105,7 +112,26 @@ pub(super) fn watch_accelerator_keys(
         // SAFETY: `VK_CONTROL` is a valid, constant virtual-key code;
         // `GetKeyState` has no further preconditions.
         let ctrl_held = unsafe { GetKeyState(i32::from(VK_CONTROL.0)) } < 0;
-        if !ctrl_held {
+        // SAFETY: `VK_SHIFT` is a valid, constant virtual-key code, and
+        // `GetKeyState` has no further preconditions — same call as `Ctrl`'s
+        // above, whose behaviour with this key is item 14's second Blocker,
+        // settled only in the Windows VM.
+        let shift_held = unsafe { GetKeyState(i32::from(VK_SHIFT.0)) } < 0;
+        let mut modifiers = gdk::ModifierType::empty();
+        if ctrl_held {
+            modifiers |= gdk::ModifierType::CONTROL_MASK;
+        }
+        if shift_held {
+            modifiers |= gdk::ModifierType::SHIFT_MASK;
+        }
+
+        let mut status = COREWEBVIEW2_PHYSICAL_KEY_STATUS::default();
+        // SAFETY: same `args`, same single-call-per-event contract as above;
+        // `status` is a valid, correctly typed out-pointer.
+        unsafe {
+            args.PhysicalKeyStatus(&raw mut status)?;
+        }
+        if status.WasKeyDown.as_bool() {
             return Ok(());
         }
 
@@ -115,7 +141,7 @@ pub(super) fn watch_accelerator_keys(
             args.VirtualKey(&raw mut virtual_key)?;
         }
 
-        if on_key(virtual_key) {
+        if on_key(virtual_key, modifiers) {
             // SAFETY: same `args`.
             unsafe {
                 args.SetHandled(true)?;

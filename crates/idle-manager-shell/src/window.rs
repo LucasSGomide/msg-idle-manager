@@ -12,6 +12,14 @@ mod shortcut;
 // `.imp()` from that sibling module.
 #[cfg(windows)]
 pub(crate) use imp::ZoomStep;
+// `window::shortcut` itself stays private to this module (only `imp.rs`
+// needs the whole table); this one function is re-exported instead, Windows
+// only, because `web_engine/webview2/host/imp.rs`'s accelerator-key handler
+// needs to decide a shortcut the same way the GTK key controller does
+// (roadmap item 14 task 05, architecture rule 8) without reaching into a
+// private sibling module.
+#[cfg(windows)]
+pub(crate) use shortcut::shortcut_for;
 
 use std::rc::Rc;
 use std::sync::Arc;

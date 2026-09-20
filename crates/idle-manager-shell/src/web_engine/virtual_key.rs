@@ -35,6 +35,8 @@ mod vk {
     pub(super) const F5: u32 = 0x74;
     /// `VK_R`, the same code as the ASCII letter, per Win32 convention.
     pub(super) const KEY_R: u32 = 0x52;
+    /// `VK_TAB`.
+    pub(super) const TAB: u32 = 0x09;
 }
 
 /// The `gdk::Key` a Win32 virtual-key code means to the window's own
@@ -49,6 +51,7 @@ pub(crate) fn gdk_key_for_virtual_key(virtual_key: u32) -> Option<gdk::Key> {
         vk::NUMPAD0 => Some(gdk::Key::KP_0),
         vk::F5 => Some(gdk::Key::F5),
         vk::KEY_R => Some(gdk::Key::r),
+        vk::TAB => Some(gdk::Key::Tab),
         _ => None,
     }
 }
@@ -85,5 +88,10 @@ mod tests {
     #[test]
     fn an_unbound_virtual_key_maps_to_none() {
         assert_eq!(gdk_key_for_virtual_key(0x41), None); // 'A'
+    }
+
+    #[test]
+    fn tab_virtual_key_maps_to_the_keyval_the_window_matches() {
+        assert_eq!(gdk_key_for_virtual_key(vk::TAB), Some(gdk::Key::Tab));
     }
 }

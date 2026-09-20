@@ -5,7 +5,6 @@
 use std::cell::{Cell, RefCell};
 use std::rc::Rc;
 
-use gtk::gdk;
 use gtk::glib;
 use gtk::prelude::*;
 use gtk::subclass::prelude::*;
@@ -15,7 +14,7 @@ use wry::WebViewExtWindows;
 use crate::web_engine::host_bounds::{self, Bounds};
 use crate::web_engine::ipc_message::IpcAction;
 use crate::web_engine::virtual_key::gdk_key_for_virtual_key;
-use crate::window::{Window, ZoomStep};
+use crate::window::{Window, ZoomStep, shortcut_for};
 
 use super::super::ffi::{self, BorrowedHwnd};
 use super::super::{EngineBuildError, EngineShared};
@@ -350,8 +349,9 @@ impl EngineHost {
     /// Builds the hosted `wry::WebView` for `pending`, parented to `hwnd`,
     /// sharing the process-wide environment through [`EngineShared`]
     /// (`FR.1.3`, `FR.2.4`), then wires the four Windows-only hooks task 03
-    /// adds: `WebView2`'s own zoom control turned off, `Ctrl`-accelerator
-    /// keys routed to the window's shortcuts, and process failures routed to
+    /// adds: `WebView2`'s own zoom control turned off, accelerator keys
+    /// (`Ctrl` and `Shift` chords, roadmap item 14 task 05) routed to the
+    /// window's shortcuts, and process failures routed to
     /// [`EngineHost::fire_terminated`]. A failure past the view itself
     /// building is logged, not propagated — the game still shows; only the
     /// one hook that failed to wire is missing (code standards rules 14, 15).
@@ -432,19 +432,38 @@ impl EngineHost {
 
         let controller = view.controller();
         let host_for_keys = self.obj().downgrade();
-        let key_result = ffi::watch_accelerator_keys(&controller, move |virtual_key| {
-            let Some(host) = host_for_keys.upgrade() else {
-                return false;
-            };
-            let Some(window) = host.imp().toplevel_window() else {
-                return false;
-            };
+        let key_result = ffi::watch_accelerator_keys(&controller, move |virtual_key, modifiers| {
             let Some(key) = gdk_key_for_virtual_key(virtual_key) else {
                 return false;
             };
-            window
+            let Some(shortcut) = shortcut_for(key, modifiers) else {
+                return false;
+            };
+            let Some(host) = host_for_keys.upgrade() else {
+                return false;
+            };
+            let Some(window) = host
                 .imp()
-                .handle_shortcut_key(key, gdk::ModifierType::CONTROL_MASK)
+                .toplevel_window()
+                .map(|window| window.downgrade())
+            else {
+                return false;
+            };
+
+            // `AcceleratorKeyPressed` runs with the browser process blocked
+            // waiting on this callback's return value, and running the
+            // shortcut here could refocus a different `EngineHost`
+            // mid-callback — a workspace switch does exactly that. The idle
+            // hop (code standards rule 18) defers the act to the main loop's
+            // next turn, once `WebView2`'s own call has already returned;
+            // `Reload` and `Zoom` take the same hop here too, for uniformity
+            // — nothing about either needs to run synchronously.
+            glib::idle_add_local_once(move || {
+                if let Some(window) = window.upgrade() {
+                    window.imp().run_shortcut(shortcut);
+                }
+            });
+            true
         });
         if let Err(error) = key_result {
             tracing::warn!(%error, "could not subscribe AcceleratorKeyPressed");

@@ -83,8 +83,8 @@ as reading Ctrl's does.
 
 ## Acceptance criteria
 
-- [ ] `(unit)` `gdk_key_for_virtual_key(0x09)` is `Some(gdk::Key::Tab)`
-- [ ] `(integration)` `make verify` passes, including `make windows-check`
+- [x] `(unit)` `gdk_key_for_virtual_key(0x09)` is `Some(gdk::Key::Tab)`
+- [x] `(integration)` `make verify` passes, including `make windows-check`
 - [ ] `(manual)` in the Windows VM with a physical keyboard and a game page
       focused, `Shift`+`Tab` walks four accounts in `2` exactly as on Linux
       and `Ctrl`+`Tab` switches workspace, skipping an empty one
