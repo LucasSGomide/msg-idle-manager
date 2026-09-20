@@ -36,6 +36,13 @@ services:
       - 127.0.0.1:8006:8006
       - 127.0.0.1:3389:3389/tcp
       - 127.0.0.1:3389:3389/udp
+      # The phone server (roadmap item 13). The VM has no mesh client and sits
+      # on Docker's network, so the Windows build cannot find a 100.x address;
+      # it binds through the `[listen]` override in phone.toml instead, and
+      # this line carries that port out to the host's LAN address so a phone
+      # on the same Wi-Fi reaches it. Published on every host interface on
+      # purpose, unlike the two above: the phone is on another machine.
+      - 7466:7466/tcp
     volumes:
       # The VM's disk: tens of GiB, kept out of the repository.
       - ${HOME}/.local/share/idle-manager-windows-vm/storage:/storage

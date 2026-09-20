@@ -19,6 +19,16 @@ and verified from Linux, cross-compiled with `cargo xwin` and checked against
 the Windows 11 VM in [`docs/windows-vm.md`](windows-vm.md); nobody on the
 project owns a Windows computer.
 
+The phone path (roadmap item 13) has one prerequisite outside this repository:
+a mesh network that gives the desktop and the phone addresses in
+`100.64.0.0/10` — Tailscale, or any WireGuard mesh that hands out that range.
+The desktop binds the first such address it finds and the phone reaches it
+from any network with internet access, with nothing opened on the home
+router (`FR.5.1`); without the mesh the server does not listen and the phone
+dialog says so. The `[listen]` override in `phone.toml` is the escape hatch
+for a trusted LAN or the Windows VM (`docs/windows-vm.md`), not a second
+supported path.
+
 ## Language and toolchain
 
 | Piece | Version | Why |

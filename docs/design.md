@@ -235,3 +235,50 @@ citations, so append rather than reorder.
     overlay keeps working exactly as rules 4, 6, 9 and 10 already describe —
     so this rule only ever adds a platform branch, never replaces the
     overlay itself.
+
+15. **A slot that stands in for another screen keeps that screen's size:
+    centred, outlined, and clipped by the window rather than scaled to fit
+    it.** The `Mobile` layout draws one slot at the phone's own viewport
+    (412 × 915 by default), centred horizontally and top-aligned, its outline
+    in the slot-line colour and the rest of the grid the plain window
+    background; a window shorter than the slot cuts the slot's bottom off
+    (`session_grid/imp.rs`, roadmap item 13 task 03). The point of the slot is
+    that what the desktop shows is what the phone shows, pixel for pixel — a
+    game laid out for 412 pixels of width — so scaling it to the window would
+    show the user something the phone never sees, and letting it grow with
+    the window would change the page's layout under the phone's fingers. No
+    grip, no grip strip and no zoom readout (rule 10 by contrast): zoom is
+    locked in this layout and there is nowhere to drag an account to.
+
+16. **Pair a device with one screen that shows the same secret two ways for
+    a fixed time, says where things stand on its first line, and never
+    raises a second window.** The phone dialog's status line is the link's
+    answer, one of four, re-read once a second while the dialog is open so a
+    scan changes it without a click; a desktop that is not listening puts
+    the reason on that same line, dimmed (rule 8), and greys `Enrol…` while
+    the rest of the dialog keeps working. The offer is a QR code for a camera
+    and the identical address as selectable text for typing, with a countdown
+    beneath them; when the offer is spent the block empties, when it runs out
+    the line says to start again, and closing the dialog withdraws it — a
+    code nobody can see is only a door left open. The destructive action
+    (`Un-enrol`) is red, sits beside the constructive one, and is insensitive
+    while there is nothing to cut off (`phone_dialog/imp.rs`, roadmap item 13
+    task 07).
+
+17. **A page the application serves to another device follows this file's
+    rules where the medium allows and states where it departs.** The phone
+    page (`idle-manager-remote`, roadmap item 13 task 05) is HTML outside
+    GTK, yet it carries: rule 1's vocabulary — an account's liveness is the
+    word `live` / `parked` / `starting` / `queued` beneath its name, and the
+    current account is the highlighted row; rule 2's one inverting control —
+    `Park` on a live row, `Start` on the others, insensitive while
+    `starting` / `queued`; rule 13's headings — a workspace is a plain heading
+    with no marker of which is shown. Where it departs: the game fills the
+    whole screen with one translucent round handle in the top-left corner
+    that slides the list over it, because a phone has no sidebar to give the
+    list a permanent column; a lost socket keeps the last picture, dimmed,
+    under one `Reconnecting…` line rather than a message strip (rule 9 by
+    contrast), because the strip's job — say what went wrong before the user
+    acts — is done by dimming the very thing they would act on; and an
+    un-enrolled phone shows one sentence and nothing else, since there is no
+    form left to keep working.

@@ -58,6 +58,48 @@ Stop the VM with `docker compose -f scripts/windows-vm/compose.yml stop`. Its
 disk survives. `down` also keeps the disk, because it lives in the bind-mounted
 storage folder.
 
+## The phone path (item 13)
+
+The phone reaches a real desktop over the mesh network, and the server binds
+the desktop's `100.x` address on its own. The VM has no mesh client and its
+network is Docker's, so against the Windows build two things stand in:
+
+1. **The listen override.** In the VM, create
+   `%APPDATA%\idle-manager\phone.toml` (the folder is beside `sessions.toml`,
+   `FR.1.4`) holding
+
+   ```toml
+   [listen]
+   address = "0.0.0.0:7466"
+   ```
+
+   and start `idle-manager.exe`. With no override the log reads
+   `the phone server is not listening kind=NoMeshAddress` and the phone
+   dialog's status line says so; with it, `the phone server is listening
+   address=0.0.0.0:7466`. `0.0.0.0` rather than the VM's own address because
+   Docker's port publishing reaches the VM through its NAT, and the address
+   the QR code carries is rewritten by hand in the next step anyway.
+
+2. **The published port.** `compose.yml` publishes `7466/tcp` from the VM on
+   every host interface, so a phone on the same Wi-Fi as the host reaches the
+   Windows build at `http://<host LAN address>:7466/` — `ip -4 addr show`
+   on the host names the address. The QR code the VM's dialog shows carries
+   `http://0.0.0.0:7466/enrol/<code>`, which no phone can open: type the
+   address by hand with the host's LAN address in place of `0.0.0.0`, or
+   select the dialog's text line and edit it in the phone's browser. The
+   code itself is what enrols; the host part only has to reach the server.
+
+The override is the only reason a plain machine would set one too: a desktop
+with no mesh network but a trusted LAN can listen on its own LAN address and
+enrol a phone on the same Wi-Fi. `FR.5.1`'s reach from anywhere still needs
+the mesh.
+
+After enrolment the walk is the same as on Linux: turn mobile mode on, watch
+the game move, tap, scroll, park and start an account, leave, and
+`Un-enrol the phone` from the header menu. The Windows-only code on that path
+is `web_engine/webview2.rs`'s `capture_frame`, `run_script` and `set_watched`
+(item 13 task 02); a defect found here is fixed there or in `ffi.rs`.
+
 ## What the VM can and cannot prove
 
 It proves everything functional:
@@ -69,7 +111,8 @@ It proves everything functional:
 - deleting an account;
 - the memory footer against Task Manager;
 - the missing-runtime dialog;
-- the zip running on a Windows install that has no GTK.
+- the zip running on a Windows install that has no GTK;
+- the phone path end to end, through the published port above.
 
 It has no GPU, so Windows draws in software. Hardware acceleration and idle
 processor figures are therefore not measured here. Memory is compared against
