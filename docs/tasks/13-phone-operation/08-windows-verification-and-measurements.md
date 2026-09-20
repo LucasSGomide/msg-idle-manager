@@ -70,7 +70,7 @@ the port and the override.
 
 ## Acceptance criteria
 
-- [ ] `(integration)` `make verify`, `make windows-check` and
+- [x] `(integration)` `make verify`, `make windows-check` and
       `make windows-package` pass
 - [ ] `(manual)` in the Windows VM with the `[listen]` override, the phone
       enrols through the QR code, turns mobile mode on, sees the game move,
@@ -81,10 +81,10 @@ the port and the override.
       `## Measured`
 - [ ] `(manual)` frames arrive at 10 or more per second on the home network,
       recorded in `## Measured`
-- [ ] `(manual)` processor time of the process tree while attached is
+- [x] `(manual)` processor time of the process tree while attached is
       recorded beside the resting figure, and the resting figure with the
       server listening is within noise of the one without
-- [ ] `(manual)` `docs/memory-budget.md` carries the resting-with-server and
+- [x] `(manual)` `docs/memory-budget.md` carries the resting-with-server and
       attached lines, and `docs/stack.md` names the mesh prerequisite and the
       new crates
 

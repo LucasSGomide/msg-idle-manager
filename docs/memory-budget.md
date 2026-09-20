@@ -405,3 +405,45 @@ order is unchanged from item 11's measured one
 (`account_deletion::deletion_steps`, task 06). The expectation is therefore "no
 change within the noise of the figures above" — which is exactly why it still
 has to be measured rather than asserted.
+
+## Resting with the phone server (item 13)
+
+`FR.4.1`: while no phone is attached, the phone feature adds nothing to what
+the resting state costs. Read the way the sections above are, with the
+whole tree's PSS from `scripts/memory-report.sh -p <pid>`, on 2026-09-20.
+
+**Conditions** — `gomide`, WebKitGTK 2.52.6, `cargo build` dev profile,
+headless under `Xvfb` (`GSK_RENDERER=cairo`, `WEBKIT_DISABLE_DMABUF_RENDERER=1`),
+two accounts on a local page (a ticking clock; `scripts/phone-latency.mjs
+page`) — not the four real games the figures above were taken against, so
+the totals here are not comparable to those, only to each other. Each run:
+90 s to settle, then three readings a minute apart. "Listening" is
+`phone.toml` with `[listen] address = "127.0.0.1:7466"`; "not listening" is
+an override that does not parse, which leaves the server unstarted and the
+link a `NotListeningLink` — the state a desktop without the mesh is in.
+
+| run | own PSS, settled (KiB) | descendants (KiB) | total (KiB) | total a minute later |
+|---|---|---|---|---|
+| listening, round 1 | 82,867 | 102,451 | 185,318 | 221,083 |
+| not listening, round 1 | 75,869 | 83,780 | 159,649 | 153,844 |
+| listening, round 2 | 73,481 | 83,306 | 156,787 | 156,765 |
+| not listening, round 2 | 72,647 | 84,020 | 156,667 | 156,768 |
+
+**Resting with the server listening: within noise of without.** Round 2 has
+the two conditions 120 KiB apart on the tree and 834 KiB apart on the shell's
+own process, which is what a listener thread and its stack should cost and
+the figure to carry. Round 1's 25 MiB gap is not the server: that listening
+run moved 36 MiB inside its own minute and the two listening rounds sit
+28 MiB apart, all of it in the WebKit processes, on a page that only draws
+a clock — the same run-to-run swing the WebGL section above records. A
+paired reading against the real games, minimised with keep-awake on (the
+resting state `FR.4.1` names), is the owner's to take alongside the
+`## Linux after item 12` reading, and is expected to show the same
+sub-megabyte difference.
+
+**Attached** — the same two accounts with the scripted phone watching one of
+them in mobile mode for five minutes (frames at ~10/s, ten taps): the tree
+ended at 164,427 KiB against 180,991 KiB settled before the attach, i.e. no
+growth; the cost of a watching phone is processor time (≈ 49 % of one core
+against ≈ 9 % resting, `docs/roadmap/13-phone-operation/README.md`
+`## Measured`), not memory.

@@ -619,6 +619,61 @@ dependency of this item.
   quality 75 and yields roughly 30 to 60 KiB, so twelve frames a second cost
   under 1 MiB/s on the wire.
 
+## Measured
+
+Taken 2026-09-20 on the development machine (`gomide`, x86_64, Linux
+7.0.0-31-generic, 8 cores, WebKitGTK 2.52.6, `cargo build` dev profile),
+headless under `Xvfb` with the frame path on loopback (`[listen]
+address = "127.0.0.1:7466"`), against two accounts on a local page the probe
+writes (`scripts/phone-latency.mjs page`: a ticking clock, and a full-screen
+noise picture a tap toggles so the frame's JPEG size says which side of the
+toggle it shows). Method in `docs/tasks/13-phone-operation/test-script.md`
+`## 08`. What this is not: a real game, the mesh, or a phone — the three
+`(manual)` figures below the table are still the owner's to take.
+
+| Figure | Reading |
+| --- | --- |
+| Frames per second, attached, loopback, 300 s | 9.6 /s (2,884 frames), all distinct; 12.4–12.5 /s on the same page in item 06's and this task's 50 s runs — the 300 s figure includes the probe's ten taps and their settle |
+| Tap-to-visible, loopback, median of 10 | **97 ms** (min 84, max 119) |
+| Processor time, resting 5 min, listening | 27.8 cpu-s over 308 s ≈ 9 % of one core (two accounts animating a clock) |
+| Processor time, attached 5 min | 154.7 cpu-s over 316 s ≈ 49 % of one core — the watched page snapshotted and JPEG-encoded ~10 times a second, plus the shim's frame timer in it |
+| Memory at rest, listening (tree PSS, settled, two rounds) | 185,318 KiB and 156,787 KiB; the shell's own process 82,867 / 73,481 KiB |
+| Memory at rest, not listening (same, interleaved rounds) | 159,649 KiB and 156,667 KiB; own 75,869 / 72,647 KiB |
+
+**Resting with the server listening is within noise of resting without it**
+(`FR.4.1`). Round 2 puts the two 120 KiB apart on the whole tree and 834 KiB
+on the shell's own process — the listener thread and its stack, the size a
+resting server should cost. Round 1's 25 MiB gap is the run-to-run spread,
+not the server: the listening run alone moved 36 MiB inside its own minute
+and the two listening rounds sit 28 MiB apart, all of it in WebKit's
+processes on a page that draws a clock. Method and readings in
+`docs/memory-budget.md` `## Resting with the phone server`.
+
+**The first Blocker, corrected.** Item 06 recorded it cleared on the strength
+of an `Xvfb` run with `IDLE_MANAGER_MINIMISE_AFTER_SECS`; no window manager
+runs on that display, so nothing was ever minimised. Re-measured on the
+owner's GNOME Wayland session (a headless Mutter behaves the same): the
+toplevel never reports `MINIMIZED` — xdg-shell has no such state, so
+`apply_minimised` in `window/imp.rs` cannot fire there — yet the engine
+learns it on its own and the page reads `document.hidden === true`. Frames
+keep coming and every one is fresh: `webkit_web_view_get_snapshot` paints a
+hidden page, and the shim keeps `requestAnimationFrame` alive. What froze on
+the owner's phone was the game: a page that pauses its own loop on
+`visibilitychange` (Phaser does; a test page written to do the same
+reproduced it — `pauses 1 paused=true`, counter stopped) stood still in
+every fresh frame. Fixed in `keep-awake.js` (commit `bf34a5e`): while armed,
+`hidden` / `visibilityState` answer as visible and the engine's
+`visibilitychange` stops at the window; the same test page then reads
+`hidden=false … pauses 0` with its counter rising through the minimised
+stretch. Still unmeasured: a WebGL canvas on the real games (Blocker 3), and
+`isTrusted` on their handlers (Blocker 4) — the owner's accounts.
+
+**The cookie was a single point of failure.** A home-screen web app on the
+phone keeps a jar of its own, so `/` answered 404 and the only address the
+owner held was the spent enrolment code. `/` and `/ws` now also accept the
+device id as `?d=`; the page gives itself that address and the dialog shows
+it (commit `6d4eb52`, `openapi.json`).
+
 ## Blockers
 
 - Whether either engine returns a current picture of a page while the window
