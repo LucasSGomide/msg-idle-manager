@@ -2,7 +2,7 @@
 //! domain intent and the result back into a redraw (architecture rules 8, 12).
 
 use std::cell::{Cell, OnceCell, RefCell};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::rc::Rc;
 use std::sync::Arc;
 use std::time::Duration;
@@ -107,9 +107,17 @@ pub struct Window {
     /// reference to the same view; this map is what a later slice asks to stop
     /// or start.
     holders: RefCell<HashMap<SessionId, SessionView>>,
-    /// The queue that brings restored accounts up one at a time, alive only
-    /// while a restore is draining (task 05).
-    start_queue: RefCell<Option<StartQueue>>,
+    /// The queue that brings accounts up one at a time (task 05): a restore's
+    /// running accounts, or `Start all`'s parked ones. Kept for the window's
+    /// whole life and appended to, never replaced — created once, in
+    /// `constructed` — since replacing it mid-drain would start two accounts
+    /// at once (the fourth Blocker item 14's roadmap doc names).
+    start_queue: OnceCell<StartQueue>,
+    /// Accounts a `Park all` reached while they were [`Liveness::Starting`]:
+    /// no view exists yet to stop, so the id waits here until its page paints
+    /// and `finish_starting` parks it then, rather than a second view ever
+    /// being built for it (`FR.24.1`).
+    park_on_paint: RefCell<HashSet<SessionId>>,
     /// Reads and stores each account's chosen zoom sizes (item 09 task 07).
     /// The shell never learns a file is behind it.
     zoom_memory: RefCell<Option<Rc<dyn ZoomMemory>>>,
@@ -210,6 +218,7 @@ impl ObjectImpl for Window {
         arm_debug_minimise(&self.obj());
         arm_debug_layout(&self.obj());
         self.register_phone_actions();
+        self.init_start_queue();
 
         let window = self.obj().downgrade();
         self.grid.connect_slot_focused(move |slot| {
@@ -707,6 +716,31 @@ impl Window {
         }
     }
 
+    /// Builds the one [`StartQueue`] this window keeps for its whole life,
+    /// called once from `constructed`. Kept as its own method, like
+    /// `register_phone_actions`, to keep `constructed` under clippy's line
+    /// budget.
+    fn init_start_queue(&self) {
+        if self
+            .start_queue
+            .set(StartQueue::new(self.obj().downgrade()))
+            .is_err()
+        {
+            tracing::error!("the start queue was constructed twice");
+        }
+    }
+
+    /// The one [`StartQueue`] this window keeps for its whole life.
+    ///
+    /// # Panics
+    ///
+    /// Never: [`Window::constructed`] sets it before any other method can run.
+    fn start_queue(&self) -> &StartQueue {
+        self.start_queue
+            .get()
+            .expect("start_queue set in constructed")
+    }
+
     /// Acts on what the composition root read before the window was built: a
     /// saved workspace list to restore, no file (a first run), or a failure. A
     /// failure is never flattened into "no file" — it is logged in fields and
@@ -832,10 +866,7 @@ impl Window {
         // a time (task 05), the shown workspace's first. Nothing queued means
         // nothing to do.
         let order = self.book.borrow().start_order();
-        if !order.is_empty() {
-            self.start_queue
-                .replace(Some(StartQueue::begin(self.obj().downgrade(), order)));
-        }
+        self.start_queue().enqueue(order);
     }
 
     /// Sets the header's layout toggle group to `layout` without the user
@@ -1495,6 +1526,20 @@ impl Window {
                 window.imp().present_delete_dialog(&id);
             }
         });
+
+        let window = self.obj().downgrade();
+        self.sidebar.connect_park_all_requested(move |workspace| {
+            if let Some(window) = window.upgrade() {
+                window.imp().park_all(&workspace);
+            }
+        });
+
+        let window = self.obj().downgrade();
+        self.sidebar.connect_start_all_requested(move |workspace| {
+            if let Some(window) = window.upgrade() {
+                window.imp().start_all(&workspace);
+            }
+        });
     }
 
     /// A heading was expanded or collapsed. Stored and saved; nothing else
@@ -1760,6 +1805,17 @@ impl Window {
     /// to the name cover until it is started again.
     fn park_session(&self, id: &SessionId) {
         self.book.borrow_mut().park(id);
+        self.stop_view(id);
+        self.redraw();
+    }
+
+    /// Stops `id`'s running view without touching the book: the holder itself,
+    /// the `watched` mark if it named this account, and the grid's own
+    /// reference. The book-side park and the redraw are each caller's own —
+    /// shared by [`Window::park_session`]'s `Live` handling and `park_all`'s
+    /// per-account loop, which redraws once for the whole workspace instead
+    /// of once per account (`FR.24.1`).
+    fn stop_view(&self, id: &SessionId) {
         if let Some(holder) = self.holders.borrow_mut().get_mut(id) {
             holder.stop();
         }
@@ -1770,7 +1826,50 @@ impl Window {
             self.watched.replace(None);
         }
         self.grid.release_view(id);
+    }
+
+    /// The heading's `Park all`: parks every account in `workspace` that is
+    /// not already parked, no confirmation, because `Start all` undoes it
+    /// (`FR.24.1`). A running account is stopped at once; a queued one simply
+    /// leaves the queue — [`StartQueue`] already skips an id the book no
+    /// longer reports queued; a starting one has no view yet to stop, so its
+    /// id waits in `park_on_paint` until its page paints and `finish_starting`
+    /// parks it then, so no second view is ever built for it. One redraw and
+    /// one save for the whole workspace, not once per account.
+    fn park_all(&self, workspace: &WorkspaceId) {
+        let touched = self.book.borrow_mut().park_all(workspace);
+        if touched.is_empty() {
+            return;
+        }
+
+        for (id, before) in touched {
+            match before {
+                Liveness::Live => self.stop_view(&id),
+                Liveness::Starting => {
+                    self.park_on_paint.borrow_mut().insert(id);
+                }
+                Liveness::Queued | Liveness::Parked => {}
+            }
+        }
+
         self.redraw();
+        self.request_save();
+    }
+
+    /// The heading's `Start all`: queues every parked account in `workspace`,
+    /// in workspace order, and hands them to the one start queue the window
+    /// keeps for its whole life — appended, never replacing it, so a
+    /// still-draining restore is never started twice over (`FR.24.2`,
+    /// `FR.8.2`).
+    fn start_all(&self, workspace: &WorkspaceId) {
+        let ids = self.book.borrow_mut().queue_parked(workspace);
+        if ids.is_empty() {
+            return;
+        }
+
+        self.redraw();
+        self.request_save();
+        self.start_queue().enqueue(ids);
     }
 
     /// Starts a parked or queued account, in the order the roadmap item's second
@@ -1822,19 +1921,30 @@ impl Window {
     /// The shell reports a started account's first paint: end its starting
     /// interval in the book and redraw. A no-op unless the account is actually
     /// starting, so a later navigation's load event does not churn the
-    /// sidebar. Searched wherever the account's workspace is, since the start
-    /// queue may be starting one in a hidden workspace.
+    /// sidebar — *unless* `park_all` reached this id while it was starting, in
+    /// which case its liveness is already `Parked` and `park_on_paint` is what
+    /// carries the "park it the moment it paints" intent instead (`FR.24.1`).
+    /// Searched wherever the account's workspace is, since the start queue may
+    /// be starting one in a hidden workspace.
     ///
     /// A page that has just painted is a fresh one — a new view after a
     /// start, or a reload — so if this is the watched account it is told
     /// again, and if the phone is waiting on an account that had no view
     /// until now, it is told for the first time.
     fn finish_starting(&self, id: &SessionId) {
-        if liveness_anywhere(&self.book.borrow(), id) != Some(Liveness::Starting) {
+        let pending_park = self.park_on_paint.borrow_mut().remove(id);
+        let was_starting = liveness_anywhere(&self.book.borrow(), id) == Some(Liveness::Starting);
+        if !was_starting && !pending_park {
             return;
         }
 
         self.book.borrow_mut().mark_started(id);
+
+        if pending_park {
+            self.park_session(id);
+            return;
+        }
+
         let is_watched = self.watched.borrow().as_ref() == Some(id);
         if is_watched {
             if let Some(holder) = self.holders.borrow().get(id) {

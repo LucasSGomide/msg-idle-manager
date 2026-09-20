@@ -23,8 +23,19 @@ glib::wrapper! {
 impl WorkspaceRow {
     /// A heading for the workspace named `id`/`name`, holding `accounts` as
     /// its children in the order given — [`Row::placeholder`] is inserted in
-    /// their place when `accounts` is empty.
-    pub(crate) fn new(id: &WorkspaceId, name: &str, accounts: Vec<Row>) -> Self {
+    /// their place when `accounts` is empty. `can_park_all` and
+    /// `can_start_all` are
+    /// [`idle_manager_core::WorkspaceBook::can_park_all`] and
+    /// [`idle_manager_core::WorkspaceBook::can_start_all`]'s answers for this
+    /// workspace, read once by the caller and carried as plain properties
+    /// (`FR.24.3`).
+    pub(crate) fn new(
+        id: &WorkspaceId,
+        name: &str,
+        accounts: Vec<Row>,
+        can_park_all: bool,
+        can_start_all: bool,
+    ) -> Self {
         let children = gio::ListStore::new::<Row>();
         if accounts.is_empty() {
             children.append(&Row::placeholder());
@@ -37,6 +48,8 @@ impl WorkspaceRow {
         let workspace: Self = glib::Object::builder()
             .property("id", id.as_str())
             .property("name", name)
+            .property("can-park-all", can_park_all)
+            .property("can-start-all", can_start_all)
             .build();
         workspace.imp().set_children(children);
         workspace

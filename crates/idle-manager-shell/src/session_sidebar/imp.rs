@@ -77,6 +77,16 @@ type WorkspaceRenameHandler = Box<dyn Fn(WorkspaceId)>;
 /// workspace` item is chosen.
 type WorkspaceRemoveHandler = Box<dyn Fn(WorkspaceId)>;
 
+/// A handler run with a workspace's id when its heading menu's `Park all`
+/// item is chosen. The menu carries only the id; the window asks the book
+/// which accounts that touches and what each one's transition is
+/// (architecture rule 8).
+type ParkAllHandler = Box<dyn Fn(WorkspaceId)>;
+
+/// A handler run with a workspace's id when its heading menu's `Start all`
+/// item is chosen. Otherwise exactly [`ParkAllHandler`].
+type StartAllHandler = Box<dyn Fn(WorkspaceId)>;
+
 /// A handler run with the ticked ids and the chosen destination when `Move
 /// to…` picks an existing workspace.
 type MoveHandler = Box<dyn Fn(Vec<SessionId>, MoveTarget)>;
@@ -120,6 +130,21 @@ const WORKSPACE_RENAME_ACTION: &str = "rename";
 /// The action a heading's `Remove workspace` item is bound to, namespaced
 /// under [`HEADING_ACTION_GROUP`].
 const WORKSPACE_REMOVE_ACTION: &str = "remove";
+/// The action a heading's `Park all` item is bound to, namespaced under
+/// [`HEADING_ACTION_GROUP`]. Stateless — it carries only the workspace's id;
+/// the window decides which accounts that touches and what each becomes
+/// (architecture rule 8). Its `enabled` follows [`WorkspaceRow::can_park_all`]
+/// (design rule 2).
+const PARK_ALL_ACTION: &str = "park-all";
+/// The action a heading's `Start all` item is bound to, namespaced under
+/// [`HEADING_ACTION_GROUP`]. Otherwise exactly [`PARK_ALL_ACTION`], following
+/// [`WorkspaceRow::can_start_all`] instead.
+const START_ALL_ACTION: &str = "start-all";
+
+/// The workspace heading name label's hover text (`FR.25.1`) — a tooltip is
+/// not a mark (design rule 13), so this is the only thing a heading gains
+/// beyond its plain name.
+const NEXT_WORKSPACE_TOOLTIP: &str = "Next workspace (Ctrl+Tab)";
 
 /// The composite-template backing object for [`super::SessionSidebar`].
 #[derive(Default, CompositeTemplate)]
@@ -179,6 +204,8 @@ pub struct SessionSidebar {
     pub(super) on_selection_changed: RefCell<Option<SelectionChangedHandler>>,
     pub(super) on_workspace_rename_requested: RefCell<Option<WorkspaceRenameHandler>>,
     pub(super) on_workspace_remove_requested: RefCell<Option<WorkspaceRemoveHandler>>,
+    pub(super) on_park_all_requested: RefCell<Option<ParkAllHandler>>,
+    pub(super) on_start_all_requested: RefCell<Option<StartAllHandler>>,
 }
 
 impl std::fmt::Debug for SessionSidebar {
@@ -295,7 +322,13 @@ impl SessionSidebar {
                     Row::new(session, visibility, current)
                 })
                 .collect();
-            root.append(&WorkspaceRow::new(workspace.id(), workspace.name(), rows));
+            root.append(&WorkspaceRow::new(
+                workspace.id(),
+                workspace.name(),
+                rows,
+                book.can_park_all(workspace.id()),
+                book.can_start_all(workspace.id()),
+            ));
         }
 
         self.reapply_expansion(book);
@@ -611,10 +644,12 @@ struct RowWidgets {
 /// widget hidden, and no expander suppression — a heading always has at least
 /// one child, the placeholder included, so its arrow is always meaningful.
 /// `ListItem:activatable` false keeps a heading click to expand only
-/// (`docs/research/gtk4-drag-and-accordion.md:113`). The ⋯ menu button is
-/// shown only for a named workspace — `Ungrouped` gets none — and only
-/// outside selection mode, so a click there cannot change the list mid-select
-/// (item 11 task 06).
+/// (`docs/research/gtk4-drag-and-accordion.md:113`). The name label carries
+/// the `Next workspace (Ctrl+Tab)` hover text (`FR.25.1`) — a heading itself
+/// stays undecorated (design rule 13), so the tooltip is the only thing it
+/// gains. The ⋯ menu button is shown for every heading, `Ungrouped` included
+/// (item 14 task 07), and only outside selection mode, so a click there
+/// cannot change the list mid-select (item 11 task 06).
 fn bind_heading(
     item: &gtk::ListItem,
     expander: &gtk::TreeExpander,
@@ -634,6 +669,7 @@ fn bind_heading(
     widgets
         .name
         .set_label(&glib::markup_escape_text(&workspace.name()));
+    widgets.name.set_tooltip_text(Some(NEXT_WORKSPACE_TOOLTIP));
     widgets.tick.set_visible(false);
     widgets.dot.set_visible(false);
     widgets.keep_awake_mark.set_visible(false);
@@ -641,11 +677,8 @@ fn bind_heading(
     let is_selecting = sidebar
         .upgrade()
         .is_some_and(|sidebar| sidebar.imp().is_selecting.get());
-    let is_ungrouped = WorkspaceId::new(workspace.id()).is_ungrouped();
-    widgets.settings.set_visible(!is_ungrouped && !is_selecting);
-    if !is_ungrouped {
-        bind_heading_menu(&widgets.settings, &workspace, sidebar);
-    }
+    widgets.settings.set_visible(!is_selecting);
+    bind_heading_menu(&widgets.settings, &workspace, sidebar);
 }
 
 /// Binds the account layout: the name markup, the status dot's class, hover
@@ -930,65 +963,116 @@ fn bind_row_menu(
 }
 
 /// Rebuilds `settings`'s menu model and action group from `workspace`'s
-/// current identity — `bind_row_menu`'s shape applied to a heading:
-/// `Rename…` then `Remove workspace`, both stateless and always sensitive,
-/// under [`HEADING_ACTION_GROUP`]. Rebuilt on every bind for the same reason
-/// `bind_row_menu` is (the list recycles this `MenuButton`). Called only for
-/// a named workspace — `Ungrouped` never gets this button
-/// (architecture rules 8, 10).
+/// current identity and its two `can_*` flags — `bind_row_menu`'s shape
+/// applied to a heading, two sections: `Park all` and `Start all` first, the
+/// deliberate actions (design rule 5), each `enabled` following
+/// [`WorkspaceRow::can_park_all`] / [`WorkspaceRow::can_start_all`] exactly as
+/// a row's own Park/Start item follows its account's state (design rule 2);
+/// then, for a named workspace, `Rename…` and `Remove workspace`. `Ungrouped`
+/// gets the first section alone — it has no name to rename and cannot be
+/// removed (item 14 task 07). Rebuilt on every bind for the same reason
+/// `bind_row_menu` is (the list recycles this `MenuButton`).
 fn bind_heading_menu(
     settings: &gtk::MenuButton,
     workspace: &WorkspaceRow,
     sidebar: &glib::WeakRef<super::SessionSidebar>,
 ) {
     let id = WorkspaceId::new(workspace.id());
+    let is_ungrouped = id.is_ungrouped();
 
     let menu = gio::Menu::new();
-    menu.append(
-        Some("Rename…"),
-        Some(&format!("{HEADING_ACTION_GROUP}.{WORKSPACE_RENAME_ACTION}")),
+    let actions = gio::Menu::new();
+    actions.append(
+        Some("Park all"),
+        Some(&format!("{HEADING_ACTION_GROUP}.{PARK_ALL_ACTION}")),
     );
-    menu.append(
-        Some("Remove workspace"),
-        Some(&format!("{HEADING_ACTION_GROUP}.{WORKSPACE_REMOVE_ACTION}")),
+    actions.append(
+        Some("Start all"),
+        Some(&format!("{HEADING_ACTION_GROUP}.{START_ALL_ACTION}")),
     );
+    menu.append_section(None, &actions);
+
+    if !is_ungrouped {
+        let settings_section = gio::Menu::new();
+        settings_section.append(
+            Some("Rename…"),
+            Some(&format!("{HEADING_ACTION_GROUP}.{WORKSPACE_RENAME_ACTION}")),
+        );
+        settings_section.append(
+            Some("Remove workspace"),
+            Some(&format!("{HEADING_ACTION_GROUP}.{WORKSPACE_REMOVE_ACTION}")),
+        );
+        menu.append_section(None, &settings_section);
+    }
     settings.set_menu_model(Some(&menu));
 
-    let rename = gio::SimpleAction::new(WORKSPACE_RENAME_ACTION, None);
-    let rename_sidebar = sidebar.clone();
-    let rename_id = id.clone();
-    rename.connect_activate(move |_, _| {
-        let Some(sidebar) = rename_sidebar.upgrade() else {
+    let park_all = gio::SimpleAction::new(PARK_ALL_ACTION, None);
+    park_all.set_enabled(workspace.can_park_all());
+    let park_all_sidebar = sidebar.clone();
+    let park_all_id = id.clone();
+    park_all.connect_activate(move |_, _| {
+        let Some(sidebar) = park_all_sidebar.upgrade() else {
             return;
         };
-        if let Some(handler) = sidebar
-            .imp()
-            .on_workspace_rename_requested
-            .borrow()
-            .as_ref()
-        {
-            handler(rename_id.clone());
+        if let Some(handler) = sidebar.imp().on_park_all_requested.borrow().as_ref() {
+            handler(park_all_id.clone());
         }
     });
 
-    let remove = gio::SimpleAction::new(WORKSPACE_REMOVE_ACTION, None);
-    let remove_sidebar = sidebar.clone();
-    remove.connect_activate(move |_, _| {
-        let Some(sidebar) = remove_sidebar.upgrade() else {
+    let start_all = gio::SimpleAction::new(START_ALL_ACTION, None);
+    start_all.set_enabled(workspace.can_start_all());
+    let start_all_sidebar = sidebar.clone();
+    let start_all_id = id.clone();
+    start_all.connect_activate(move |_, _| {
+        let Some(sidebar) = start_all_sidebar.upgrade() else {
             return;
         };
-        if let Some(handler) = sidebar
-            .imp()
-            .on_workspace_remove_requested
-            .borrow()
-            .as_ref()
-        {
-            handler(id.clone());
+        if let Some(handler) = sidebar.imp().on_start_all_requested.borrow().as_ref() {
+            handler(start_all_id.clone());
         }
     });
 
     let group = gio::SimpleActionGroup::new();
-    group.add_action(&rename);
-    group.add_action(&remove);
+    group.add_action(&park_all);
+    group.add_action(&start_all);
+
+    if !is_ungrouped {
+        let rename = gio::SimpleAction::new(WORKSPACE_RENAME_ACTION, None);
+        let rename_sidebar = sidebar.clone();
+        let rename_id = id.clone();
+        rename.connect_activate(move |_, _| {
+            let Some(sidebar) = rename_sidebar.upgrade() else {
+                return;
+            };
+            if let Some(handler) = sidebar
+                .imp()
+                .on_workspace_rename_requested
+                .borrow()
+                .as_ref()
+            {
+                handler(rename_id.clone());
+            }
+        });
+
+        let remove = gio::SimpleAction::new(WORKSPACE_REMOVE_ACTION, None);
+        let remove_sidebar = sidebar.clone();
+        remove.connect_activate(move |_, _| {
+            let Some(sidebar) = remove_sidebar.upgrade() else {
+                return;
+            };
+            if let Some(handler) = sidebar
+                .imp()
+                .on_workspace_remove_requested
+                .borrow()
+                .as_ref()
+            {
+                handler(id.clone());
+            }
+        });
+
+        group.add_action(&rename);
+        group.add_action(&remove);
+    }
+
     settings.insert_action_group(HEADING_ACTION_GROUP, Some(&group));
 }

@@ -175,6 +175,27 @@ impl SessionSidebar {
             .replace(Some(Box::new(handler)));
     }
 
+    /// Registers `handler` to run with a workspace's id when its heading
+    /// menu's `Park all` item is chosen. The row decides nothing else: the
+    /// window asks the book which accounts that touches and what to do with
+    /// each one (architecture rule 8, `FR.24.1`). Replaces any previous
+    /// handler.
+    pub fn connect_park_all_requested(&self, handler: impl Fn(WorkspaceId) + 'static) {
+        self.imp()
+            .on_park_all_requested
+            .replace(Some(Box::new(handler)));
+    }
+
+    /// Registers `handler` to run with a workspace's id when its heading
+    /// menu's `Start all` item is chosen. Otherwise exactly
+    /// [`SessionSidebar::connect_park_all_requested`] (`FR.24.2`). Replaces
+    /// any previous handler.
+    pub fn connect_start_all_requested(&self, handler: impl Fn(WorkspaceId) + 'static) {
+        self.imp()
+            .on_start_all_requested
+            .replace(Some(Box::new(handler)));
+    }
+
     /// Registers `handler` to run with an account's id when its row menu's
     /// `Delete account…` item is chosen. The row decides nothing else: the
     /// window opens the confirmation window and the deletion sequence is its

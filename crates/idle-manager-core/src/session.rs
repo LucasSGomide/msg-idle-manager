@@ -698,6 +698,22 @@ impl SessionBook {
         }
     }
 
+    /// Queue `session`: a parked session becomes [`Liveness::Queued`], the new
+    /// step toward being brought back one at a time by the start queue
+    /// (`Start all`, `FR.24.2`). Any other liveness is left as it is. Returns
+    /// the session's liveness after the call; an id not in the book changes
+    /// nothing and returns [`Liveness::Live`].
+    pub fn queue(&mut self, session: &SessionId) -> Liveness {
+        let Some(current) = self.liveness_of(session) else {
+            return Liveness::Live;
+        };
+        if current == Liveness::Parked {
+            self.set_liveness(session, Liveness::Queued)
+        } else {
+            current
+        }
+    }
+
     /// End `session`'s starting interval once the shell reports its first
     /// paint: [`Liveness::Starting`] becomes [`Liveness::Live`]. Any other
     /// state is left as it is. Returns the session's liveness after the call.
@@ -1701,6 +1717,31 @@ mod tests {
         let state = book.mark_started(&id);
 
         assert_eq!(state, Liveness::Live);
+    }
+
+    #[test]
+    fn queuing_a_parked_session_returns_queued() {
+        let mut book = SessionBook::new();
+        let id = add(&mut book, "One", "https://example.test/one");
+        book.park(&id);
+
+        let state = book.queue(&id);
+
+        assert_eq!(state, Liveness::Queued);
+    }
+
+    #[test]
+    fn queuing_a_live_session_returns_live_and_changes_nothing_else() {
+        let mut book = SessionBook::new();
+        let id = add(&mut book, "One", "https://example.test/one");
+        let placement = book.placement(&id);
+
+        let state = book.queue(&id);
+
+        assert_eq!(
+            (state, liveness_of(&book, &id), book.placement(&id)),
+            (Liveness::Live, Liveness::Live, placement)
+        );
     }
 
     #[test]

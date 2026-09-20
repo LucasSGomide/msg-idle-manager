@@ -2,7 +2,7 @@
 //! its child store as a plain field — the child store is structural, not a
 //! fact a bound widget reads by name (architecture rule 12).
 
-use std::cell::{OnceCell, RefCell};
+use std::cell::{Cell, OnceCell, RefCell};
 
 use gtk::gio;
 use gtk::glib;
@@ -21,6 +21,18 @@ pub struct WorkspaceRow {
     /// The name shown on the heading.
     #[property(get, set)]
     name: RefCell<String>,
+    /// Whether the heading's `Park all` item would touch anything: true only
+    /// while this workspace holds a `Live`, `Queued` or `Starting` account —
+    /// [`idle_manager_core::WorkspaceBook::can_park_all`]'s answer, filled at
+    /// [`super::super::SessionSidebar::sync`] (`FR.24.3`).
+    #[property(get, set)]
+    can_park_all: Cell<bool>,
+    /// Whether the heading's `Start all` item would touch anything: true only
+    /// while this workspace holds a `Parked` account —
+    /// [`idle_manager_core::WorkspaceBook::can_start_all`]'s answer, filled
+    /// the same way.
+    #[property(get, set)]
+    can_start_all: Cell<bool>,
     /// This workspace's children, built once at construction
     /// ([`super::WorkspaceRow::new`]) and handed out by
     /// [`super::WorkspaceRow::children`].

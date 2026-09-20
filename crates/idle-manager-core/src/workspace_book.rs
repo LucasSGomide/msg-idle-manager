@@ -1005,6 +1005,74 @@ impl WorkspaceBook {
             .map(|entry| entry.book.live_session_count())
             .sum()
     }
+
+    /// Parks every account in `workspace` whose liveness was not already
+    /// [`Liveness::Parked`], and returns each one's id paired with the
+    /// liveness it had before — the shell needs that "before" to know which
+    /// engine act matches each account: a running one is stopped at once, a
+    /// queued one simply leaves the queue, a starting one is parked the
+    /// moment its page paints (`FR.24.1`). Empty, changing nothing, for a
+    /// workspace no id names.
+    pub fn park_all(&mut self, workspace: &WorkspaceId) -> Vec<(SessionId, Liveness)> {
+        let Some(book) = self.book_mut(workspace) else {
+            return Vec::new();
+        };
+        let before: Vec<(SessionId, Liveness)> = book
+            .sessions()
+            .iter()
+            .filter(|session| session.liveness() != Liveness::Parked)
+            .map(|session| (session.id().clone(), session.liveness()))
+            .collect();
+        for (id, _) in &before {
+            book.park(id);
+        }
+        before
+    }
+
+    /// Queues every [`Liveness::Parked`] account in `workspace`, in workspace
+    /// order, and returns exactly those ids — the order `Start all` hands the
+    /// start queue (`FR.24.2`). Empty, changing nothing, for a workspace no id
+    /// names.
+    pub fn queue_parked(&mut self, workspace: &WorkspaceId) -> Vec<SessionId> {
+        let Some(book) = self.book_mut(workspace) else {
+            return Vec::new();
+        };
+        let parked: Vec<SessionId> = book
+            .sessions()
+            .iter()
+            .filter(|session| session.liveness() == Liveness::Parked)
+            .map(|session| session.id().clone())
+            .collect();
+        for id in &parked {
+            book.queue(id);
+        }
+        parked
+    }
+
+    /// Whether `Park all` would touch anything in `workspace`: true only while
+    /// it holds a [`Liveness::Live`], [`Liveness::Queued`] or
+    /// [`Liveness::Starting`] account — equivalently, any account not already
+    /// parked. False for an empty workspace and for a workspace no id names.
+    #[must_use]
+    pub fn can_park_all(&self, workspace: &WorkspaceId) -> bool {
+        self.book(workspace).is_some_and(|book| {
+            book.sessions()
+                .iter()
+                .any(|session| session.liveness() != Liveness::Parked)
+        })
+    }
+
+    /// Whether `Start all` would touch anything in `workspace`: true only
+    /// while it holds a [`Liveness::Parked`] account. False for an empty
+    /// workspace and for a workspace no id names.
+    #[must_use]
+    pub fn can_start_all(&self, workspace: &WorkspaceId) -> bool {
+        self.book(workspace).is_some_and(|book| {
+            book.sessions()
+                .iter()
+                .any(|session| session.liveness() == Liveness::Parked)
+        })
+    }
 }
 
 impl Default for WorkspaceBook {
@@ -2158,5 +2226,184 @@ mod tests {
             .expect("a named workspace can be removed");
 
         assert_eq!(book.active().layout(), Layout::Mobile);
+    }
+
+    /// `id`'s liveness inside `workspace`, wherever the shown workspace is —
+    /// the tests below drive a specific workspace's accounts without
+    /// switching to it.
+    fn liveness_in(book: &WorkspaceBook, workspace: &WorkspaceId, id: &SessionId) -> Liveness {
+        book.workspaces()
+            .find(|view| view.id() == workspace)
+            .and_then(|view| view.book().session(id))
+            .expect("the account is in this workspace")
+            .liveness()
+    }
+
+    #[test]
+    fn park_all_parks_every_non_parked_account_and_returns_each_ones_prior_liveness() {
+        let party = named_workspace(
+            "workspace-0001",
+            "Party",
+            vec![
+                saved_account("session-0001", "Live"),
+                saved_account("session-0002", "Queued"),
+                saved_account("session-0003", "Starting"),
+                Account {
+                    liveness: SavedLiveness::Parked,
+                    ..saved_account("session-0004", "Parked")
+                },
+            ],
+        );
+        let mut book = WorkspaceBook::restore(a_list(vec![party], "ungrouped"));
+        let workspace = WorkspaceId::new("workspace-0001");
+        let live = SessionId::new("session-0001");
+        let queued = SessionId::new("session-0002");
+        let starting = SessionId::new("session-0003");
+        let parked = SessionId::new("session-0004");
+        // Every saved-as-running account restores `Queued`; drive the first
+        // on to `Live` and the third on to `Starting` so the workspace holds
+        // one of each liveness `park_all` must handle.
+        book.unpark(&live);
+        book.mark_started(&live);
+        book.unpark(&starting);
+
+        let touched = book.park_all(&workspace);
+
+        assert_eq!(
+            touched,
+            vec![
+                (live.clone(), Liveness::Live),
+                (queued.clone(), Liveness::Queued),
+                (starting.clone(), Liveness::Starting),
+            ],
+        );
+        assert_eq!(
+            (
+                liveness_in(&book, &workspace, &live),
+                liveness_in(&book, &workspace, &queued),
+                liveness_in(&book, &workspace, &starting),
+                liveness_in(&book, &workspace, &parked),
+            ),
+            (
+                Liveness::Parked,
+                Liveness::Parked,
+                Liveness::Parked,
+                Liveness::Parked,
+            ),
+        );
+    }
+
+    #[test]
+    fn queue_parked_sets_every_parked_account_to_queued_in_order_and_returns_exactly_those_ids() {
+        let party = named_workspace(
+            "workspace-0001",
+            "Party",
+            vec![
+                Account {
+                    liveness: SavedLiveness::Parked,
+                    ..saved_account("session-0001", "A")
+                },
+                saved_account("session-0002", "B"),
+                Account {
+                    liveness: SavedLiveness::Parked,
+                    ..saved_account("session-0003", "C")
+                },
+            ],
+        );
+        let mut book = WorkspaceBook::restore(a_list(vec![party], "ungrouped"));
+        let workspace = WorkspaceId::new("workspace-0001");
+        let a = SessionId::new("session-0001");
+        let b = SessionId::new("session-0002");
+        let c = SessionId::new("session-0003");
+        // B is saved running, restoring `Queued`; drive it on to `Live` so
+        // `queue_parked` has a non-parked account in the middle to skip.
+        book.unpark(&b);
+        book.mark_started(&b);
+
+        let ids = book.queue_parked(&workspace);
+
+        assert_eq!(ids, vec![a.clone(), c.clone()]);
+        assert_eq!(
+            (
+                liveness_in(&book, &workspace, &a),
+                liveness_in(&book, &workspace, &b),
+                liveness_in(&book, &workspace, &c),
+            ),
+            (Liveness::Queued, Liveness::Live, Liveness::Queued),
+        );
+    }
+
+    #[test]
+    fn can_park_all_and_can_start_all_are_both_false_on_an_empty_workspace() {
+        let party = named_workspace("workspace-0001", "Party", Vec::new());
+        let book = WorkspaceBook::restore(a_list(vec![party], "ungrouped"));
+        let workspace = WorkspaceId::new("workspace-0001");
+
+        assert_eq!(
+            (
+                book.can_park_all(&workspace),
+                book.can_start_all(&workspace)
+            ),
+            (false, false),
+        );
+    }
+
+    #[test]
+    fn can_park_all_is_true_with_a_live_a_queued_or_a_starting_account() {
+        let party = named_workspace(
+            "workspace-0001",
+            "Party",
+            vec![saved_account("session-0001", "A")],
+        );
+        let mut book = WorkspaceBook::restore(a_list(vec![party], "ungrouped"));
+        let workspace = WorkspaceId::new("workspace-0001");
+        let id = SessionId::new("session-0001");
+
+        let while_queued = book.can_park_all(&workspace);
+        book.unpark(&id);
+        let while_starting = book.can_park_all(&workspace);
+        book.mark_started(&id);
+        let while_live = book.can_park_all(&workspace);
+
+        assert_eq!(
+            (while_queued, while_starting, while_live),
+            (true, true, true)
+        );
+    }
+
+    #[test]
+    fn can_park_all_is_false_when_every_account_is_parked() {
+        let party = named_workspace(
+            "workspace-0001",
+            "Party",
+            vec![Account {
+                liveness: SavedLiveness::Parked,
+                ..saved_account("session-0001", "A")
+            }],
+        );
+        let book = WorkspaceBook::restore(a_list(vec![party], "ungrouped"));
+
+        assert!(!book.can_park_all(&WorkspaceId::new("workspace-0001")));
+    }
+
+    #[test]
+    fn can_start_all_is_true_only_while_a_parked_account_exists() {
+        let party = named_workspace(
+            "workspace-0001",
+            "Party",
+            vec![Account {
+                liveness: SavedLiveness::Parked,
+                ..saved_account("session-0001", "A")
+            }],
+        );
+        let mut book = WorkspaceBook::restore(a_list(vec![party], "ungrouped"));
+        let workspace = WorkspaceId::new("workspace-0001");
+        let id = SessionId::new("session-0001");
+
+        let while_parked = book.can_start_all(&workspace);
+        book.unpark(&id);
+        let while_starting = book.can_start_all(&workspace);
+
+        assert_eq!((while_parked, while_starting), (true, false));
     }
 }

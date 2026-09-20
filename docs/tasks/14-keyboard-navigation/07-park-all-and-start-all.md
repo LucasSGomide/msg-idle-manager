@@ -116,18 +116,18 @@ the transitions have no other caller.
 
 ## Acceptance criteria
 
-- [ ] `(unit)` `park_all` on a workspace with a `Live`, a `Queued`, a
+- [x] `(unit)` `park_all` on a workspace with a `Live`, a `Queued`, a
       `Starting` and a `Parked` account returns the first three with their
       prior liveness and leaves all four `Parked`
-- [ ] `(unit)` `queue_parked` sets every `Parked` account to `Queued` in
+- [x] `(unit)` `queue_parked` sets every `Parked` account to `Queued` in
       workspace order and returns exactly those ids; `queue` on a `Live`
       account changes nothing
-- [ ] `(unit)` `can_park_all` is true only with a `Live`, `Queued` or
+- [x] `(unit)` `can_park_all` is true only with a `Live`, `Queued` or
       `Starting` account, `can_start_all` only with a `Parked` one, and both
       are false on an empty workspace
-- [ ] `(unit)` the enqueue decision appends to a draining queue without
+- [x] `(unit)` the enqueue decision appends to a draining queue without
       starting a second account, and starts the first id on an idle queue
-- [ ] `(integration)` `make verify` passes
+- [x] `(integration)` `make verify` passes
 - [ ] `(manual)` heading ⋯ shows `Park all` and `Start all` above `Rename…`;
       `Ungrouped`'s ⋯ shows only the two; each is greyed per the workspace's
       state; in selection mode no heading shows ⋯

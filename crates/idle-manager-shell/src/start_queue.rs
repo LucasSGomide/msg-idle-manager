@@ -7,9 +7,10 @@
 //! the next.
 //!
 //! It owns no policy about *which* accounts come back; that came from
-//! `SessionBook::start_order`. It owns only *when* the next one may begin. Each
-//! start goes through `Window`'s existing start path unchanged, so restoration
-//! adds no second way to bring an account up.
+//! `SessionBook::start_order` or, for `Start all`, `WorkspaceBook::queue_parked`.
+//! It owns only *when* the next one may begin. Each start goes through
+//! `Window`'s existing start path unchanged, so restoration adds no second way
+//! to bring an account up.
 
 use std::cell::{Cell, RefCell};
 use std::rc::{Rc, Weak};
@@ -37,30 +38,55 @@ const LOAD_SETTLE_TIMEOUT_SECS: u64 = 30;
 struct Inner {
     window: glib::WeakRef<Window>,
     pending: RefCell<Vec<SessionId>>,
+    /// Whether a start is currently in flight: set in `advance` the moment it
+    /// commits to an id, cleared when it finds nothing queued. `enqueue`
+    /// reads this to decide whether appending needs to kick off draining
+    /// itself or whether the drain already under way will reach the new ids
+    /// on its own (`FR.8.2`).
+    draining: Cell<bool>,
 }
 
-/// Drains a list of restored identifiers, starting one at a time. Held by the
-/// window only while a restore is in progress; drops cleanly when the window
-/// goes away mid-drain.
+/// Drains a list of identifiers, starting one at a time. Held by the window
+/// for its whole life (`Window::constructed`), so `enqueue` can append to a
+/// still-draining queue instead of the window replacing it — replacing it
+/// mid-drain would start two accounts at once.
 pub(crate) struct StartQueue(Rc<Inner>);
 
 impl StartQueue {
-    /// Starts draining `order` against `window`. The first account begins on
-    /// the next main-loop turn, so the window is presented first.
-    pub(crate) fn begin(window: glib::WeakRef<Window>, order: Vec<SessionId>) -> Self {
-        let inner = Rc::new(Inner {
+    /// A drained queue holding nothing yet, tied to `window`.
+    pub(crate) fn new(window: glib::WeakRef<Window>) -> Self {
+        Self(Rc::new(Inner {
             window,
-            pending: RefCell::new(order),
-        });
+            pending: RefCell::new(Vec::new()),
+            draining: Cell::new(false),
+        }))
+    }
 
-        let deferred = Rc::downgrade(&inner);
-        glib::idle_add_local_once(move || {
-            if let Some(inner) = deferred.upgrade() {
-                StartQueue(inner).advance();
-            }
-        });
+    /// Appends `ids` to the queue. When nothing is already draining, begins
+    /// on the next main-loop turn, so the window is presented first; when a
+    /// drain is already under way, the appended ids simply wait their turn
+    /// behind it (`FR.24.2`, `FR.8.2`).
+    pub(crate) fn enqueue(&self, ids: Vec<SessionId>) {
+        if ids.is_empty() {
+            return;
+        }
 
-        Self(inner)
+        let should_advance = {
+            let mut pending = self.0.pending.borrow_mut();
+            let taken = std::mem::take(&mut *pending);
+            let (merged, should_advance) = enqueue_plan(self.0.draining.get(), taken, ids);
+            *pending = merged;
+            should_advance
+        };
+
+        if should_advance {
+            let deferred = Rc::downgrade(&self.0);
+            glib::idle_add_local_once(move || {
+                if let Some(inner) = deferred.upgrade() {
+                    StartQueue(inner).advance();
+                }
+            });
+        }
     }
 
     /// Starts the next account whose turn has come, or ends the restore.
@@ -76,9 +102,11 @@ impl StartQueue {
         let pending = std::mem::take(&mut *self.0.pending.borrow_mut());
         let Some((id, rest)) = next_up(&pending, |id| window.imp().is_queued(id)) else {
             tracing::info!("start queue: nothing queued; restoration finished");
+            self.0.draining.set(false);
             return;
         };
         *self.0.pending.borrow_mut() = rest;
+        self.0.draining.set(true);
 
         let Some(view) = window.imp().start_session(&id) else {
             tracing::warn!(session = %id, "start queue: no holder to start; skipping");
@@ -150,6 +178,21 @@ fn next_up(
     Some((pending[next].clone(), pending[next + 1..].to_vec()))
 }
 
+/// The pure decision behind [`StartQueue::enqueue`]: `ids` appended to
+/// `pending`, and whether that append must itself kick off draining — `false`
+/// while `draining` already says a start is in flight, since that drain will
+/// reach the new ids on its own; `true` on an idle queue, which must start
+/// itself. Pulled out so the decision is unit tested without a window (code
+/// standards rule 25).
+fn enqueue_plan(
+    draining: bool,
+    mut pending: Vec<SessionId>,
+    ids: Vec<SessionId>,
+) -> (Vec<SessionId>, bool) {
+    pending.extend(ids);
+    (pending, !draining)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -182,5 +225,37 @@ mod tests {
         let outcome = next_up(&pending, |_| false);
 
         assert!(outcome.is_none());
+    }
+
+    #[test]
+    fn enqueue_plan_appends_to_a_draining_queue_without_starting_a_second_account() {
+        let pending = ids(&["a"]);
+        let incoming = ids(&["b", "c"]);
+
+        let (merged, should_advance) = enqueue_plan(true, pending, incoming);
+
+        assert_eq!(
+            (
+                merged.iter().map(SessionId::as_str).collect::<Vec<_>>(),
+                should_advance
+            ),
+            (vec!["a", "b", "c"], false),
+        );
+    }
+
+    #[test]
+    fn enqueue_plan_starts_the_first_id_on_an_idle_queue() {
+        let pending: Vec<SessionId> = Vec::new();
+        let incoming = ids(&["a"]);
+
+        let (merged, should_advance) = enqueue_plan(false, pending, incoming);
+
+        assert_eq!(
+            (
+                merged.iter().map(SessionId::as_str).collect::<Vec<_>>(),
+                should_advance
+            ),
+            (vec!["a"], true),
+        );
     }
 }
