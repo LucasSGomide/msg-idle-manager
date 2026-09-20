@@ -91,10 +91,10 @@ and the window's shortcut function, which the redraw it hooks into shares.
 
 ## Acceptance criteria
 
-- [ ] `(unit)` the `window.ui` template still reads from the registered bundle
+- [x] `(unit)` the `window.ui` template still reads from the registered bundle
       and contains the ids `pager`, `page_previous`, `page_readout` and
       `page_next`
-- [ ] `(integration)` `make verify` passes
+- [x] `(integration)` `make verify` passes
 - [ ] `(manual)` with two accounts in `2` the pager is absent; adding a third
       makes it appear reading `1/2`, directly left of the layout toggles
 - [ ] `(manual)` clicking `›` on `1/2` shows the third account alone with its

@@ -141,8 +141,15 @@ mod tests {
             gio::ResourceLookupFlags::NONE,
         )
         .expect("look up the window template by its resource path");
+        let xml = std::str::from_utf8(&data).expect("the template is UTF-8");
 
         assert!(!data.is_empty());
+        for id in ["pager", "page_previous", "page_readout", "page_next"] {
+            assert!(
+                xml.contains(&format!("id=\"{id}\"")),
+                "window.ui must declare the pager child {id}"
+            );
+        }
     }
 
     #[test]

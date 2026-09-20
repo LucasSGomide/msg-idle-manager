@@ -25,7 +25,7 @@ runs alone last.
 | [02](02-the-shortcuts-window-and-the-main-menu.md) | The shortcuts window and the main menu | front-end | — | 2/5 | in-progress |
 | [03](03-stepping-and-paging-in-the-domain.md) | Stepping and paging in the domain | back-end | 01 | 9/9 | done |
 | [04](04-one-shortcut-table-and-the-keys-on-the-gtk-controller.md) | One shortcut table, and the keys on the GTK controller | front-end | 03 | 4/9 | in-progress |
-| [05](05-the-keys-on-windows.md) | The keys on Windows | front-end | 04 | 0/6 | not-started |
-| [06](06-the-header-bar-pager.md) | The header-bar pager | front-end | 02, 04 | 0/8 | not-started |
+| [05](05-the-keys-on-windows.md) | The keys on Windows | front-end | 04 | 2/6 | in-progress |
+| [06](06-the-header-bar-pager.md) | The header-bar pager | front-end | 02, 04 | 2/8 | in-progress |
 | [07](07-park-all-and-start-all.md) | Park all and Start all | full-stack | 06 | 0/10 | not-started |
 | [08](08-windows-verification-and-the-design-rules.md) | Windows verification, the design rules and the runbook | full-stack | 05, 07 | 0/6 | not-started |

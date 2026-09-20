@@ -84,6 +84,34 @@
             </child>
           </object>
         </child>
+        <child type="end">
+          <object class="GtkBox" id="pager">
+            <property name="tooltip-text">Next account (Shift+Tab)</property>
+            <style>
+              <class name="linked"/>
+            </style>
+            <child>
+              <object class="GtkButton" id="page_previous">
+                <property name="icon-name">go-previous-symbolic</property>
+                <property name="tooltip-text">Previous page</property>
+              </object>
+            </child>
+            <child>
+              <object class="GtkLabel" id="page_readout">
+                <property name="width-chars">5</property>
+                <style>
+                  <class name="numeric"/>
+                </style>
+              </object>
+            </child>
+            <child>
+              <object class="GtkButton" id="page_next">
+                <property name="icon-name">go-next-symbolic</property>
+                <property name="tooltip-text">Next page</property>
+              </object>
+            </child>
+          </object>
+        </child>
       </object>
     </child>
     <child>
