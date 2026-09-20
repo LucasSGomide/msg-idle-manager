@@ -24,6 +24,16 @@
 - [x] `IDLE_MANAGER_MINIMISE_AFTER_SECS=16` with the dump switch, two accounts on an animating local page (one keep-awake on, one off), 80 s under `dbus-run-session` with throwaway `XDG_*_HOME` → the log shows `debug switch: minimising the window after_secs=16`, 39 frames per account are written, and every frame's `sha256sum` differs from the previous one for both accounts through the minimised minute (2026-09-19: the engine paints a current picture of a minimised page; the first Blocker is cleared)
 - [ ] `IDLE_MANAGER_DUMP_FRAMES=/nonexistent/dir …` → one `frame not written; the frame dump for this account stops here` warning per account and no further frame lines; the app keeps running
 
+## 04 — The remote server: enrolment, the socket and its proof
+
+- [x] `cargo nextest run -p idle-manager-remote` → `85 tests run: 85 passed, 1 skipped`
+- [x] `IDLE_MANAGER_REMOTE_HOLD_SECS=90 cargo nextest run -p idle-manager-remote --run-ignored only --no-capture` → stderr `listening on 127.0.0.1:7466` then `enrol at http://127.0.0.1:7466/enrol/<64 hex> (valid 600 s)`; the server stays up for 90 s
+- [x] `curl -si http://127.0.0.1:7466/enrol/<that code>` → `HTTP/1.1 200 OK`, `Content-Type: text/html; charset=utf-8`, `Set-Cookie: idle-manager-phone=<32 hex>; Path=/; Max-Age=31536000; SameSite=Strict; HttpOnly`; body holds `<meta name="idle-manager-device-id" content="<32 hex>">` and `<meta name="idle-manager-secret" content="<64 hex>">`
+- [x] The same `curl` a second time → `HTTP/1.1 404 Not Found`, `Content-Length: 0`, no `Server:` line, no body
+- [x] `curl -si http://127.0.0.1:7466/` and `curl -si http://127.0.0.1:7466/anything` without a cookie → both `HTTP/1.1 404 Not Found`, `Content-Length: 0`, no `Server:` header
+- [x] `curl -si -H 'Cookie: idle-manager-phone=<device id>' http://127.0.0.1:7466/` → `HTTP/1.1 200 OK`, no `Set-Cookie`, body holds `<title>Idle Manager</title>` and an empty `idle-manager-secret` meta
+- [x] `curl -si --max-time 2 -H 'Cookie: idle-manager-phone=<device id>' -H 'Upgrade: websocket' -H 'Connection: Upgrade' -H 'Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==' -H 'Sec-WebSocket-Version: 13' http://127.0.0.1:7466/ws` → `HTTP/1.1 101 Switching Protocols`, `Sec-WebSocket-Accept: s3pPLMBiTxaQ9kYGzzhZRbK+xOo=`
+
 ## Teardown
 
 - [ ] `rm -rf /tmp/frames-13` and remove any `[listen]` override added to `~/.config/idle-manager/phone.toml` for testing

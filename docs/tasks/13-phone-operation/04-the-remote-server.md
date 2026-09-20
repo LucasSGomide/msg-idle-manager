@@ -99,33 +99,33 @@ beside the desktop's mobile layout work.
 
 ## Acceptance criteria
 
-- [ ] `(unit)` `bind_address` prefers the override, else the first
+- [x] `(unit)` `bind_address` prefers the override, else the first
       `100.64.0.0/10` address on port 7466, else `NoMeshAddress`
-- [ ] `(unit)` the handshake computes the RFC 6455 example accept value
+- [x] `(unit)` the handshake computes the RFC 6455 example accept value
       `s3pPLMBiTxaQ9kYGzzhZRbK+xOo=` for key `dGhlIHNhbXBsZSBub25jZQ==`
-- [ ] `(unit)` `TryFrom<PhoneMessage>` maps every `Phone*` variant to its
+- [x] `(unit)` `TryFrom<PhoneMessage>` maps every `Phone*` variant to its
       `RemoteIntent` and rejects an unknown `type` with an error carrying the
       type name
-- [ ] `(integration)` `GET /enrol/<live code>` answers 200 with both meta
+- [x] `(integration)` `GET /enrol/<live code>` answers 200 with both meta
       tags and the `Set-Cookie` header, writes the record, and the same code
       a second time answers 404 with an empty body
-- [ ] `(integration)` `GET /`, `GET /ws` and `GET /anything` without the cookie,
+- [x] `(integration)` `GET /`, `GET /ws` and `GET /anything` without the cookie,
       or with a mismatched id, answer 404 with an empty body and no `Server`
       header; `GET /` with the right cookie answers 200 with the page and no
       secret in it
-- [ ] `(integration)` on `/ws` a wrong `auth.proof` closes the socket with no
+- [x] `(integration)` on `/ws` a wrong `auth.proof` closes the socket with no
       message; a right one receives `welcome` whose `proof` verifies against
       the phone's challenge and whose `state` equals the last published; a
       second right one receives `welcome` while the first receives
       `bye {reason: replaced}` and is closed
-- [ ] `(integration)` after `welcome`, sending `attach`, `tap {x:1,y:2}` and
+- [x] `(integration)` after `welcome`, sending `attach`, `tap {x:1,y:2}` and
       `park {account}` yields the three matching `RemoteIntent`s on the channel
       in order, an unknown `type` yields nothing, and one `publish_state`
       arrives as exactly one `state` message
-- [ ] `(integration)` `publish_frame(Rgba)` is received as one binary message
+- [x] `(integration)` `publish_frame(Rgba)` is received as one binary message
       with the width/height header and a decodable JPEG; publishing the same
       pixels again sends nothing; frames published before `attach` send nothing
-- [ ] `(integration)` 15 s without `ping` (clock driven by the test) yields
+- [x] `(integration)` 15 s without `ping` (clock driven by the test) yields
       one `Leave`; `revoke_phone()` sends `bye {reason: revoked}`, closes the
       socket, yields `Leave`, and a following `phone_status()` is `NotEnrolled`
 - [ ] `(integration)` `make verify` and `make windows-check` pass

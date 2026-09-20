@@ -1,0 +1,28 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="idle-manager-device-id" content="{{idle-manager-device-id}}">
+  <meta name="idle-manager-secret" content="{{idle-manager-secret}}">
+  <title>Idle Manager</title>
+  <style>
+    html, body { margin: 0; height: 100%; background: #111; color: #eee; font-family: sans-serif; }
+    main { display: flex; align-items: center; justify-content: center; height: 100%; }
+  </style>
+</head>
+<body>
+  <main><p id="status">Connecting…</p></main>
+  <script>
+    (function () {
+      var status = document.getElementById('status');
+      var socket = new WebSocket((location.protocol === 'https:' ? 'wss://' : 'ws://') + location.host + '/ws');
+      socket.binaryType = 'arraybuffer';
+      socket.onopen = function () { status.textContent = 'Connected'; };
+      socket.onclose = function () { status.textContent = 'Disconnected'; };
+      socket.onerror = function () { status.textContent = 'Connection failed'; };
+    })();
+  </script>
+</body>
+</html>
