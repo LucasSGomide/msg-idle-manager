@@ -1,6 +1,6 @@
 # 14 — Keyboard navigation and paged workspaces
 
-**Depends on:** 11, 12, 13 · **Status:** done · **Estimate:** 13
+**Depends on:** 11, 12, 13 · **Status:** done · **Estimate:** 13 · **Merged:** 2026-09-22
 
 ## Context
 
