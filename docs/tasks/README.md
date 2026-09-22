@@ -14,3 +14,4 @@ item's header carries `Landed:` or `Merged:`. Items 01–07 and 09–12 are `don
 |---|---|---|---|---|
 | [13](13-phone-operation/) | Operating an account from a phone | 8 | 3/8 | in-progress |
 | [14](14-keyboard-navigation/) | Keyboard navigation and paged workspaces | 8 | 2/8 | in-progress |
+| [15](15-window-shortcuts-and-focus/) | Window shortcuts, and focus that hands over the keyboard | 5 | 2/5 | in-progress |

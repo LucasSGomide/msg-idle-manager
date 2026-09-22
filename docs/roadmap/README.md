@@ -100,6 +100,7 @@ failure are shown inside a chooser without a modal of their own.
 | # | Item | Est | Depends on | Status |
 |---|---|---|---|---|
 | [14](14-keyboard-navigation/README.md) | Keyboard navigation and paged workspaces | 13 | 11, 12, 13 | in-progress |
+| [15](15-window-shortcuts-and-focus/README.md) | Window shortcuts, and focus that hands over the keyboard | 5 | 14 | in-progress |
 
 ## Parked
 
