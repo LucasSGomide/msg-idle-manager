@@ -50,7 +50,11 @@ citations, so append rather than reorder.
    menu the reader opened. The menu item is shown but insensitive while the
    account is `starting`, so the start cannot be triggered twice; it carries no
    state of its own — the window reads liveness for the direction (architecture
-   rule 8).
+   rule 8). Both reasons are about a control the reader can *see*: one that
+   carries a label, and one that occupies room on a scarce edge. Neither
+   describes a keyboard chord, which has no label to invert and takes up no
+   edge at all, so this rule governs the visible control and rule 20 governs
+   the key beside it.
 
 3. **Dim a row's name to 55% alpha whenever the account is out of sight or
    parked, and keep bold for the current row alone.** Item 02 already dimmed the
@@ -308,4 +312,29 @@ citations, so append rather than reorder.
     does not stop at the overlay: the pager's tooltip names `Shift`+`Tab` and
     a workspace heading's tooltip names `Ctrl`+`Tab` (`FR.25.1`), so a key can
     be learned either from the one place that lists all of them or from the
-    control it moves (`FR.25.2`).
+    control it moves (`FR.25.2`). Where the control is a menu item there is
+    nowhere to hover, so the key goes in the item's accelerator text instead —
+    `gio::MenuItem`'s `accel` attribute, which `GtkPopoverMenu` draws at the
+    item's trailing edge — and the tooltip rule is read as "name the key on
+    the control", not "name it in a tooltip" (`FR.25.4`, roadmap item 15).
+
+20. **Give a two-state action one key per direction, each idempotent and
+    inert where it does not apply, rather than one key that flips.**
+    `Ctrl`+`P` always means parked and `Ctrl`+`S` always means running
+    (`FR.26.3`); pressed in the direction the account is already in, each is
+    swallowed and does nothing at all (`FR.26.6`). This is rule 2's reasoning
+    carried onto a keyboard rather than an exception to it. Rule 2 asks for
+    one control for two reasons — a control that reads the state cannot be
+    pressed the wrong way, and a pair of buttons would leave one half greyed
+    on the scarce trailing edge rule 6 is about — and neither survives the
+    move: the wrong way is already a silent no-op, so there is no state to
+    reach and nothing to undo, and a key occupies no edge. What is genuinely
+    lost is that a key carries no label saying which way the press will go.
+    The row's coloured dot already answers that, before either key is
+    pressed. A single flip key would obey rule 2's letter and read worse:
+    nothing would say which direction the next press takes, and liveness
+    moves on its own — queued, then starting, then live — between deciding
+    and pressing, so the flip could invert under the reader's hand. Two
+    idempotent keys cannot. The heading menu's `Park all` / `Start all` were
+    already a pair rather than a flip, and `Ctrl`+`Shift`+`P` /
+    `Ctrl`+`Shift`+`S` follow them unchanged (`FR.26.4`).
