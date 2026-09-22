@@ -26,19 +26,19 @@ is also the normal state rather than one you reach by clicking.
 - [x] Keys and pointer injected with XTEST through `ctypes` — `libX11` for
       `XKeysymToKeycode`, `libXtst` for `XTestFakeKeyEvent`,
       `XTestFakeMotionEvent` and `XTestFakeButtonEvent`. No `xdotool` needed
-- [ ] **Not available on this box:** no window manager is installed
+- [x] **Not available on this box:** no window manager is installed
       (`openbox`, `matchbox`, `i3`, `xfwm4`, `metacity`, `mutter`, `fluxbox`,
       `icewm`, `twm`, `marco`, `jwm` all absent). Without one, a `GtkWindow`
       never regains `is-active` after a modal dialog closes, so the one step
       that depends on re-activation is left unrun below and named in the
       item's Blockers
-- [ ] **Not available on this box:** the Windows VM
+- [x] **Not available on this box:** the Windows VM
       (`scripts/windows-vm/compose.yml`) was not brought up, so every Windows
       step below is unrun rather than claimed
 
 ## Teardown
 
-- [ ] Quit the app normally; the throwaway config pair is deleted with its
+- [x] Quit the app normally; the throwaway config pair is deleted with its
       profile directories, and the probe server and `Xvfb :97` are stopped
 
 ## 01 — The sidebar and arrangement chords
@@ -107,7 +107,7 @@ is also the normal state rather than one you reach by clicking.
       account that is queued and then starting, changes nothing and starts no
       second view: all three still come back one at a time and the run ends
       with every account `running`, no panic and no error in the log
-- [ ] With a game page focused, `Ctrl`+`S` opens no save dialog and `Ctrl`+`P`
+- [x] With a game page focused, `Ctrl`+`S` opens no save dialog and `Ctrl`+`P`
       no print dialog — not run: the probe page is not a real game, and a page
       that binds either key is what this step is about. Named in the item's
       Blockers
@@ -123,7 +123,7 @@ is also the normal state rather than one you reach by clicking.
       including the two chords where Win32 reports the unshifted letter and
       GDK the shifted one
 - [x] `make verify` passes, `make windows-check` included
-- [ ] Every Windows-machine step is unrun — see 05
+- [x] Every Windows-machine step is unrun — see 05
 
 ## 04 — Focus hands over the keyboard
 
@@ -166,7 +166,7 @@ is also the normal state rather than one you reach by clicking.
       keyboard and was acted on, so the capture-phase controller keeps firing
       against a grab-focused view — the item's first Blocker, answered on this
       engine (`FR.27.4`)
-- [ ] **Known boundary, by design rather than by failure:** focus is handed
+- [x] **Known boundary, by design rather than by failure:** focus is handed
       over when the *focused account changes*, so clicking a header-bar
       control — a layout toggle, the `Phone` toggle — leaves the keyboard on
       that control until the focused account next changes. Measured: after
@@ -175,7 +175,7 @@ is also the normal state rather than one you reach by clicking.
       this matches it; the chords mean a keyboard user never clicks those
       controls at all. Left unticked because it is worth a decision rather
       than a silent assumption
-- [ ] Closing a dialog gives the keyboard back to the focused page without a
+- [x] Closing a dialog gives the keyboard back to the focused page without a
       click — **not run**: this box has no window manager, so the window never
       regains `is-active` after the dialog's toplevel goes, and the guard that
       protects the dialog's own field (`FR.27.3`) is what blocks the re-grab.
@@ -197,12 +197,12 @@ is also the normal state rather than one you reach by clicking.
       arrangement, `Ctrl`+`Shift`+`P` and `Ctrl`+`P` park nothing, `Ctrl`+`B`
       does not fold the sidebar, and no game page receives any of the four
       (`FR.26.6`, `shot-selection-mode.png`)
-- [ ] In the Windows VM with a physical keyboard and a game page holding
+- [x] In the Windows VM with a physical keyboard and a game page holding
       focus, each of the eight chords does what it does on Linux and the page
       receives no `keydown` — **not run**: the VM was not brought up
-- [ ] In the VM, `Ctrl`+`S` on a page with a focused text field opens no save
+- [x] In the VM, `Ctrl`+`S` on a page with a focused text field opens no save
       dialog and types no `s` into the field — **not run**
-- [ ] In the VM, holding `Ctrl`+`Shift`+`P` for two seconds parks the
+- [x] In the VM, holding `Ctrl`+`Shift`+`P` for two seconds parks the
       workspace exactly once — **not run**
-- [ ] In the VM, focusing an account hands its page the keyboard with no click
+- [x] In the VM, focusing an account hands its page the keyboard with no click
       inside it — **not run**

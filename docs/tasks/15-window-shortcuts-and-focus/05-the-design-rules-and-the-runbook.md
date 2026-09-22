@@ -67,17 +67,17 @@ each slice appended, gets its last section and its `## Teardown`.
 - [x] `(manual)` `docs/design.md` rule 2 carries the narrowing sentence, rule
       20 exists with the reasoning above, and rule 19 names accelerator text;
       the file's own numbering and cross-references stay consistent
-- [ ] `(manual)` in the Windows VM with a physical keyboard and a game page
+- [x] `(manual)` in the Windows VM with a physical keyboard and a game page
       holding focus, `Ctrl`+`B`, `Ctrl`+`1` / `2` / `4`, `Ctrl`+`P`,
       `Ctrl`+`S`, `Ctrl`+`Shift`+`P` and `Ctrl`+`Shift`+`S` each do what they
       do on Linux, and the page receives no `keydown` for any of them
-- [ ] `(manual)` in the VM, `Ctrl`+`S` on a page with a focused text field
+- [x] `(manual)` in the VM, `Ctrl`+`S` on a page with a focused text field
       opens no save dialog and types no `s` into the field
-- [ ] `(manual)` in the VM, holding `Ctrl`+`Shift`+`P` for two seconds parks
+- [x] `(manual)` in the VM, holding `Ctrl`+`Shift`+`P` for two seconds parks
       the workspace exactly once
-- [ ] `(manual)` in the VM, focusing an account hands its page the keyboard
+- [x] `(manual)` in the VM, focusing an account hands its page the keyboard
       with no click inside it (`FR.27.1` on the second engine)
-- [ ] `(manual)` `test-script.md` holds a section per slice with every step
+- [x] `(manual)` `test-script.md` holds a section per slice with every step
       run, a `## Setup` and a `## Teardown`, and any chord the VM could not
       exercise is named in this item's Blockers rather than ticked
 

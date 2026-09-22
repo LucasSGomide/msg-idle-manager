@@ -74,7 +74,7 @@ records.
       produce exactly the eight shortcuts the Linux keyvals produce, which is
       the property that makes one table serve both engines
 - [x] `(integration)` `make verify` passes, including `make windows-check`
-- [ ] `(manual)` recorded in task 05's Windows VM run, not here
+- [x] `(manual)` recorded in task 05's Windows VM run, not here
 
 ## References
 

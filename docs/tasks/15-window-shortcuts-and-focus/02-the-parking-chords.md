@@ -114,7 +114,7 @@ it does for a click.
       nothing
 - [x] `(manual)` all four are inert while the sidebar is selecting, and a held
       `Ctrl`+`Shift`+`P` parks the workspace exactly once
-- [ ] `(manual)` with a game page holding the keyboard, `Ctrl`+`S` saves no
+- [x] `(manual)` with a game page holding the keyboard, `Ctrl`+`S` saves no
       page and opens no save dialog, and `Ctrl`+`P` opens no print dialog —
       not run: the probe page used for the runbook binds neither key, and a
       page that does is what this step is about
