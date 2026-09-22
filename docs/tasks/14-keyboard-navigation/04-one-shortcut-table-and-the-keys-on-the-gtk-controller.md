@@ -123,19 +123,19 @@ adds is a caller of what is built here.
 - [x] `(unit)` `shortcut_for` with `LOCK_MASK` and `MOD2_MASK` added to a
       matching chord still returns the same shortcut
 - [x] `(integration)` `make verify` passes
-- [ ] `(manual)` on X11 with four accounts in `2` and a game canvas focused,
+- [x] `(manual)` on X11 with four accounts in `2` and a game canvas focused,
       `Shift`+`Tab` four times walks A, B, page turn, C, D, page turn, A, the
       sidebar bold following, and the page's own input shows no `Tab`
-- [ ] `(manual)` with three workspaces, one empty, `Ctrl`+`Tab` three times
+- [x] `(manual)` with three workspaces, one empty, `Ctrl`+`Tab` three times
       lands on the two non-empty ones and wraps, each on the page and slot it
       was left on, the layout toggle following; the empty one is never shown,
       is still reached by expanding its heading, and is reached by the key
       once an account is moved into it
-- [ ] `(manual)` holding `Ctrl`+`Tab` for two seconds switches exactly once;
+- [x] `(manual)` holding `Ctrl`+`Tab` for two seconds switches exactly once;
       holding `Shift`+`Tab` steps exactly once
-- [ ] `(manual)` in sidebar selection mode both keys change nothing and the
+- [x] `(manual)` in sidebar selection mode both keys change nothing and the
       game page does not receive them; leaving selection mode restores them
-- [ ] `(manual)` with one account in the workspace `Shift`+`Tab` changes
+- [x] `(manual)` with one account in the workspace `Shift`+`Tab` changes
       nothing, and with one non-empty workspace `Ctrl`+`Tab` changes nothing
 
 ## References

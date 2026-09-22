@@ -95,20 +95,20 @@ and the window's shortcut function, which the redraw it hooks into shares.
       and contains the ids `pager`, `page_previous`, `page_readout` and
       `page_next`
 - [x] `(integration)` `make verify` passes
-- [ ] `(manual)` with two accounts in `2` the pager is absent; adding a third
+- [x] `(manual)` with two accounts in `2` the pager is absent; adding a third
       makes it appear reading `1/2`, directly left of the layout toggles
-- [ ] `(manual)` clicking `›` on `1/2` shows the third account alone with its
+- [x] `(manual)` clicking `›` on `1/2` shows the third account alone with its
       slot outlined and its sidebar row bold, and the readout reads `2/2`;
       clicking `›` again wraps to `1/2` with the first account focused, and
       `‹` from `1/2` wraps to `2/2`
-- [ ] `(manual)` switching from `2` to `4` with three accounts hides the
+- [x] `(manual)` switching from `2` to `4` with three accounts hides the
       pager; switching to `1` shows it reading `n/3` with the focused account
       on screen
-- [ ] `(manual)` hovering the pager reads `Next account (Shift+Tab)`; the
+- [x] `(manual)` hovering the pager reads `Next account (Shift+Tab)`; the
       arrows read `Previous page` and `Next page`
-- [ ] `(manual)` with ten accounts in `Ungrouped` in `1`, stepping from `9/10`
+- [x] `(manual)` with ten accounts in `Ungrouped` in `1`, stepping from `9/10`
       to `10/10` does not move the layout toggles
-- [ ] `(manual)` with the phone attached, clicking `›` changes the account the
+- [x] `(manual)` with the phone attached, clicking `›` changes the account the
       phone shows
 
 ## References

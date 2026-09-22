@@ -128,19 +128,19 @@ the transitions have no other caller.
 - [x] `(unit)` the enqueue decision appends to a draining queue without
       starting a second account, and starts the first id on an idle queue
 - [x] `(integration)` `make verify` passes
-- [ ] `(manual)` heading ⋯ shows `Park all` and `Start all` above `Rename…`;
+- [x] `(manual)` heading ⋯ shows `Park all` and `Start all` above `Rename…`;
       `Ungrouped`'s ⋯ shows only the two; each is greyed per the workspace's
       state; in selection mode no heading shows ⋯
-- [ ] `(manual)` `Park all` on a workspace with one live, one queued and one
+- [x] `(manual)` `Park all` on a workspace with one live, one queued and one
       starting account: the live one's slot shows the stopped panel at once,
       the queued one never starts, the starting one parks the moment its
       page paints, and the debug log shows one view built for it
-- [ ] `(manual)` `Start all` on three parked accounts brings them back one at
+- [x] `(manual)` `Start all` on three parked accounts brings them back one at
       a time in sidebar order: rows turn purple, then blue one at a time,
       then green
-- [ ] `(manual)` `Start all` during a still-draining launch restore appends
+- [x] `(manual)` `Start all` during a still-draining launch restore appends
       to the queue: at no point are two accounts `Starting` at once
-- [ ] `(manual)` hovering a workspace heading reads `Next workspace
+- [x] `(manual)` hovering a workspace heading reads `Next workspace
       (Ctrl+Tab)`; the heading gains no dot, bold or other mark
 
 ## References

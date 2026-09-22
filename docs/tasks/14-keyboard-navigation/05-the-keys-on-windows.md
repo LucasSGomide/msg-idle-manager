@@ -85,16 +85,16 @@ as reading Ctrl's does.
 
 - [x] `(unit)` `gdk_key_for_virtual_key(0x09)` is `Some(gdk::Key::Tab)`
 - [x] `(integration)` `make verify` passes, including `make windows-check`
-- [ ] `(manual)` in the Windows VM with a physical keyboard and a game page
+- [x] `(manual)` in the Windows VM with a physical keyboard and a game page
       focused, `Shift`+`Tab` walks four accounts in `2` exactly as on Linux
       and `Ctrl`+`Tab` switches workspace, skipping an empty one
-- [ ] `(manual)` in the VM, a page with a focused text field receives no
+- [x] `(manual)` in the VM, a page with a focused text field receives no
       `keydown` for either chord (checked with a page that logs key events),
       and `Tab` alone still moves the field focus
-- [ ] `(manual)` in the VM, holding `Ctrl`+`Tab` for two seconds switches
+- [x] `(manual)` in the VM, holding `Ctrl`+`Tab` for two seconds switches
       exactly once; the second Blocker (`GetKeyState(VK_SHIFT)` inside the
       callback) is recorded as confirmed in the runbook
-- [ ] `(manual)` in the VM, `F5` and `Ctrl`+`+` still reload and zoom the
+- [x] `(manual)` in the VM, `F5` and `Ctrl`+`+` still reload and zoom the
       focused game after the idle hop
 
 ## References

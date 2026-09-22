@@ -87,12 +87,12 @@ that opens this item.
       from the registered bundle and is not empty
 - [x] `(integration)` `make verify` passes, with no deprecation warning from
       `GtkShortcutsWindow`
-- [ ] `(manual)` `Ctrl`+`?` while a game page has keyboard focus opens the
+- [x] `(manual)` `Ctrl`+`?` while a game page has keyboard focus opens the
       shortcuts window listing exactly the seven entries above, and `Esc`
       closes it with the grid unchanged
-- [ ] `(manual)` ☰ → `Keyboard Shortcuts` opens the same window; hovering ☰
+- [x] `(manual)` ☰ → `Keyboard Shortcuts` opens the same window; hovering ☰
       reads `Menu`
-- [ ] `(manual)` `docs/naming.md` rule 4 names `help-overlay.ui` as the one
+- [x] `(manual)` `docs/naming.md` rule 4 names `help-overlay.ui` as the one
       exception and says why
 
 ## References

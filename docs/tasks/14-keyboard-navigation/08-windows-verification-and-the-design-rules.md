@@ -87,21 +87,21 @@ promised to prove by hand is left unproven.
 ## Acceptance criteria
 
 - [x] `(integration)` `make verify` and `make windows-package` pass
-- [ ] `(manual)` in the Windows VM, the pager appears on the third account,
+- [x] `(manual)` in the Windows VM, the pager appears on the third account,
       turns and wraps, and stepping `9/10` → `10/10` does not move the layout
       toggles — or the `numeric` class is removed and the reason recorded
-- [ ] `(manual)` in the VM, a drop onto the empty trailing slot of a
+- [x] `(manual)` in the VM, a drop onto the empty trailing slot of a
       part-empty last page moves the account there and the sidebar order
       follows; `Park all` with one starting account parks it on paint;
       `Ctrl`+`?` opens the shortcuts window
-- [ ] `(manual)` in the VM, launching over a version 2 `sessions.toml` shows
+- [x] `(manual)` in the VM, launching over a version 2 `sessions.toml` shows
       the page holding the previously focused account with that account
       focused, and `sessions.v2.toml` is written once and unchanged by a
       second save
 - [x] `(manual)` `docs/design.md` carries rules 18 and 19 in the file's
       shape, and `docs/windows-vm.md` lists the chords and the pager among
       what the VM proves
-- [ ] `(manual)` `test-script.md` holds every step in the item's minimum list,
+- [x] `(manual)` `test-script.md` holds every step in the item's minimum list,
       each ticked after a run on Linux, and the Windows runs above under this
       slice's section
 
