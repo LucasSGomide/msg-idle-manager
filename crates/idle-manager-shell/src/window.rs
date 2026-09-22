@@ -13,12 +13,18 @@ mod shortcut;
 #[cfg(windows)]
 pub(crate) use imp::ZoomStep;
 // `window::shortcut` itself stays private to this module (only `imp.rs`
-// needs the whole table); this one function is re-exported instead, Windows
-// only, because `web_engine/webview2/host/imp.rs`'s accelerator-key handler
-// needs to decide a shortcut the same way the GTK key controller does
-// (roadmap item 14 task 05, architecture rule 8) without reaching into a
-// private sibling module.
-#[cfg(windows)]
+// needs the whole table); this one function is re-exported instead because
+// `web_engine/webview2/host/imp.rs`'s accelerator-key handler needs to decide
+// a shortcut the same way the GTK key controller does (roadmap item 14 task
+// 05, architecture rule 8) without reaching into a private sibling module.
+//
+// `test` joins `windows` on the gate for the same reason
+// `web_engine::virtual_key` itself is gated `any(windows, test)`:
+// `make windows-check` compiles the Windows target but never runs it, so the
+// one place the virtual-key mapping and this table can actually be executed
+// together — proving both engines decide the same eight chords — is a Linux
+// `cargo test` (architecture rule 14).
+#[cfg(any(windows, test))]
 pub(crate) use shortcut::shortcut_for;
 
 use std::rc::Rc;
