@@ -97,10 +97,7 @@ failure are shown inside a chooser without a modal of their own.
 
 ## Blocked
 
-| # | Item | Est | Depends on | Status |
-|---|---|---|---|---|
-| [14](14-keyboard-navigation/README.md) | Keyboard navigation and paged workspaces | 13 | 11, 12, 13 | in-progress |
-| [15](15-window-shortcuts-and-focus/README.md) | Window shortcuts, and focus that hands over the keyboard | 5 | 14 | in-progress |
+_(none)_
 
 ## Parked
 
@@ -121,3 +118,5 @@ _(none)_
 | [10](10-rearranging-accounts/README.md) | Renaming and rearranging accounts | 8 | 03, 07 | done |
 | [11](11-account-workspaces/README.md) | Account workspaces, and deleting an account | 13 | 06, 07, 10 | done |
 | [12](12-windows-support/README.md) | Running natively on Windows | 13 | 05, 11 | done |
+| [14](14-keyboard-navigation/README.md) | Keyboard navigation and paged workspaces | 13 | 11, 12, 13 | done |
+| [15](15-window-shortcuts-and-focus/README.md) | Window shortcuts, and focus that hands over the keyboard | 5 | 14 | done |

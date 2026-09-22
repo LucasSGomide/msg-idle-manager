@@ -22,10 +22,10 @@ runs alone last.
 | # | Task | Scope | Depends on | Criteria | Status |
 |---|---|---|---|---|---|
 | [01](01-the-seat-model-and-the-version-3-file.md) | The seat model: pages derived from one order, and the version 3 file | full-stack | — | 10/10 | done |
-| [02](02-the-shortcuts-window-and-the-main-menu.md) | The shortcuts window and the main menu | front-end | — | 2/5 | in-progress |
+| [02](02-the-shortcuts-window-and-the-main-menu.md) | The shortcuts window and the main menu | front-end | — | 5/5 | done |
 | [03](03-stepping-and-paging-in-the-domain.md) | Stepping and paging in the domain | back-end | 01 | 9/9 | done |
-| [04](04-one-shortcut-table-and-the-keys-on-the-gtk-controller.md) | One shortcut table, and the keys on the GTK controller | front-end | 03 | 4/9 | in-progress |
-| [05](05-the-keys-on-windows.md) | The keys on Windows | front-end | 04 | 2/6 | in-progress |
-| [06](06-the-header-bar-pager.md) | The header-bar pager | front-end | 02, 04 | 2/8 | in-progress |
-| [07](07-park-all-and-start-all.md) | Park all and Start all | full-stack | 06 | 5/10 | in-progress |
-| [08](08-windows-verification-and-the-design-rules.md) | Windows verification, the design rules and the runbook | full-stack | 05, 07 | 2/6 | in-progress |
+| [04](04-one-shortcut-table-and-the-keys-on-the-gtk-controller.md) | One shortcut table, and the keys on the GTK controller | front-end | 03 | 9/9 | done |
+| [05](05-the-keys-on-windows.md) | The keys on Windows | front-end | 04 | 6/6 | done |
+| [06](06-the-header-bar-pager.md) | The header-bar pager | front-end | 02, 04 | 8/8 | done |
+| [07](07-park-all-and-start-all.md) | Park all and Start all | full-stack | 06 | 10/10 | done |
+| [08](08-windows-verification-and-the-design-rules.md) | Windows verification, the design rules and the runbook | full-stack | 05, 07 | 6/6 | done |

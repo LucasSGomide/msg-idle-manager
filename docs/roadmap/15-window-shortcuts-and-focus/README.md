@@ -1,6 +1,6 @@
 # 15 — Window shortcuts, and focus that hands over the keyboard
 
-**Depends on:** 14 · **Status:** in-progress · **Estimate:** 5
+**Depends on:** 14 · **Status:** done · **Estimate:** 5
 
 ## Context
 
