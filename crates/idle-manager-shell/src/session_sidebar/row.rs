@@ -48,6 +48,7 @@ impl Row {
                 name_markup(display_name, liveness, visibility, current),
             )
             .property("action-label", action_label(liveness))
+            .property("action-accelerator", action_accelerator(liveness))
             .property("action-sensitive", action_sensitive(liveness))
             .property("is-kept-awake", session.is_kept_awake())
             .property(
@@ -75,6 +76,7 @@ impl Row {
                 ),
             )
             .property("action-label", "")
+            .property("action-accelerator", "")
             .property("action-sensitive", false)
             .property("is-kept-awake", false)
             .property("keep-awake-mark", "")
@@ -136,6 +138,21 @@ pub(super) fn action_label(liveness: Liveness) -> &'static str {
     match liveness {
         Liveness::Live => "Park",
         Liveness::Parked | Liveness::Starting | Liveness::Queued => "Start",
+    }
+}
+
+/// The accelerator the Park/Start menu item names beside its label: the chord
+/// for the direction the item currently offers, never both (`FR.25.4`, design
+/// rules 19 and 20).
+///
+/// `Ctrl`+`P` and `Ctrl`+`S` are one key per direction and each is inert
+/// where it does not apply, so naming only the live one is not hiding the
+/// other — it is saying which of the two this row will answer right now,
+/// which is the same thing [`action_label`] says in words.
+pub(super) fn action_accelerator(liveness: Liveness) -> &'static str {
+    match liveness {
+        Liveness::Live => "<Control>p",
+        Liveness::Parked | Liveness::Starting | Liveness::Queued => "<Control>s",
     }
 }
 
@@ -232,6 +249,14 @@ mod tests {
     #[test]
     fn a_queued_accounts_park_start_item_reads_start() {
         assert_eq!(action_label(Liveness::Queued), "Start");
+    }
+
+    #[test]
+    fn the_park_start_item_names_the_chord_for_the_direction_it_offers() {
+        assert_eq!(action_accelerator(Liveness::Live), "<Control>p");
+        assert_eq!(action_accelerator(Liveness::Parked), "<Control>s");
+        assert_eq!(action_accelerator(Liveness::Starting), "<Control>s");
+        assert_eq!(action_accelerator(Liveness::Queued), "<Control>s");
     }
 
     #[test]

@@ -470,10 +470,14 @@ impl EngineView {
         });
     }
 
-    /// Grabs keyboard focus for this view's hosted native window.
-    // Unused until a later slice calls it, same reasoning as
-    // `web_engine/webkit.rs`'s own currently-unused `grab_focus`.
-    #[allow(dead_code)]
+    /// Grabs keyboard focus for this view's hosted native window, so the page
+    /// is live to typing without a click inside it (`FR.27.1`).
+    ///
+    /// `WebView2` hosts a native child window that GTK's own focus handling
+    /// does not reach, so this is not the convenience it is on the other
+    /// engine — it is the only way the page gets the keyboard from anything
+    /// but a click. `Window::follow_focus_with_keyboard` is the one caller,
+    /// and it decides whether a grab is wanted at all; this only performs it.
     pub(crate) fn grab_focus(&self) {
         self.host.focus_view();
     }

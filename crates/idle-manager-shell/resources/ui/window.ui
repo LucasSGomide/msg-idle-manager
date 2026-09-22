@@ -41,7 +41,7 @@
           <object class="GtkToggleButton" id="sidebar_toggle">
             <property name="icon-name">sidebar-show-symbolic</property>
             <property name="active">true</property>
-            <property name="tooltip-text">Show or hide the account list</property>
+            <property name="tooltip-text">Show or hide the account list (Ctrl+B)</property>
           </object>
         </child>
         <child type="end">
@@ -61,17 +61,20 @@
               <object class="GtkToggleButton" id="layout_single">
                 <property name="label">1</property>
                 <property name="active">true</property>
+                <property name="tooltip-text">One game (Ctrl+1)</property>
               </object>
             </child>
             <child>
               <object class="GtkToggleButton" id="layout_side_by_side">
                 <property name="label">2</property>
+                <property name="tooltip-text">Two games (Ctrl+2)</property>
                 <property name="group">layout_single</property>
               </object>
             </child>
             <child>
               <object class="GtkToggleButton" id="layout_grid">
                 <property name="label">4</property>
+                <property name="tooltip-text">Four games (Ctrl+4)</property>
                 <property name="group">layout_single</property>
               </object>
             </child>

@@ -22,7 +22,7 @@ use idle_manager_core::{
     ZoomLevel, ZoomMemory, account_name, scroll_script, tap_script, workspace_name,
 };
 
-use super::shortcut::{Shortcut, shortcut_for};
+use super::shortcut::{Shortcut, repeats_while_held, shortcut_for};
 use crate::account_deletion;
 use crate::add_game_dialog::{AddGameDialog, Confirmed};
 use crate::delete_account_dialog::DeleteAccountDialog;
@@ -173,13 +173,29 @@ pub struct Window {
     /// phone's taps arrive in that grid, and this is what maps them back to
     /// the page's own CSS pixels.
     frame_width: Cell<Option<u32>>,
-    /// Whether a navigation shortcut (`NextAccount` or `NextWorkspace`) is
-    /// currently held down. GTK 4 exposes no repeat flag on a key event, so
-    /// this latch stands in for one (code standards rule 18): set on the
-    /// press that runs the shortcut, cleared on the matching key's release,
-    /// a press that arrives while it is set is consumed and ignored
-    /// (`FR.23.3`).
-    tab_held: Cell<bool>,
+    /// Whether a shortcut that must not repeat is currently held down — every
+    /// one of them except `Reload` and `Zoom`, the two a user holding the key
+    /// down legitimately wants again (`FR.23.3`, `FR.26.6`). GTK 4 exposes no
+    /// repeat flag on a key event, so this latch stands in for one (code
+    /// standards rule 18): set on the press that runs such a shortcut,
+    /// cleared on the next key release of any key, and a press arriving while
+    /// it is set is consumed and ignored. Clearing on any release rather than
+    /// on one particular keyval is what lets it serve chords whose key is not
+    /// `Tab`; it is sound because GDK enables detectable auto-repeat on X11
+    /// and synthesises Wayland repeat as presses alone, so a held chord
+    /// delivers no release to clear it early.
+    chord_held: Cell<bool>,
+    /// The account whose live view was last handed the keyboard by
+    /// [`Window::follow_focus_with_keyboard`], or `None` when the focused
+    /// position has no live view to hand it to.
+    ///
+    /// This is what makes the grab follow a focus *change* rather than fire
+    /// on every [`Window::redraw`]. A redraw happens for reasons that have
+    /// nothing to do with focus — a memory reading, another account's
+    /// liveness, a phone publish — and grabbing on each of them would keep
+    /// yanking the keyboard back from a widget the user deliberately clicked
+    /// (`FR.27.1`).
+    last_focus_grab: RefCell<Option<SessionId>>,
 }
 
 impl std::fmt::Debug for Window {
@@ -317,22 +333,29 @@ impl ObjectImpl for Window {
             glib::Propagation::Proceed
         });
         // GTK 4 exposes no repeat flag on a key event (code standards rule
-        // 18): `tab_held` is the substitute, and only this release clears it.
-        // The release itself is left to propagate — WebKitGTK re-queues an
-        // unhandled press but never sees the one stopped in capture, so the
-        // page receives a release with no matching press and ignores it.
+        // 18): `chord_held` is the substitute, and this release clears it —
+        // any release, not one particular keyval, since the chords this
+        // guards are spread across `B`, `P`, `S`, the digits and `Tab`, and a
+        // held chord delivers no release of its own to race with. The release
+        // itself is left to propagate — WebKitGTK re-queues an unhandled
+        // press but never sees the one stopped in capture, so the page
+        // receives a release with no matching press and ignores it.
         let window = self.obj().downgrade();
-        key_controller.connect_key_released(move |_, key, _, _modifiers| {
-            if let Some(window) = window.upgrade()
-                && matches!(
-                    key,
-                    gdk::Key::Tab | gdk::Key::ISO_Left_Tab | gdk::Key::KP_Tab
-                )
-            {
-                window.imp().tab_held.set(false);
+        key_controller.connect_key_released(move |_, _key, _, _modifiers| {
+            if let Some(window) = window.upgrade() {
+                window.imp().chord_held.set(false);
             }
         });
         self.obj().add_controller(key_controller);
+
+        // A dialog, or another application, takes the keyboard from the
+        // window and the page loses it with them; nothing redraws when one
+        // closes, so the hand-over has to be re-made from the window's own
+        // activation rather than waiting for the next focus change
+        // (`FR.27.1`, `FR.27.3`).
+        self.obj().connect_is_active_notify(|window| {
+            window.imp().follow_window_activation();
+        });
 
         self.connect_layout_toggle(&self.layout_single, Layout::Single);
         self.connect_layout_toggle(&self.layout_side_by_side, Layout::SideBySide);
@@ -2048,18 +2071,24 @@ impl Window {
     /// for that second caller in `web_engine/webview2`, across the module
     /// boundary but inside the one crate (architecture rules 8, 12).
     ///
-    /// A navigation shortcut (`NextAccount`, `NextWorkspace`) held down runs
-    /// once, not on every repeat event the platform delivers: GTK 4 exposes
-    /// no repeat flag on a key event, so `tab_held` latches on the press that
-    /// runs one and a matching key release (wired in `constructed`) clears it
-    /// (code standards rule 18, `FR.23.3`). The key is consumed either way.
+    /// Every shortcut but `Reload` and `Zoom` runs once while held, not on
+    /// every repeat event the platform delivers: GTK 4 exposes no repeat flag
+    /// on a key event, so `chord_held` latches on the press that runs one and
+    /// the next key release (wired in `constructed`) clears it (code
+    /// standards rule 18, `FR.23.3`, `FR.26.6`). Reload and zoom are excluded
+    /// deliberately — holding `Ctrl`+`-` to zoom out several steps is the
+    /// gesture, not a misfire. The key is consumed either way.
     pub(crate) fn handle_shortcut_key(&self, key: gdk::Key, modifiers: gdk::ModifierType) -> bool {
         let Some(shortcut) = shortcut_for(key, modifiers) else {
             return false;
         };
 
-        let is_navigation = matches!(shortcut, Shortcut::NextAccount | Shortcut::NextWorkspace);
-        if is_navigation && self.tab_held.replace(true) {
+        if repeats_while_held(shortcut) {
+            self.run_shortcut(shortcut);
+            return true;
+        }
+
+        if self.chord_held.replace(true) {
             return true;
         }
 
@@ -2069,12 +2098,20 @@ impl Window {
 
     /// Runs `shortcut`, as [`handle_shortcut_key`](Window::handle_shortcut_key)
     /// decided it. `Reload` and `Zoom` act exactly as before this table
-    /// existed; `NextAccount` and `NextWorkspace` return before acting while
-    /// `self.sidebar.is_selecting()` (`FR.23.4`) — the sidebar's multi-select
-    /// mode owns the screen while it is open, so a navigation key must change
-    /// nothing under it. The shown workspace being empty, or holding only one
-    /// account or one other workspace, makes either a no-op by the book's own
-    /// answer, with nothing extra to check here.
+    /// existed; every other arm returns before acting while
+    /// `self.sidebar.is_selecting()` (`FR.23.4`, `FR.26.6`) — the sidebar's
+    /// multi-select mode owns the screen while it is open, so nothing may
+    /// move under a move-to-workspace decision, the sidebar itself folding
+    /// away included. The shown workspace being empty, or holding only one
+    /// account or one other workspace, makes the navigation arms a no-op by
+    /// the book's own answer, with nothing extra to check here.
+    ///
+    /// The window's own controls are driven through the control the mouse
+    /// presses, never past it (`FR.26.1`, `FR.26.2`): a chord sets a toggle's
+    /// active state and the toggle's own handler does the rest, so a control
+    /// and the thing it controls can never drift apart, and the chord gets
+    /// every consequence of a click — the save, the zoom snap, leaving mobile
+    /// mode — without restating any of them.
     pub(crate) fn run_shortcut(&self, shortcut: Shortcut) {
         match shortcut {
             Shortcut::Reload => self.grid.reload_focused(),
@@ -2107,6 +2144,87 @@ impl Window {
                     self.request_save();
                 }
             }
+            Shortcut::ToggleSidebar => {
+                if self.sidebar.is_selecting() {
+                    return;
+                }
+                // The button, never the revealer: `constructed` binds
+                // `sidebar_toggle`'s `active` to the revealer's
+                // `reveal-child`, so driving the button is the whole of the
+                // chord and the two can never disagree about which way the
+                // sidebar sits (`FR.26.1`).
+                self.sidebar_toggle
+                    .set_active(!self.sidebar_toggle.is_active());
+            }
+            Shortcut::Arrange(layout) => {
+                if self.sidebar.is_selecting() {
+                    return;
+                }
+                // The toggle, never `choose_layout` directly: selecting it
+                // fires its own `toggled` handler, which is the path a click
+                // takes — leaving mobile mode first and ending in
+                // `finish_layout_change` (`FR.26.2`, architecture rule 8).
+                // The chord for the arrangement already showing sets an
+                // already-active toggle, which emits nothing, so it is a
+                // no-op for free.
+                self.select_layout_toggle(layout);
+            }
+            Shortcut::ParkFocused => {
+                if self.sidebar.is_selecting() {
+                    return;
+                }
+                self.park_or_start_focused(Liveness::Live);
+            }
+            Shortcut::StartFocused => {
+                if self.sidebar.is_selecting() {
+                    return;
+                }
+                self.park_or_start_focused(Liveness::Parked);
+            }
+            Shortcut::ParkWorkspace => {
+                if self.sidebar.is_selecting() {
+                    return;
+                }
+                let workspace = self.book.borrow().active_id().clone();
+                self.park_all(&workspace);
+            }
+            Shortcut::StartWorkspace => {
+                if self.sidebar.is_selecting() {
+                    return;
+                }
+                let workspace = self.book.borrow().active_id().clone();
+                self.start_all(&workspace);
+            }
+        }
+    }
+
+    /// The act behind `Ctrl`+`P` and `Ctrl`+`S`: run the focused account
+    /// through the row menu's own [`Window::toggle_parking`], but only when
+    /// its liveness is `from` — the state the chord's one direction starts
+    /// from (`Liveness::Live` to park, `Liveness::Parked` to start).
+    ///
+    /// That guard is what makes each chord idempotent rather than a flip
+    /// (`FR.26.3`): `toggle_parking` moves an account to whichever liveness
+    /// it is not, which is right for a menu item whose label already read the
+    /// state, and wrong for a key that carries no label. `Starting` and
+    /// `Queued` match neither direction and fall through to silence, exactly
+    /// as the row's own item is greyed in those states (design rule 2); so
+    /// does an empty workspace, which has no focused account at all
+    /// (`FR.26.6`).
+    fn park_or_start_focused(&self, from: Liveness) {
+        // Bound to a `let` so the borrow ends here: `toggle_parking` borrows
+        // the book again on the next line (code standards rule 12).
+        let focused = self
+            .book
+            .borrow()
+            .active()
+            .focused_session()
+            .map(|session| (session.id().clone(), session.liveness()));
+
+        if let Some((id, liveness)) = focused
+            && liveness == from
+        {
+            self.toggle_parking(&id);
         }
     }
 
@@ -2257,6 +2375,116 @@ impl Window {
             link.publish_state(&state);
         }
         self.refresh_phone_actions();
+
+        // Explicitly, because the next call borrows the book again (code
+        // standards rule 12) — and last, because it is the only part of a
+        // redraw that touches something outside this window's own widgets.
+        drop(book);
+        self.follow_focus_with_keyboard();
+    }
+
+    /// The window gained or lost the keyboard as a whole: a dialog opened or
+    /// closed over it, or the user moved to another application and back.
+    ///
+    /// Losing it forgets the hand-over: whatever took the window's focus owns
+    /// the keyboard now, and the view drops its own the moment the toplevel
+    /// does, so the record of having handed it over is stale and would
+    /// otherwise block the next grab (see `last_focus_grab`). Gaining it
+    /// makes the hand-over again, which is what puts the keyboard back in the
+    /// focused game after a dialog closes — no redraw follows a dialog
+    /// closing, so without this the page would stay deaf until the focused
+    /// account next changed (`FR.27.1`, `FR.27.3`).
+    fn follow_window_activation(&self) {
+        if self.obj().is_active() {
+            self.follow_focus_with_keyboard();
+        } else {
+            self.last_focus_grab.replace(None);
+        }
+    }
+
+    /// Hands the focused account's live view the keyboard, so its page is
+    /// live to typing the moment its outline appears (`FR.27.1`).
+    ///
+    /// Called from the end of [`Window::redraw`] rather than from each of the
+    /// routes that can change the focused account — a sidebar row,
+    /// `Shift`+`Tab`, `Ctrl`+`Tab`, a pager arrow, a click on a slot, an
+    /// arrangement change, a drag, a workspace switch, an account added, a
+    /// restore, a phone choosing one. Every one of them already ends in a
+    /// redraw, so one hook covers all of them, and covers a twelfth route
+    /// written later without it having to remember this.
+    ///
+    /// Four things stop it, in order:
+    ///
+    /// - No focused account, or no live view for it — parked, queued,
+    ///   starting, or an empty trailing slot on a part-empty last page. The
+    ///   keyboard is left exactly where it is; nothing reaches sideways for
+    ///   another slot's view (`FR.27.2`). `last_focus_grab` is cleared, which
+    ///   is what makes the grab happen later, when *that* account's own view
+    ///   goes live — so starting the focused account hands it the keyboard at
+    ///   its first paint.
+    /// - This account already has it, by `last_focus_grab`. See that field.
+    /// - Something else is being typed into (`FR.27.3`). A modal dialog is
+    ///   its own toplevel, so [`gtk::Window::is_active`] on this window
+    ///   covers the rename dialog and the add-game form with one check; the
+    ///   [`gtk::Editable`] test covers an entry inside this window, of which
+    ///   there is none today and may be one tomorrow (code standards rule 1
+    ///   — trust the check, not the absence).
+    /// - The sidebar is in selection mode, where nothing may move under a
+    ///   move-to-workspace decision (`FR.23.4`, `FR.26.6`).
+    fn follow_focus_with_keyboard(&self) {
+        let focused = self
+            .book
+            .borrow()
+            .active()
+            .focused_session()
+            .map(|session| session.id().clone());
+
+        let Some(id) = focused else {
+            self.last_focus_grab.replace(None);
+            return;
+        };
+
+        // A short borrow of its own: `grab_focus` below runs toolkit code
+        // that can reach back into this window, and a `RefCell` held across
+        // it would be a panic rather than a bug report (code standards rules
+        // 12, 18).
+        let has_live_view = self
+            .holders
+            .borrow()
+            .get(&id)
+            .is_some_and(|holder| holder.view().is_some());
+        if !has_live_view {
+            self.last_focus_grab.replace(None);
+            return;
+        }
+
+        if self.last_focus_grab.borrow().as_ref() == Some(&id) {
+            return;
+        }
+
+        // `RootExt::focus`, spelled out because `GtkWindowExt` offers the
+        // same name for the same property and the compiler cannot pick.
+        let focus_widget = gtk::prelude::RootExt::focus(&*self.obj());
+        let active = self.obj().is_active();
+        let editing = focus_widget.is_some_and(|widget| widget.is::<gtk::Editable>());
+        if !active || self.sidebar.is_selecting() || editing {
+            tracing::debug!(
+                session = %id, active, editing,
+                selecting = self.sidebar.is_selecting(),
+                "the focused account's view was not handed the keyboard"
+            );
+            return;
+        }
+
+        let view = self
+            .holders
+            .borrow()
+            .get(&id)
+            .and_then(|holder| holder.view().cloned());
+        if let Some(view) = view {
+            view.grab_focus();
+            self.last_focus_grab.replace(Some(id));
+        }
     }
 
     /// Registers the header menu's two actions (task 07). Both start

@@ -497,13 +497,14 @@ impl EngineView {
     #[allow(clippy::unused_self)]
     pub(crate) fn set_background(&self, _background: bool) {}
 
-    /// Grabs keyboard focus for this view's widget — a no-op wrapper today
-    /// since `GtkWidget`'s own click-to-focus already reaches a `WebKit` view,
-    /// kept for a later Windows backend where `WebView2` needs to be told
-    /// explicitly.
-    // Unused until a later slice's Windows backend needs it, same reasoning
-    // as `set_background`.
-    #[allow(dead_code)]
+    /// Grabs keyboard focus for this view's widget, so the page is live to
+    /// typing without a click inside it (`FR.27.1`).
+    ///
+    /// Click-to-focus reaches a `WebKit` view on its own; what this adds is
+    /// every *other* way an account becomes the focused one — a sidebar row,
+    /// a shortcut, a page turn, a workspace switch. `Window::follow_focus_with_keyboard`
+    /// is the one caller, and it decides whether a grab is wanted at all;
+    /// this only performs it.
     pub(crate) fn grab_focus(&self) {
         self.view.grab_focus();
     }

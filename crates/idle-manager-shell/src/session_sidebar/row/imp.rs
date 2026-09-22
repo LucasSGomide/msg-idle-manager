@@ -32,6 +32,14 @@ pub struct Row {
     /// `Start` once it is parked. The factory binds it and never branches.
     #[property(get, set)]
     action_label: RefCell<String>,
+    /// The Park/Start menu item's accelerator text — `<Control>p` while the
+    /// account runs, `<Control>s` otherwise. A menu item has nowhere to
+    /// hover, so this is where its key is named (`FR.25.4`, design rule 19);
+    /// a separate property from `action_label` because the two are set on
+    /// different things — the label on the item, this on its `accel`
+    /// attribute.
+    #[property(get, set)]
+    action_accelerator: RefCell<String>,
     /// Whether the Park/Start menu item is sensitive. `false` only while the
     /// account is starting, so a second press cannot build a second view.
     #[property(get, set)]

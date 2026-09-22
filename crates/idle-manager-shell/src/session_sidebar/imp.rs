@@ -867,6 +867,19 @@ fn build_row_widgets() -> gtk::Box {
 /// calls [`gio::SimpleAction::set_state`] itself, so the checkbox only moves
 /// once the book's answer comes back through [`SessionSidebar::sync`] and this
 /// function runs again.
+/// A menu item that names its keyboard chord beside its label.
+///
+/// `GtkPopoverMenu` draws the `accel` attribute at the item's trailing edge,
+/// in `gtk::accelerator_parse` syntax — `<Control><Shift>p` and the like. It
+/// is the menu's equivalent of the tooltip a button uses to name its key, and
+/// design rule 19 asks for one wherever a control mirrors a chord
+/// (`FR.25.4`).
+fn accelerated_item(label: &str, action: &str, accelerator: &str) -> gio::MenuItem {
+    let item = gio::MenuItem::new(Some(label), Some(action));
+    item.set_attribute_value("accel", Some(&accelerator.to_variant()));
+    item
+}
+
 fn bind_row_menu(
     settings: &gtk::MenuButton,
     data: &Row,
@@ -877,10 +890,15 @@ fn bind_row_menu(
 
     let action_label = data.action_label();
     let menu = gio::Menu::new();
-    menu.append(
-        Some(action_label.as_str()),
-        Some(&format!("{ROW_ACTION_GROUP}.{PARKING_ACTION}")),
-    );
+    // The Park/Start item names its own chord beside the label, since a menu
+    // item has nowhere to hover — the accelerator for the direction this row
+    // currently offers, which is the one `Ctrl`+`P` / `Ctrl`+`S` pair member
+    // that is not inert on it (`FR.25.4`, design rules 19 and 20).
+    menu.append_item(&accelerated_item(
+        action_label.as_str(),
+        &format!("{ROW_ACTION_GROUP}.{PARKING_ACTION}"),
+        data.action_accelerator().as_str(),
+    ));
     menu.append(
         Some("Keep running when hidden"),
         Some(&format!("{ROW_ACTION_GROUP}.{KEEP_AWAKE_ACTION}")),
@@ -982,14 +1000,16 @@ fn bind_heading_menu(
 
     let menu = gio::Menu::new();
     let actions = gio::Menu::new();
-    actions.append(
-        Some("Park all"),
-        Some(&format!("{HEADING_ACTION_GROUP}.{PARK_ALL_ACTION}")),
-    );
-    actions.append(
-        Some("Start all"),
-        Some(&format!("{HEADING_ACTION_GROUP}.{START_ALL_ACTION}")),
-    );
+    actions.append_item(&accelerated_item(
+        "Park all",
+        &format!("{HEADING_ACTION_GROUP}.{PARK_ALL_ACTION}"),
+        "<Control><Shift>p",
+    ));
+    actions.append_item(&accelerated_item(
+        "Start all",
+        &format!("{HEADING_ACTION_GROUP}.{START_ALL_ACTION}"),
+        "<Control><Shift>s",
+    ));
     menu.append_section(None, &actions);
 
     if !is_ungrouped {

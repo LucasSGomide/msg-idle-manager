@@ -10,6 +10,7 @@
 
 use gtk::gdk;
 use gtk4 as gtk;
+use idle_manager_core::Layout;
 
 use super::imp::ZoomStep;
 
@@ -28,6 +29,40 @@ pub(crate) enum Shortcut {
     /// Show the sidebar's next workspace that holds an account, on the page
     /// and slot it was left on: `Ctrl`+`Tab` (`FR.23.2`).
     NextWorkspace,
+    /// Show or hide the sidebar: `Ctrl`+`B` (`FR.26.1`).
+    ToggleSidebar,
+    /// Arrange the shown workspace for this many games: `Ctrl`+`1`, `Ctrl`+`2`
+    /// and `Ctrl`+`4` (`FR.26.2`). One variant for the three chords, carrying
+    /// the [`Layout`] itself, so `Window::run_shortcut`'s match cannot answer
+    /// two of them and forget the third. [`Layout::Mobile`] is never produced
+    /// here: the phone arrangement keeps its toggle and gains no key, because
+    /// the only digit left beside `1` `2` `4` is `Ctrl`+`3`, which would say
+    /// "the third arrangement" while its neighbours say "this many games".
+    Arrange(Layout),
+    /// Park the focused account: `Ctrl`+`P` (`FR.26.3`). Always means
+    /// *parked*, never "the other one" — see [`Shortcut::StartFocused`].
+    ParkFocused,
+    /// Start the focused account: `Ctrl`+`S` (`FR.26.3`).
+    ///
+    /// Park and start are two chords rather than one that flips, which
+    /// departs from design rule 2's one-control shape and is recorded as a
+    /// narrowing of it in rule 20. Neither of rule 2's reasons survives a
+    /// keyboard: the direction that does not apply is a silent no-op, so
+    /// there is no wrong state to reach, and a key occupies none of the
+    /// scarce trailing edge rule 6 is about. What a flip key would cost is
+    /// that nothing says which direction the press is about to take, while
+    /// liveness moves on its own — queued, then starting, then live —
+    /// between deciding and pressing. Two idempotent chords cannot invert
+    /// under the reader's hand, and the row's dot already names which of them
+    /// is live.
+    StartFocused,
+    /// Park every account in the shown workspace: `Ctrl`+`Shift`+`P`, the
+    /// heading menu's `Park all` (`FR.26.4`, `FR.24.1`).
+    ParkWorkspace,
+    /// Start every parked account in the shown workspace:
+    /// `Ctrl`+`Shift`+`S`, the heading menu's `Start all` (`FR.26.4`,
+    /// `FR.24.2`).
+    StartWorkspace,
 }
 
 /// The shortcut `key` under `modifiers` names, or `None` for every other key.
@@ -68,7 +103,77 @@ pub(crate) fn shortcut_for(key: gdk::Key, modifiers: gdk::ModifierType) -> Optio
         return Some(Shortcut::NextWorkspace);
     }
 
+    if ctrl && matches!(key, gdk::Key::b | gdk::Key::B) {
+        return Some(Shortcut::ToggleSidebar);
+    }
+
+    if ctrl && let Some(layout) = layout_for(key) {
+        return Some(Shortcut::Arrange(layout));
+    }
+
+    // Both letter cases in both arms, with `shift` — not the keyval's case —
+    // choosing the direction. GDK delivers the shifted keyval `P` for
+    // `Ctrl`+`Shift`+`P` on X11 and Wayland, while Win32's
+    // `AcceleratorKeyPressed` reports the unshifted virtual key for the same
+    // chord (`web_engine/virtual_key.rs`). The modifier bit is the one
+    // discriminator both engines agree on.
+    if ctrl && matches!(key, gdk::Key::p | gdk::Key::P) {
+        return Some(if shift {
+            Shortcut::ParkWorkspace
+        } else {
+            Shortcut::ParkFocused
+        });
+    }
+
+    if ctrl && matches!(key, gdk::Key::s | gdk::Key::S) {
+        return Some(if shift {
+            Shortcut::StartWorkspace
+        } else {
+            Shortcut::StartFocused
+        });
+    }
+
     None
+}
+
+/// Whether holding `shortcut`'s keys down should run it again.
+///
+/// True for exactly two: `Reload` and `Zoom`. Holding `Ctrl`+`-` to zoom out
+/// several steps, or `F5` to hammer a page that will not load, is the gesture
+/// rather than a misfire. Everything else runs once per press — stepping
+/// through every workspace, folding the sidebar back and forth or parking a
+/// workspace repeatedly are all things a held key would do by accident and
+/// nobody would ask for (`FR.23.3`, `FR.26.6`). Pure and matched
+/// exhaustively, so a new [`Shortcut`] variant has to answer this question
+/// before it compiles.
+pub(crate) fn repeats_while_held(shortcut: Shortcut) -> bool {
+    match shortcut {
+        Shortcut::Reload | Shortcut::Zoom(_) => true,
+        Shortcut::NextAccount
+        | Shortcut::NextWorkspace
+        | Shortcut::ToggleSidebar
+        | Shortcut::Arrange(_)
+        | Shortcut::ParkFocused
+        | Shortcut::StartFocused
+        | Shortcut::ParkWorkspace
+        | Shortcut::StartWorkspace => false,
+    }
+}
+
+/// The arrangement a digit names under the control modifier, or `None` for any
+/// other key.
+///
+/// Both the top-row digit and its keypad twin are accepted, for the same
+/// reason [`zoom_step_for`] accepts `KP_0` beside `_0`: which one a keyboard
+/// delivers is the keyboard's business, not the window's. `3` is absent
+/// deliberately — see [`Shortcut::Arrange`].
+fn layout_for(key: gdk::Key) -> Option<Layout> {
+    match key {
+        gdk::Key::_1 | gdk::Key::KP_1 => Some(Layout::Single),
+        gdk::Key::_2 | gdk::Key::KP_2 => Some(Layout::SideBySide),
+        gdk::Key::_4 | gdk::Key::KP_4 => Some(Layout::Grid),
+        _ => None,
+    }
 }
 
 /// The zoom step a key names under the control modifier, or `None` for any
@@ -192,6 +297,71 @@ mod tests {
     }
 
     #[test]
+    fn ctrl_plus_b_in_either_case_maps_to_toggle_sidebar() {
+        let mapped: Vec<Option<Shortcut>> = [gdk::Key::b, gdk::Key::B]
+            .into_iter()
+            .map(|key| shortcut_for(key, gdk::ModifierType::CONTROL_MASK))
+            .collect();
+
+        assert_eq!(
+            mapped,
+            vec![Some(Shortcut::ToggleSidebar), Some(Shortcut::ToggleSidebar)]
+        );
+    }
+
+    #[test]
+    fn ctrl_plus_one_two_or_four_maps_to_the_matching_arrangement() {
+        let mapped: Vec<Option<Shortcut>> = [
+            gdk::Key::_1,
+            gdk::Key::KP_1,
+            gdk::Key::_2,
+            gdk::Key::KP_2,
+            gdk::Key::_4,
+            gdk::Key::KP_4,
+        ]
+        .into_iter()
+        .map(|key| shortcut_for(key, gdk::ModifierType::CONTROL_MASK))
+        .collect();
+
+        assert_eq!(
+            mapped,
+            vec![
+                Some(Shortcut::Arrange(Layout::Single)),
+                Some(Shortcut::Arrange(Layout::Single)),
+                Some(Shortcut::Arrange(Layout::SideBySide)),
+                Some(Shortcut::Arrange(Layout::SideBySide)),
+                Some(Shortcut::Arrange(Layout::Grid)),
+                Some(Shortcut::Arrange(Layout::Grid)),
+            ]
+        );
+    }
+
+    /// The phone arrangement has no key on purpose (`FR.26.2`), and the digit
+    /// that would be the obvious one to reach for is the one that must stay
+    /// unbound.
+    #[test]
+    fn ctrl_plus_three_maps_to_nothing() {
+        assert_eq!(
+            shortcut_for(gdk::Key::_3, gdk::ModifierType::CONTROL_MASK),
+            None
+        );
+        assert_eq!(
+            shortcut_for(gdk::Key::KP_3, gdk::ModifierType::CONTROL_MASK),
+            None
+        );
+    }
+
+    #[test]
+    fn the_window_chord_keys_mean_nothing_without_control() {
+        let mapped: Vec<Option<Shortcut>> = [gdk::Key::b, gdk::Key::_1, gdk::Key::_2, gdk::Key::_4]
+            .into_iter()
+            .map(|key| shortcut_for(key, gdk::ModifierType::empty()))
+            .collect();
+
+        assert_eq!(mapped, vec![None, None, None, None]);
+    }
+
+    #[test]
     fn caps_lock_and_num_lock_added_to_a_matching_chord_still_match() {
         let noisy_shift_tab =
             gdk::ModifierType::SHIFT_MASK | gdk::ModifierType::LOCK_MASK | mod2_mask();
@@ -205,6 +375,87 @@ mod tests {
         assert_eq!(
             shortcut_for(gdk::Key::r, noisy_ctrl_r),
             Some(Shortcut::Reload)
+        );
+    }
+
+    #[test]
+    fn only_reload_and_zoom_repeat_while_held() {
+        assert!(repeats_while_held(Shortcut::Reload));
+        assert!(repeats_while_held(Shortcut::Zoom(ZoomStep::Out)));
+        assert!(!repeats_while_held(Shortcut::NextAccount));
+        assert!(!repeats_while_held(Shortcut::NextWorkspace));
+        assert!(!repeats_while_held(Shortcut::ToggleSidebar));
+        assert!(!repeats_while_held(Shortcut::Arrange(Layout::Grid)));
+        assert!(!repeats_while_held(Shortcut::ParkFocused));
+        assert!(!repeats_while_held(Shortcut::StartFocused));
+        assert!(!repeats_while_held(Shortcut::ParkWorkspace));
+        assert!(!repeats_while_held(Shortcut::StartWorkspace));
+    }
+
+    #[test]
+    fn ctrl_plus_p_or_s_in_either_case_acts_on_the_focused_account() {
+        let mapped: Vec<Option<Shortcut>> = [gdk::Key::p, gdk::Key::P, gdk::Key::s, gdk::Key::S]
+            .into_iter()
+            .map(|key| shortcut_for(key, gdk::ModifierType::CONTROL_MASK))
+            .collect();
+
+        assert_eq!(
+            mapped,
+            vec![
+                Some(Shortcut::ParkFocused),
+                Some(Shortcut::ParkFocused),
+                Some(Shortcut::StartFocused),
+                Some(Shortcut::StartFocused),
+            ]
+        );
+    }
+
+    /// The shift bit alone chooses the direction, in both letter cases: X11
+    /// and Wayland deliver the shifted keyval here, Win32 the unshifted one,
+    /// and one table has to answer both the same way.
+    #[test]
+    fn ctrl_shift_plus_p_or_s_in_either_case_acts_on_the_whole_workspace() {
+        let ctrl_shift = gdk::ModifierType::CONTROL_MASK | gdk::ModifierType::SHIFT_MASK;
+        let mapped: Vec<Option<Shortcut>> = [gdk::Key::p, gdk::Key::P, gdk::Key::s, gdk::Key::S]
+            .into_iter()
+            .map(|key| shortcut_for(key, ctrl_shift))
+            .collect();
+
+        assert_eq!(
+            mapped,
+            vec![
+                Some(Shortcut::ParkWorkspace),
+                Some(Shortcut::ParkWorkspace),
+                Some(Shortcut::StartWorkspace),
+                Some(Shortcut::StartWorkspace),
+            ]
+        );
+    }
+
+    #[test]
+    fn caps_lock_and_num_lock_never_promote_ctrl_p_to_the_workspace_chord() {
+        let noisy_ctrl_p =
+            gdk::ModifierType::CONTROL_MASK | gdk::ModifierType::LOCK_MASK | mod2_mask();
+        let noisy_ctrl_shift_p = noisy_ctrl_p | gdk::ModifierType::SHIFT_MASK;
+
+        assert_eq!(
+            shortcut_for(gdk::Key::p, noisy_ctrl_p),
+            Some(Shortcut::ParkFocused)
+        );
+        assert_eq!(
+            shortcut_for(gdk::Key::p, noisy_ctrl_shift_p),
+            Some(Shortcut::ParkWorkspace)
+        );
+    }
+
+    #[test]
+    fn caps_lock_and_num_lock_added_to_ctrl_b_still_toggles_the_sidebar() {
+        let noisy_ctrl_b =
+            gdk::ModifierType::CONTROL_MASK | gdk::ModifierType::LOCK_MASK | mod2_mask();
+
+        assert_eq!(
+            shortcut_for(gdk::Key::b, noisy_ctrl_b),
+            Some(Shortcut::ToggleSidebar)
         );
     }
 }
