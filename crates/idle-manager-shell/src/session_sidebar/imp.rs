@@ -677,14 +677,14 @@ fn build_row_widgets() -> gtk::Box {
         .build();
     mark_stack.add_css_class("status-mark");
 
-    // 8 px, not the icons' own 10: a solid CSS circle fills its box edge to
+    // 4 px, not the icons' own 10: a solid CSS circle fills its box edge to
     // edge, while a symbolic icon's glyph sits inside a small margin baked
-    // into the icon itself, so the two only read as the same size once the
-    // circle gives up a couple of pixels (owner feedback 2026-09-22: at an
-    // equal 10 px the dot still looked larger than the pause icon beside it).
+    // into the icon itself, so the two never read as the same size at equal
+    // declared dimensions. Settled here after two rounds of owner feedback
+    // (10 → 8 → 4 px, 2026-09-22).
     let dot = gtk::Box::builder()
-        .width_request(8)
-        .height_request(8)
+        .width_request(4)
+        .height_request(4)
         .build();
     dot.add_css_class("status-dot");
     mark_stack.add_named(&dot, Some("dot"));

@@ -6,16 +6,16 @@
  * Those three sit as named pages of one `GtkStack`
  * (`session_sidebar/imp.rs` `build_row_widgets`) at their own 10 px
  * (`Image::set_pixel_size`, `Spinner`'s own width/height request); the dot
- * itself is smaller, 8 px, because a solid CSS circle fills its box edge to
- * edge while a symbolic icon's glyph sits inside a margin the icon already
- * bakes in — at an equal 10 px the dot still read larger than the pause icon
- * beside it (owner feedback 2026-09-22, a second pass after the first
- * equal-size fix). The dot page's own class is toggled per bind. Only the
+ * itself is smaller — settled at 4 px after two rounds of owner feedback
+ * (10 → 8 → 4) — because a solid CSS circle fills its box edge to edge
+ * while a symbolic icon's glyph sits inside a margin the icon already
+ * bakes in, so the two never read as the same size at equal declared
+ * dimensions. The dot page's own class is toggled per bind. Only the
  * current row's dot glows. */
 
 .status-dot {
-  min-width: 8px;
-  min-height: 8px;
+  min-width: 4px;
+  min-height: 4px;
   border-radius: 9999px;
   background-color: alpha(currentColor, 0.35);
 }
@@ -23,14 +23,12 @@
 /* On screen and holding the focused slot: a filled dot, green, glowing. */
 .status-dot.status-current {
   background-color: #33d17a;
-  /* Scaled down with the dot itself (owner feedback 2026-09-22, second
-   * pass): the flat 8 px dot now matches the pause icon's own footprint,
-   * but the glow's bloom at its original radii still read as oversized on
-   * its own — halved from the 4px/1px and 9px/3px this glow used at the
-   * dot's old 10 px size. */
+  /* Scaled down with the dot itself, again — halved a second time from the
+   * 2px/0.5px and 4px/1px this glow used at the dot's 8 px round (owner
+   * feedback 2026-09-22, third pass). */
   box-shadow:
-    0 0 2px 0.5px alpha(#33d17a, 0.9),
-    0 0 4px 1px alpha(#33d17a, 0.45);
+    0 0 1px 0.25px alpha(#33d17a, 0.9),
+    0 0 2px 0.5px alpha(#33d17a, 0.45);
 }
 
 /* On screen but not focused: a filled dot, green, calm. */
