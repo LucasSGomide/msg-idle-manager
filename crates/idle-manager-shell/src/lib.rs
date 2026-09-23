@@ -150,6 +150,21 @@ mod tests {
                 "window.ui must declare the pager child {id}"
             );
         }
+        for id in [
+            "title_label",
+            "main_menu",
+            "sidebar_toggle",
+            "reload_button",
+        ] {
+            assert!(
+                xml.contains(&format!("id=\"{id}\"")),
+                "window.ui must declare the header child {id}"
+            );
+        }
+        assert!(
+            !xml.contains("id=\"add_game_button\""),
+            "window.ui must not keep the header's old add-game button (design rule 22)"
+        );
     }
 
     #[test]
@@ -261,7 +276,7 @@ mod tests {
     }
 
     #[test]
-    fn the_sidebar_stylesheet_carries_a_distinct_queued_dot_class() {
+    fn the_sidebar_stylesheet_carries_a_distinct_queued_mark_class() {
         register_resources().expect("register the compiled bundle");
 
         let data = gio::resources_lookup_data(
@@ -272,9 +287,22 @@ mod tests {
         let css = std::str::from_utf8(&data).expect("the stylesheet is UTF-8");
 
         assert!(
-            css.contains(".status-queued") && css.contains("#dc8add"),
-            "sidebar.css must style a status-queued dot in a colour that is \
+            css.contains(".mark-queued") && css.contains("#dc8add"),
+            "sidebar.css must style the queued mark in a colour that is \
              neither the starting #62a0ea nor the parked #9a9996"
         );
+    }
+
+    #[test]
+    fn the_window_stylesheet_is_readable_from_the_registered_bundle() {
+        register_resources().expect("register the compiled bundle");
+
+        let data = gio::resources_lookup_data(
+            "/org/idlemanager/IdleManager/css/window.css",
+            gio::ResourceLookupFlags::NONE,
+        )
+        .expect("look up the window stylesheet by its resource path");
+
+        assert!(!data.is_empty());
     }
 }

@@ -21,6 +21,17 @@
           </object>
         </child>
         <child>
+          <object class="GtkLabel" id="intro_label">
+            <property name="label">Connect a phone to follow your games from it.</property>
+            <property name="wrap">true</property>
+            <property name="xalign">0</property>
+            <property name="visible">false</property>
+            <style>
+              <class name="dim-label"/>
+            </style>
+          </object>
+        </child>
+        <child>
           <object class="GtkBox" id="link_block">
             <property name="orientation">vertical</property>
             <property name="spacing">3</property>
@@ -83,12 +94,12 @@
             <property name="margin-top">6</property>
             <child>
               <object class="GtkButton" id="enrol_button">
-                <property name="label">Enrol…</property>
+                <property name="label">Connect phone…</property>
               </object>
             </child>
             <child>
               <object class="GtkButton" id="revoke_button">
-                <property name="label">Un-enrol</property>
+                <property name="label">Disconnect</property>
                 <style>
                   <class name="destructive-action"/>
                 </style>

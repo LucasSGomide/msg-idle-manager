@@ -35,6 +35,8 @@ pub struct AddGameDialog {
     #[template_child]
     chosen_game_label: TemplateChild<gtk::Label>,
     #[template_child]
+    back_button: TemplateChild<gtk::Button>,
+    #[template_child]
     name_entry: TemplateChild<gtk::Entry>,
     #[template_child]
     address_label: TemplateChild<gtk::Label>,
@@ -117,18 +119,35 @@ impl ObjectImpl for AddGameDialog {
             }
         });
 
-        let escape = gtk::EventControllerKey::new();
         let dialog = obj.downgrade();
-        escape.connect_key_pressed(move |_, key, _, _| {
+        self.back_button.connect_clicked(move |_| {
+            if let Some(dialog) = dialog.upgrade() {
+                dialog.imp().stages.set_visible_child_name("choose");
+                dialog.imp().refresh_add_sensitivity();
+            }
+        });
+
+        let key_controller = gtk::EventControllerKey::new();
+        let dialog = obj.downgrade();
+        key_controller.connect_key_pressed(move |_, key, _, modifiers| {
+            let Some(dialog) = dialog.upgrade() else {
+                return glib::Propagation::Proceed;
+            };
             if key == gdk::Key::Escape {
-                if let Some(dialog) = dialog.upgrade() {
-                    dialog.close();
-                }
+                dialog.close();
+                return glib::Propagation::Stop;
+            }
+            // `Alt`+`Left` steps stage two back to stage one (2.8's
+            // wireframe); a no-op on stage one, where there is nowhere back
+            // to go.
+            if key == gdk::Key::Left && modifiers.contains(gdk::ModifierType::ALT_MASK) {
+                dialog.imp().stages.set_visible_child_name("choose");
+                dialog.imp().refresh_add_sensitivity();
                 return glib::Propagation::Stop;
             }
             glib::Propagation::Proceed
         });
-        obj.add_controller(escape);
+        obj.add_controller(key_controller);
     }
 }
 

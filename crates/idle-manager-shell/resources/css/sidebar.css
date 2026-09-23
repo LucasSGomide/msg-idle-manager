@@ -1,17 +1,20 @@
-/* Sidebar row status marker (design rule 1): a dot-only marker, no word beside
- * it, and the current row's dot the only one that glows. One dot class per
- * status key in session_sidebar/row.rs; items 03 and 08 add more keys and more
- * rules here. */
+/* Sidebar row status marker (design rule 1, roadmap item 11's redesign): a
+ * shape per state, not colour alone, so the mark still tells current from
+ * background from parked at 10 px and for a colour-blind reader. The four
+ * shapes sit as named pages of one `GtkStack` (`session_sidebar/imp.rs`
+ * `build_row_widgets`) — a filled dot or a ring share the `"dot"` page and
+ * one CSS class toggled per bind, `"parked"`/`"queued"`/`"starting"` are
+ * their own pages with a fixed class each. Only the current row's dot
+ * glows. */
 
 .status-dot {
   min-width: 10px;
   min-height: 10px;
   border-radius: 9999px;
-  margin-right: 4px;
   background-color: alpha(currentColor, 0.35);
 }
 
-/* On screen and holding the focused slot: green, glowing. */
+/* On screen and holding the focused slot: a filled dot, green, glowing. */
 .status-dot.status-current {
   background-color: #33d17a;
   box-shadow:
@@ -19,36 +22,73 @@
     0 0 9px 3px alpha(#33d17a, 0.45);
 }
 
-/* On screen but not focused: green, calm. */
+/* On screen but not focused: a filled dot, green, calm. */
 .status-dot.status-visible {
   background-color: #33d17a;
 }
 
-/* Running out of sight: amber, flat. Only the current row's dot glows now
- * (design rule 1) — the colour alone still separates it from a parked grey. */
+/* Running out of sight: a ring, amber — a shape distinct from the filled
+ * dot above it, not only a different colour (design rule 1). */
 .status-dot.status-background {
-  background-color: #f5c211;
+  background-color: transparent;
+  border: 2px solid #f5c211;
 }
 
-/* Parked: not running at all. Grey and unlit — the dot for a state that costs
- * nothing, distinct from the amber of a game still ticking out of sight. */
-.status-dot.status-parked {
-  background-color: #9a9996;
+/* Parked: not running at all. A pause icon, grey — the mark for a state
+ * that costs nothing, distinct in shape from a game still ticking out of
+ * sight. */
+.mark-parked {
+  color: #9a9996;
 }
 
-/* Starting: unparked, no page painted yet. Blue and flat — a transient working
- * state on its way to green; the glow is reserved for the current row alone
- * (design rule 1). */
-.status-dot.status-starting {
-  background-color: #62a0ea;
+/* Queued: restored and waiting its turn in the start queue (item 07). A
+ * clock-like icon, purple — a weaker claim than the starting blue and
+ * unmistakable against the parked grey, for a row that will move on its
+ * own with nothing for the user to press. */
+.mark-queued {
+  color: #dc8add;
 }
 
-/* Queued: restored and waiting its turn in the start queue (item 07). Purple
- * and flat — a weaker claim than the starting blue and unmistakable against the
- * parked grey, for a row that will move on its own with nothing for the user to
- * press (design rule 1). */
-.status-dot.status-queued {
-  background-color: #dc8add;
+/* Starting: unparked, no page painted yet. The spinner's own motion already
+ * carries "working"; tinted blue to match the state it is on its way to
+ * (`status-current`/`status-visible`'s green) and read consistently with
+ * the two dot states either side of it. */
+.mark-starting {
+  color: #62a0ea;
+}
+
+/* The focused row's 3 px bar (design rule 26), in the theme's own selection
+ * colour — the row-side half of the same claim the focused slot's outline
+ * makes in the grid. Hidden (zero width) on every row but `current`. */
+.focus-bar {
+  min-width: 3px;
+  margin-right: 3px;
+  background-color: @theme_selected_bg_color;
+}
+
+/* A row's or heading's ⋯ menu button stays in the tree always, opacity-
+ * hidden until the row is hovered or keyboard-focused, or its own popover is
+ * open (design rule 21) — never `visible: false`, which would also drop it
+ * from tab order. `:checked` is what `GtkMenuButton` carries while its
+ * popover shows, so a menu opened by right-click or `Shift`+`F10` keeps its
+ * button visible for as long as it is open. */
+.row-menu-button {
+  opacity: 0;
+}
+
+.sidebar-row:hover .row-menu-button,
+.sidebar-row:focus-within .row-menu-button,
+.sidebar-row .row-menu-button:checked {
+  opacity: 1;
+}
+
+/* Keep-awake indication (design rule 6, roadmap item 11's redesign: an icon
+ * now, not a glyph). Quieter than every status-mark rule above and never
+ * glows: it marks a configuration nobody is about to change, not a state
+ * the mark beside it is already carrying. */
+.keep-awake-mark {
+  opacity: 0.55;
+  margin-right: 2px;
 }
 
 /* Window-level message strip (design rule 9): one line under the header bar,

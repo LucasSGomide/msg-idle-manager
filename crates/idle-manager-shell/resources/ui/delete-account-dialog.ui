@@ -5,7 +5,7 @@
     <property name="title">Delete account?</property>
     <property name="modal">true</property>
     <property name="resizable">false</property>
-    <property name="default-widget">delete_button</property>
+    <property name="default-widget">cancel_button</property>
     <child>
       <object class="GtkStack" id="stages">
         <property name="margin-top">18</property>

@@ -63,6 +63,17 @@ pub(crate) enum Shortcut {
     /// `Ctrl`+`Shift`+`S`, the heading menu's `Start all` (`FR.26.4`,
     /// `FR.24.2`).
     StartWorkspace,
+    /// Open the add-account dialog into the shown workspace: `Ctrl`+`N`,
+    /// design rule 22's sidebar button.
+    AddAccount,
+    /// Rename the focused account: `F2`, a row menu's `Rename…` item.
+    RenameFocused,
+    /// Turn the shown workspace's page forward: `Ctrl`+`Page Down`, the
+    /// header bar's pager (design rule 18).
+    NextPage,
+    /// Turn the shown workspace's page back: `Ctrl`+`Page Up`, otherwise
+    /// exactly [`Shortcut::NextPage`].
+    PreviousPage,
 }
 
 /// The shortcut `key` under `modifiers` names, or `None` for every other key.
@@ -133,6 +144,22 @@ pub(crate) fn shortcut_for(key: gdk::Key, modifiers: gdk::ModifierType) -> Optio
         });
     }
 
+    if ctrl && matches!(key, gdk::Key::n | gdk::Key::N) {
+        return Some(Shortcut::AddAccount);
+    }
+
+    if key == gdk::Key::F2 {
+        return Some(Shortcut::RenameFocused);
+    }
+
+    if ctrl && matches!(key, gdk::Key::Page_Down | gdk::Key::KP_Page_Down) {
+        return Some(Shortcut::NextPage);
+    }
+
+    if ctrl && matches!(key, gdk::Key::Page_Up | gdk::Key::KP_Page_Up) {
+        return Some(Shortcut::PreviousPage);
+    }
+
     None
 }
 
@@ -156,7 +183,11 @@ pub(crate) fn repeats_while_held(shortcut: Shortcut) -> bool {
         | Shortcut::ParkFocused
         | Shortcut::StartFocused
         | Shortcut::ParkWorkspace
-        | Shortcut::StartWorkspace => false,
+        | Shortcut::StartWorkspace
+        | Shortcut::AddAccount
+        | Shortcut::RenameFocused
+        | Shortcut::NextPage
+        | Shortcut::PreviousPage => false,
     }
 }
 
@@ -457,5 +488,54 @@ mod tests {
             shortcut_for(gdk::Key::b, noisy_ctrl_b),
             Some(Shortcut::ToggleSidebar)
         );
+    }
+
+    #[test]
+    fn ctrl_plus_n_in_either_case_maps_to_add_account() {
+        let mapped: Vec<Option<Shortcut>> = [gdk::Key::n, gdk::Key::N]
+            .into_iter()
+            .map(|key| shortcut_for(key, gdk::ModifierType::CONTROL_MASK))
+            .collect();
+
+        assert_eq!(
+            mapped,
+            vec![Some(Shortcut::AddAccount), Some(Shortcut::AddAccount)]
+        );
+    }
+
+    #[test]
+    fn f2_alone_maps_to_rename_focused() {
+        assert_eq!(
+            shortcut_for(gdk::Key::F2, gdk::ModifierType::empty()),
+            Some(Shortcut::RenameFocused)
+        );
+    }
+
+    #[test]
+    fn ctrl_plus_page_down_or_up_maps_to_the_matching_page_turn() {
+        assert_eq!(
+            shortcut_for(gdk::Key::Page_Down, gdk::ModifierType::CONTROL_MASK),
+            Some(Shortcut::NextPage)
+        );
+        assert_eq!(
+            shortcut_for(gdk::Key::Page_Up, gdk::ModifierType::CONTROL_MASK),
+            Some(Shortcut::PreviousPage)
+        );
+    }
+
+    #[test]
+    fn page_down_alone_is_none() {
+        assert_eq!(
+            shortcut_for(gdk::Key::Page_Down, gdk::ModifierType::empty()),
+            None
+        );
+    }
+
+    #[test]
+    fn only_reload_and_zoom_repeat_while_held_including_the_new_shortcuts() {
+        assert!(!repeats_while_held(Shortcut::AddAccount));
+        assert!(!repeats_while_held(Shortcut::RenameFocused));
+        assert!(!repeats_while_held(Shortcut::NextPage));
+        assert!(!repeats_while_held(Shortcut::PreviousPage));
     }
 }

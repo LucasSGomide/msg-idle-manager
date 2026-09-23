@@ -2,7 +2,7 @@
 <interface>
   <requires lib="gtk" version="4.0"/>
   <template class="IdleManagerAddGameDialog" parent="GtkWindow">
-    <property name="title">Add a game</property>
+    <property name="title">Add account</property>
     <property name="modal">true</property>
     <property name="resizable">false</property>
     <property name="default-widget">add_button</property>
@@ -80,11 +80,24 @@
                     <property name="orientation">vertical</property>
                     <property name="spacing">6</property>
                     <child>
-                      <object class="GtkLabel" id="chosen_game_label">
-                        <property name="xalign">0</property>
-                        <style>
-                          <class name="heading"/>
-                        </style>
+                      <object class="GtkBox">
+                        <property name="spacing">6</property>
+                        <child>
+                          <object class="GtkButton" id="back_button">
+                            <property name="icon-name">go-previous-symbolic</property>
+                            <property name="tooltip-text">Back to the game list (Alt+Left)</property>
+                          </object>
+                        </child>
+                        <child>
+                          <object class="GtkLabel" id="chosen_game_label">
+                            <property name="xalign">0</property>
+                            <property name="ellipsize">end</property>
+                            <property name="hexpand">true</property>
+                            <style>
+                              <class name="heading"/>
+                            </style>
+                          </object>
+                        </child>
                       </object>
                     </child>
                     <child>

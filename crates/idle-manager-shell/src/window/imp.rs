@@ -51,9 +51,11 @@ enum NameDialogPurpose {
 #[template(resource = "/org/idlemanager/IdleManager/ui/window.ui")]
 pub struct Window {
     #[template_child]
-    add_game_button: TemplateChild<gtk::Button>,
-    #[template_child]
     reload_button: TemplateChild<gtk::Button>,
+    #[template_child]
+    title_label: TemplateChild<gtk::Label>,
+    #[template_child]
+    main_menu: TemplateChild<gtk::MenuButton>,
     #[template_child]
     add_first_game_button: TemplateChild<gtk::Button>,
     #[template_child]
@@ -138,13 +140,19 @@ pub struct Window {
     /// the book through it and the capture timer publishes frames. `None`
     /// until the ports are attached, or when no link was handed over at all.
     phone_link: RefCell<Option<Arc<dyn PhoneLink>>>,
-    /// `win.enrol-phone`, the header menu's first item (task 07): opens the
-    /// phone dialog. Enabled only once a link exists to open it against.
-    enrol_phone_action: OnceCell<gio::SimpleAction>,
-    /// `win.revoke-phone`, the header menu's second item: cuts the phone off
-    /// without opening the dialog. Enabled only while the link says a phone
-    /// is enrolled, re-read on every redraw (architecture rule 8).
-    revoke_phone_action: OnceCell<gio::SimpleAction>,
+    /// `win.show-phone`, the main menu's `Phone…` item: opens the phone
+    /// dialog. Enabled only once a link exists to open it against. Connect
+    /// and disconnect both happen inside the dialog itself (design rule 16),
+    /// so the header menu carries no `Un-enrol` item of its own.
+    show_phone_action: OnceCell<gio::SimpleAction>,
+    /// `win.zoom-in`, the main menu's zoom section (design rule 10). Enabled
+    /// only while an account is focused; the section itself is left out of
+    /// the menu model entirely otherwise (`update_header`).
+    zoom_in_action: OnceCell<gio::SimpleAction>,
+    /// `win.zoom-out`, otherwise exactly [`Window::zoom_in_action`].
+    zoom_out_action: OnceCell<gio::SimpleAction>,
+    /// `win.zoom-reset`, otherwise exactly [`Window::zoom_in_action`].
+    zoom_reset_action: OnceCell<gio::SimpleAction>,
     /// Whether the phone is watching right now — between its `Attach` and
     /// its `Leave`.
     phone_attached: Cell<bool>,
@@ -231,9 +239,10 @@ impl ObjectImpl for Window {
         self.grid.set_vexpand(true);
         self.content.append(&self.grid);
 
+        install_styles();
         arm_debug_minimise(&self.obj());
         arm_debug_layout(&self.obj());
-        self.register_phone_actions();
+        self.register_menu_actions();
         self.init_start_queue();
 
         let window = self.obj().downgrade();
@@ -294,14 +303,21 @@ impl ObjectImpl for Window {
             window.imp().apply_zoom_step(&id, step);
         });
 
-        for button in [self.add_game_button.get(), self.add_first_game_button.get()] {
-            let window = self.obj().downgrade();
-            button.connect_clicked(move |_| {
-                if let Some(window) = window.upgrade() {
-                    window.imp().present_add_game_dialog();
-                }
-            });
-        }
+        let window = self.obj().downgrade();
+        self.add_first_game_button.connect_clicked(move |_| {
+            if let Some(window) = window.upgrade() {
+                window.imp().present_add_game_dialog();
+            }
+        });
+
+        // `+ Add account`, the sidebar's own leading control (design rule 22)
+        // — no longer a header-bar button.
+        let window = self.obj().downgrade();
+        self.sidebar.connect_add_account_requested(move || {
+            if let Some(window) = window.upgrade() {
+                window.imp().present_add_game_dialog();
+            }
+        });
 
         // Reload the focused view: a game's own page has no chrome, and a login
         // that half-completes needs a way back to a clean load. The button is
@@ -1200,18 +1216,18 @@ impl Window {
         dialog.present();
     }
 
-    /// A "New workspace" window confirmed `name` for the ticked `ids`. Only
-    /// on success does it leave selection mode, redraw and save; a refusal is
+    /// A "New workspace" window confirmed `name` for `ids` — a single
+    /// account, moved there from its row's `Move to ▸` submenu (design
+    /// rule 23). Only on success does it redraw and save; a refusal is
     /// logged and changes nothing — the dialog's own name check and
     /// `Destinations::can_create` mean this is not expected in practice (code
     /// standards rule 1).
     fn create_workspace_from_ticked(&self, name: &str, ids: &[SessionId]) {
-        // See `move_ticked`'s comment: bound to a `let` so the `RefMut`
+        // See `move_account`'s comment: bound to a `let` so the `RefMut`
         // temporary drops before `redraw` below borrows the book again.
         let result = self.book.borrow_mut().create_workspace(name, ids);
         match result {
             Ok(_) => {
-                self.sidebar.end_selection();
                 self.redraw();
                 self.request_save();
             }
@@ -1370,14 +1386,12 @@ impl Window {
 
     /// A deletion attempt for `id` actually removed the folder. Forgets the
     /// account everywhere: the book (`FR.21.5`) and any pending zoom-save
-    /// timer (`FR.12.5`) — then prunes it from the sidebar's ticked set,
-    /// closes `dialog`, redraws and saves.
+    /// timer (`FR.12.5`) — then closes `dialog`, redraws and saves.
     fn finish_account_deletion(&self, id: &SessionId, dialog: &DeleteAccountDialog) {
         self.book.borrow_mut().remove_account(id);
         if let Some(timer) = self.zoom_save_timers.borrow_mut().remove(id) {
             timer.remove();
         }
-        self.sidebar.forget_ticked(id);
         dialog.close_on_success();
         self.redraw();
         self.request_save();
@@ -1514,16 +1528,9 @@ impl Window {
             });
 
         let window = self.obj().downgrade();
-        self.sidebar.connect_move_requested(move |ids, target| {
+        self.sidebar.connect_move_requested(move |id, target| {
             if let Some(window) = window.upgrade() {
-                window.imp().move_ticked(&ids, target);
-            }
-        });
-
-        let window = self.obj().downgrade();
-        self.sidebar.connect_selection_changed(move || {
-            if let Some(window) = window.upgrade() {
-                window.imp().redraw();
+                window.imp().move_account(&id, target);
             }
         });
 
@@ -1572,20 +1579,18 @@ impl Window {
         self.request_save();
     }
 
-    /// `Move to…` chose `target` for the ticked `ids`. An existing workspace
-    /// moves them straight away — only on success does it leave selection
-    /// mode and clear the ticks, redraw and save; no liveness changes and the
-    /// shown workspace stays shown (`FR.17.8`). A refusal is logged and
-    /// changes nothing; the menu never offers a destination the book would
-    /// refuse, so this is not expected to be reached in practice (code
-    /// standards rule 1). `MoveTarget::New` opens the "New workspace" window
-    /// instead — selection mode and the ticks survive until that window
-    /// itself confirms or is cancelled (`FR.17.7`).
-    fn move_ticked(&self, ids: &[SessionId], target: MoveTarget) {
+    /// A row's `Move to ▸` submenu chose `target` for `id` (design rule 23).
+    /// An existing workspace moves it straight away — only on success does it
+    /// redraw and save; no liveness changes and the shown workspace stays
+    /// shown (`FR.17.8`). A refusal is logged and changes nothing; the menu
+    /// never offers a destination the book would refuse, so this is not
+    /// expected to be reached in practice (code standards rule 1).
+    /// `MoveTarget::New` opens the "New workspace" window instead.
+    fn move_account(&self, id: &SessionId, target: MoveTarget) {
         let workspace = match target {
             MoveTarget::Existing(workspace) => workspace,
             MoveTarget::New => {
-                self.present_workspace_name_dialog(NameDialogPurpose::Create(ids.to_vec()));
+                self.present_workspace_name_dialog(NameDialogPurpose::Create(vec![id.clone()]));
                 return;
             }
         };
@@ -1595,15 +1600,17 @@ impl Window {
         // `book` borrowed through the `Ok` arm below and panic on `redraw`'s
         // own borrow (measured 2026-09-14, the same hazard `sync`'s own
         // guard already fixed for the sidebar's tree).
-        let result = self.book.borrow_mut().move_accounts(ids, &workspace);
+        let result = self
+            .book
+            .borrow_mut()
+            .move_accounts(std::slice::from_ref(id), &workspace);
         match result {
             Ok(()) => {
-                self.sidebar.end_selection();
                 self.redraw();
                 self.request_save();
             }
             Err(refusal) => {
-                tracing::error!(?refusal, %workspace, "could not move the ticked accounts");
+                tracing::error!(?refusal, %workspace, session = %id, "could not move the account");
             }
         }
     }
@@ -2098,13 +2105,9 @@ impl Window {
 
     /// Runs `shortcut`, as [`handle_shortcut_key`](Window::handle_shortcut_key)
     /// decided it. `Reload` and `Zoom` act exactly as before this table
-    /// existed; every other arm returns before acting while
-    /// `self.sidebar.is_selecting()` (`FR.23.4`, `FR.26.6`) — the sidebar's
-    /// multi-select mode owns the screen while it is open, so nothing may
-    /// move under a move-to-workspace decision, the sidebar itself folding
-    /// away included. The shown workspace being empty, or holding only one
-    /// account or one other workspace, makes the navigation arms a no-op by
-    /// the book's own answer, with nothing extra to check here.
+    /// existed. The shown workspace being empty, or holding only one account
+    /// or one other workspace, makes the navigation arms a no-op by the
+    /// book's own answer, with nothing extra to check here.
     ///
     /// The window's own controls are driven through the control the mouse
     /// presses, never past it (`FR.26.1`, `FR.26.2`): a chord sets a toggle's
@@ -2124,18 +2127,12 @@ impl Window {
                 }
             }
             Shortcut::NextAccount => {
-                if self.sidebar.is_selecting() {
-                    return;
-                }
                 self.book.borrow_mut().focus_next_account();
                 self.sync_watched();
                 self.redraw();
                 self.request_save();
             }
             Shortcut::NextWorkspace => {
-                if self.sidebar.is_selecting() {
-                    return;
-                }
                 let switch = self.book.borrow_mut().focus_next_workspace();
                 if let Some(switch) = switch {
                     self.after_workspace_switch(&switch);
@@ -2145,9 +2142,6 @@ impl Window {
                 }
             }
             Shortcut::ToggleSidebar => {
-                if self.sidebar.is_selecting() {
-                    return;
-                }
                 // The button, never the revealer: `constructed` binds
                 // `sidebar_toggle`'s `active` to the revealer's
                 // `reveal-child`, so driving the button is the whole of the
@@ -2157,9 +2151,6 @@ impl Window {
                     .set_active(!self.sidebar_toggle.is_active());
             }
             Shortcut::Arrange(layout) => {
-                if self.sidebar.is_selecting() {
-                    return;
-                }
                 // The toggle, never `choose_layout` directly: selecting it
                 // fires its own `toggled` handler, which is the path a click
                 // takes — leaving mobile mode first and ending in
@@ -2169,32 +2160,34 @@ impl Window {
                 // no-op for free.
                 self.select_layout_toggle(layout);
             }
-            Shortcut::ParkFocused => {
-                if self.sidebar.is_selecting() {
-                    return;
-                }
-                self.park_or_start_focused(Liveness::Live);
-            }
-            Shortcut::StartFocused => {
-                if self.sidebar.is_selecting() {
-                    return;
-                }
-                self.park_or_start_focused(Liveness::Parked);
-            }
+            Shortcut::ParkFocused => self.park_or_start_focused(Liveness::Live),
+            Shortcut::StartFocused => self.park_or_start_focused(Liveness::Parked),
             Shortcut::ParkWorkspace => {
-                if self.sidebar.is_selecting() {
-                    return;
-                }
                 let workspace = self.book.borrow().active_id().clone();
                 self.park_all(&workspace);
             }
             Shortcut::StartWorkspace => {
-                if self.sidebar.is_selecting() {
-                    return;
-                }
                 let workspace = self.book.borrow().active_id().clone();
                 self.start_all(&workspace);
             }
+            Shortcut::AddAccount => self.present_add_game_dialog(),
+            Shortcut::RenameFocused => {
+                let focused = self
+                    .book
+                    .borrow()
+                    .active()
+                    .focused_session()
+                    .map(|session| session.id().clone());
+                if let Some(id) = focused {
+                    self.present_rename_dialog(&id);
+                }
+            }
+            // The buttons, never `next_page`/`previous_page` directly — the
+            // window's own controls are driven through the control a click
+            // presses, never past it, exactly like `ToggleSidebar` and
+            // `Arrange` above.
+            Shortcut::NextPage => self.page_next.emit_clicked(),
+            Shortcut::PreviousPage => self.page_previous.emit_clicked(),
         }
     }
 
@@ -2336,9 +2329,16 @@ impl Window {
     fn redraw(&self) {
         let book = self.book.borrow();
         self.grid.sync(&book);
+        // Every row's own `Move to ▸` submenu moves exactly one account
+        // (design rule 23), so the destinations it offers are always for a
+        // single account — recomputed here rather than per row-bind, since
+        // it depends on nothing about which row is asking. Set before
+        // `sidebar.sync` below, whose row factory reads it while building
+        // each row's menu.
+        self.sidebar.set_move_destinations(book.destinations(1));
         self.sidebar.sync(&book);
-        self.sidebar
-            .set_move_destinations(book.destinations(self.sidebar.ticked_count()));
+
+        self.update_header(&book);
 
         // Two distinct empty states (`FR.15.10`): no account anywhere is the
         // existing first-run message and its button; the shown workspace
@@ -2383,6 +2383,51 @@ impl Window {
         self.follow_focus_with_keyboard();
     }
 
+    /// Redraws everything in the header bar that names the focused account
+    /// (design rule 26): the title, reload's tooltip, and the main menu's
+    /// zoom section. `None` for every one of them when nothing is focused —
+    /// the title goes empty, reload greys out and the zoom section is left
+    /// out of the menu entirely (never shown greyed, matching design rule 18's
+    /// reasoning for the pager).
+    fn update_header(&self, book: &WorkspaceBook) {
+        let focused = book.active().focused_session();
+        let workspace_name = book
+            .workspaces()
+            .find(|workspace| workspace.id() == book.active_id())
+            .map(|workspace| workspace.name().to_owned())
+            .unwrap_or_default();
+
+        if let Some(session) = focused {
+            let name = session.display_name();
+            self.title_label
+                .set_label(&format!("{name} · {workspace_name}"));
+            self.reload_button
+                .set_tooltip_text(Some(&format!("Reload {name} (F5)")));
+            self.reload_button.set_sensitive(true);
+        } else {
+            self.title_label.set_label("");
+            self.reload_button
+                .set_tooltip_text(Some("Nothing to reload"));
+            self.reload_button.set_sensitive(false);
+        }
+
+        let zoom_label = focused.map(|session| {
+            let percent = (session.zoom_for(book.active().layout()).multiplier() * 100.0).round();
+            format!("Zoom — {} · {percent:.0}%", session.display_name())
+        });
+        self.main_menu
+            .set_menu_model(Some(&build_main_menu(zoom_label.as_deref())));
+        for action in [
+            &self.zoom_in_action,
+            &self.zoom_out_action,
+            &self.zoom_reset_action,
+        ] {
+            if let Some(action) = action.get() {
+                action.set_enabled(focused.is_some());
+            }
+        }
+    }
+
     /// The window gained or lost the keyboard as a whole: a dialog opened or
     /// closed over it, or the user moved to another application and back.
     ///
@@ -2413,7 +2458,7 @@ impl Window {
     /// redraw, so one hook covers all of them, and covers a twelfth route
     /// written later without it having to remember this.
     ///
-    /// Four things stop it, in order:
+    /// Three things stop it, in order:
     ///
     /// - No focused account, or no live view for it — parked, queued,
     ///   starting, or an empty trailing slot on a part-empty last page. The
@@ -2428,9 +2473,10 @@ impl Window {
     ///   covers the rename dialog and the add-game form with one check; the
     ///   [`gtk::Editable`] test covers an entry inside this window, of which
     ///   there is none today and may be one tomorrow (code standards rule 1
-    ///   — trust the check, not the absence).
-    /// - The sidebar is in selection mode, where nothing may move under a
-    ///   move-to-workspace decision (`FR.23.4`, `FR.26.6`).
+    ///   — trust the check, not the absence). The redesign (roadmap item 11)
+    ///   removed the sidebar's third blocker, its selection mode, along with
+    ///   the mode itself — `FR.23.4` and `FR.26.6`'s selection-mode clauses
+    ///   are obsolete with it.
     fn follow_focus_with_keyboard(&self) {
         let focused = self
             .book
@@ -2467,10 +2513,9 @@ impl Window {
         let focus_widget = gtk::prelude::RootExt::focus(&*self.obj());
         let active = self.obj().is_active();
         let editing = focus_widget.is_some_and(|widget| widget.is::<gtk::Editable>());
-        if !active || self.sidebar.is_selecting() || editing {
+        if !active || editing {
             tracing::debug!(
                 session = %id, active, editing,
-                selecting = self.sidebar.is_selecting(),
                 "the focused account's view was not handed the keyboard"
             );
             return;
@@ -2487,40 +2532,67 @@ impl Window {
         }
     }
 
-    /// Registers the header menu's two actions (task 07). Both start
-    /// disabled: nothing can be enrolled or revoked until a link is attached.
-    fn register_phone_actions(&self) {
-        let enrol = gio::SimpleAction::new("enrol-phone", None);
-        enrol.set_enabled(false);
+    /// Registers the main menu's actions: `Phone…` (task 07) and the zoom
+    /// section's three steps (design rule 10). `show-phone` starts disabled —
+    /// nothing can be opened until a link is attached; the zoom actions start
+    /// disabled too, since nothing is focused before the first restore.
+    fn register_menu_actions(&self) {
+        let show_phone = gio::SimpleAction::new("show-phone", None);
+        show_phone.set_enabled(false);
         let window = self.obj().downgrade();
-        enrol.connect_activate(move |_, _| {
+        show_phone.connect_activate(move |_, _| {
             if let Some(window) = window.upgrade() {
                 window.imp().present_phone_dialog();
             }
         });
-        self.obj().add_action(&enrol);
-        if self.enrol_phone_action.set(enrol).is_err() {
-            tracing::error!("the enrol-phone action was registered twice");
+        self.obj().add_action(&show_phone);
+        if self.show_phone_action.set(show_phone).is_err() {
+            tracing::error!("the show-phone action was registered twice");
         }
 
-        let revoke = gio::SimpleAction::new("revoke-phone", None);
-        revoke.set_enabled(false);
+        self.register_zoom_action("zoom-in", ZoomStep::In);
+        self.register_zoom_action("zoom-out", ZoomStep::Out);
+        self.register_zoom_action("zoom-reset", ZoomStep::Reset);
+    }
+
+    /// Registers one of the main menu's zoom actions under `name`, applying
+    /// `step` to the focused account when activated. A no-op, quietly, if
+    /// nothing is focused — the section is left out of the menu whenever that
+    /// is true (`update_header`), so this is not expected to be reached.
+    fn register_zoom_action(&self, name: &'static str, step: ZoomStep) {
+        let action = gio::SimpleAction::new(name, None);
+        action.set_enabled(false);
         let window = self.obj().downgrade();
-        revoke.connect_activate(move |_, _| {
-            if let Some(window) = window.upgrade() {
-                window.imp().revoke_phone();
+        action.connect_activate(move |_, _| {
+            let Some(window) = window.upgrade() else {
+                return;
+            };
+            let imp = window.imp();
+            let focused = imp
+                .book
+                .borrow()
+                .active()
+                .focused_session()
+                .map(|session| session.id().clone());
+            if let Some(id) = focused {
+                imp.apply_zoom_step(&id, step);
             }
         });
-        self.obj().add_action(&revoke);
-        if self.revoke_phone_action.set(revoke).is_err() {
-            tracing::error!("the revoke-phone action was registered twice");
+        self.obj().add_action(&action);
+        let cell = match name {
+            "zoom-in" => &self.zoom_in_action,
+            "zoom-out" => &self.zoom_out_action,
+            _ => &self.zoom_reset_action,
+        };
+        if cell.set(action).is_err() {
+            tracing::error!(action = name, "a zoom action was registered twice");
         }
     }
 
-    /// Asks the link where the phone stands and enables the two menu items
-    /// from the answer. `Enrol a phone…` needs only a link — a desktop that
-    /// is not listening still opens the dialog, which says why inside it
-    /// (design rule 8); `Un-enrol the phone` needs a phone to cut off.
+    /// Asks the link where the phone stands and enables `Phone…` from the
+    /// answer — it needs only a link to open; a desktop that is not
+    /// listening still opens the dialog, which says why inside it (design
+    /// rule 8).
     fn refresh_phone_actions(&self) {
         let status = self
             .phone_link
@@ -2530,19 +2602,16 @@ impl Window {
         self.apply_phone_status(status.as_ref());
     }
 
-    /// Enables the menu items from `status`; `None` is no link at all.
+    /// Enables `Phone…` from `status`; `None` is no link at all.
     fn apply_phone_status(&self, status: Option<&PhoneStatus>) {
-        if let Some(action) = self.enrol_phone_action.get() {
+        if let Some(action) = self.show_phone_action.get() {
             action.set_enabled(status.is_some());
-        }
-        if let Some(action) = self.revoke_phone_action.get() {
-            action.set_enabled(matches!(status, Some(PhoneStatus::Enrolled { .. })));
         }
     }
 
     /// Opens the phone dialog over the window. Its one-second poll reports
     /// each change of status back here, so a scan made while it is open
-    /// enables `Un-enrol the phone` without waiting for a redraw.
+    /// enables the dialog's own `Disconnect` without waiting for a redraw.
     fn present_phone_dialog(&self) {
         let Some(link) = self.phone_link.borrow().clone() else {
             return;
@@ -2559,15 +2628,81 @@ impl Window {
 
         dialog.present();
     }
+}
 
-    /// The menu's `Un-enrol the phone`: cuts the phone off at once (`FR.6.2`)
-    /// and greys the item from what the link says afterwards.
-    fn revoke_phone(&self) {
-        if let Some(link) = self.phone_link.borrow().as_ref() {
-            link.revoke_phone();
-        }
-        self.refresh_phone_actions();
+/// Installs `window.css` on the default display once — the arrangement
+/// toggles' pictures (design rule 24) — the same guarded-`Once` shape
+/// `session_sidebar/imp.rs` and `session_grid/imp.rs` already use for their
+/// own stylesheets.
+fn install_styles() {
+    static ONCE: std::sync::Once = std::sync::Once::new();
+    ONCE.call_once(|| {
+        let Some(display) = gdk::Display::default() else {
+            return;
+        };
+        let provider = gtk::CssProvider::new();
+        provider.load_from_resource("/org/idlemanager/IdleManager/css/window.css");
+        gtk::style_context_add_provider_for_display(
+            &display,
+            &provider,
+            gtk::STYLE_PROVIDER_PRIORITY_APPLICATION,
+        );
+    });
+}
+
+/// Builds the main menu's model from scratch: the zoom section — its label
+/// naming the focused account and its zoom, left out of the menu entirely
+/// when `zoom_label` is `None` rather than shown greyed (design rule 18's
+/// reasoning) — then `Phone…` and `Keyboard Shortcuts`. Rebuilt on every
+/// redraw, like a sidebar row's own menu, since the zoom section's label
+/// changes with the focused account (design rule 1's re-derive-on-bind
+/// pattern).
+fn build_main_menu(zoom_label: Option<&str>) -> gio::Menu {
+    let menu = gio::Menu::new();
+
+    if let Some(label) = zoom_label {
+        let zoom = gio::Menu::new();
+        zoom.append_item(&accelerated_menu_item(
+            "Zoom in",
+            "win.zoom-in",
+            "<Control>plus",
+        ));
+        zoom.append_item(&accelerated_menu_item(
+            "Zoom out",
+            "win.zoom-out",
+            "<Control>minus",
+        ));
+        zoom.append_item(&accelerated_menu_item(
+            "Reset zoom",
+            "win.zoom-reset",
+            "<Control>0",
+        ));
+        menu.append_section(Some(label), &zoom);
     }
+
+    let phone = gio::Menu::new();
+    phone.append(Some("Phone…"), Some("win.show-phone"));
+    menu.append_section(None, &phone);
+
+    let shortcuts = gio::Menu::new();
+    shortcuts.append_item(&accelerated_menu_item(
+        "Keyboard Shortcuts",
+        "win.show-help-overlay",
+        "<Control>question",
+    ));
+    menu.append_section(None, &shortcuts);
+
+    menu
+}
+
+/// A menu item that names its keyboard chord beside its label — the main
+/// menu's own copy of `session_sidebar/imp.rs`'s `accelerated_item`, since
+/// nothing importable sits between the two crate-private modules for a
+/// three-line helper to live in (design rule 19, `FR.25.4`).
+fn accelerated_menu_item(label: &str, action: &str, accelerator: &str) -> gio::MenuItem {
+    let item = gio::MenuItem::new(Some(label), Some(action));
+    item.set_attribute_value("accel", Some(&accelerator.to_variant()));
+    item
 }
 
 /// The account in the shown workspace's focused slot — the one a watching

@@ -588,6 +588,11 @@ impl SessionGrid {
         entry.placeholder.set_state_text("Parked");
         entry.placeholder.set_button_label("Start");
         entry.placeholder.set_button_sensitive(true);
+        entry.placeholder.set_spinner_visible(false);
+        let is_focused = matches!(entry.placement, Visibility::InSlot(slot) if slot.index() == self.focused.get());
+        entry
+            .placeholder
+            .set_button_tooltip(if is_focused { "Start (Ctrl+S)" } else { "" });
         entry.placeholder.set_visible(true);
         sync_grip_strip(entry, self.layout.get());
         tracing::debug!(session = %id, "parked: showing the slot placeholder");
@@ -606,8 +611,9 @@ impl SessionGrid {
         entry.overlay.set_child(Some(&view.widget()));
         *entry.view.borrow_mut() = Some(view.clone());
         entry.cover.set_visible(false);
-        entry.placeholder.set_state_text("Starting");
+        entry.placeholder.set_state_text("Starting…");
         entry.placeholder.set_button_sensitive(false);
+        entry.placeholder.set_spinner_visible(true);
         collapse_view_until_painted(view);
         sync_grip_strip(entry, self.layout.get());
 
@@ -679,7 +685,17 @@ impl SessionGrid {
             self.mobile_viewport.replace(book.mobile_viewport()) != book.mobile_viewport();
 
         let nowhere_to_drop = !has_somewhere_to_drop(self.layout.get());
+        let focused_index = self.focused.get();
         for entry in self.slots.borrow_mut().iter_mut() {
+            // An account not in the shown workspace is off-grid explicitly —
+            // today an entry the book cannot place at all would otherwise keep
+            // its stale placement, which with several workspaces would leave a
+            // hidden one's view drawn in a place (`FR.18.1`). Computed before
+            // the placeholder below, which needs to know whether this place
+            // is the focused one (design rule 26).
+            entry.placement = book.placement(&entry.id).unwrap_or(Visibility::OffGrid);
+            let is_focused = matches!(entry.placement, Visibility::InSlot(slot) if slot.index() == focused_index);
+
             if let Some(session) = book
                 .workspaces()
                 .find_map(|workspace| workspace.book().session(&entry.id))
@@ -691,13 +707,11 @@ impl SessionGrid {
                 let name = session.display_name();
                 entry.cover_label.set_markup(&cover_markup(name));
                 entry.placeholder.set_name(name);
-                apply_placeholder(&entry.placeholder, placeholder_panel(session.liveness()));
+                apply_placeholder(
+                    &entry.placeholder,
+                    placeholder_panel(session.liveness(), is_focused),
+                );
             }
-            // An account not in the shown workspace is off-grid explicitly —
-            // today an entry the book cannot place at all would otherwise keep
-            // its stale placement, which with several workspaces would leave a
-            // hidden one's view drawn in a place (`FR.18.1`).
-            entry.placement = book.placement(&entry.id).unwrap_or(Visibility::OffGrid);
             // There is nowhere to drop an account off-grid or in a one-slot
             // layout, so the grip never shows there — a hidden widget is never
             // picked, so a hidden grip cannot take a press either.
@@ -909,7 +923,11 @@ impl SessionGrid {
 
         let base = obj.color();
         let hairline = gdk::RGBA::new(base.red(), base.green(), base.blue(), 0.15);
-        let marker = gdk::RGBA::new(base.red(), base.green(), base.blue(), 0.55);
+        // The focused slot's outline (design rule 26): the theme's own
+        // selection colour, not a tint of the plain foreground — a heavier,
+        // more legible claim on the one place the window is currently about.
+        let marker = selection_color(&*obj)
+            .unwrap_or_else(|| gdk::RGBA::new(base.red(), base.green(), base.blue(), 0.55));
 
         for column in 1..columns {
             let x = width as f32 * column as f32 / columns as f32;
@@ -945,10 +963,26 @@ impl SessionGrid {
                 snapshot,
                 &marker,
                 slot_rect(layout, viewport, focused, width, height),
-                2.0,
+                3.0,
             );
         }
     }
+}
+
+/// The theme's own selection colour, `@theme_selected_bg_color` — `None` if
+/// the running theme never named it, which [`SessionGrid::draw_slot_lines`]
+/// falls back from (constraint 6: unverified on Windows, whether the shipped
+/// theme names it at all).
+///
+/// `StyleContext::lookup_color` is the only avenue gtk4-rs 4.10 offers for a
+/// *named* theme colour — the non-deprecated `Widget::color()` reads the
+/// plain foreground, not a specific palette entry — so this is the one place
+/// the deprecated call is still reached for, kept to this single line.
+#[allow(deprecated)]
+fn selection_color(widget: &impl IsA<gtk::Widget>) -> Option<gdk::RGBA> {
+    widget
+        .style_context()
+        .lookup_color("theme_selected_bg_color")
 }
 
 /// Draws `rect`'s four edges `thickness` pixels wide, inside the rectangle.
@@ -1050,41 +1084,55 @@ fn slot_rect(
     }
 }
 
-/// What a slot's placeholder panel reads for an account in `liveness`, or
-/// `None` when the account is live and its view fills the slot.
+/// What a slot's placeholder panel reads for an account in `liveness` seated
+/// at `is_focused`, or `None` when the account is live and its view fills the
+/// slot.
 ///
 /// Derived during `sync` — not only from the imperative `release_view` /
 /// `attach_view` calls — so a slot drawn straight from a restored book reads
 /// correctly before any view exists (design rule 4, architecture rule 8). A
 /// queued account gets the line and no button at all: the start queue owns the
-/// order and there is nothing useful to press while it drains.
-fn placeholder_panel(liveness: Liveness) -> Option<PlaceholderPanel> {
+/// order and there is nothing useful to press while it drains. `is_focused`
+/// only ever changes a parked slot's button tooltip, naming the chord that
+/// would press it (design rule 26) — the window's own keyboard shortcut acts
+/// on the focused slot alone, so a tooltip on any other slot would name a key
+/// that would do nothing there.
+fn placeholder_panel(liveness: Liveness, is_focused: bool) -> Option<PlaceholderPanel> {
     match liveness {
         Liveness::Parked => Some(PlaceholderPanel {
             state_text: "Parked",
             button_visible: true,
             button_sensitive: true,
+            button_tooltip: if is_focused { "Start (Ctrl+S)" } else { "" },
+            spinner_visible: false,
         }),
         Liveness::Queued => Some(PlaceholderPanel {
             state_text: "Queued",
             button_visible: false,
             button_sensitive: false,
+            button_tooltip: "",
+            spinner_visible: false,
         }),
         Liveness::Starting => Some(PlaceholderPanel {
-            state_text: "Starting",
+            state_text: "Starting…",
             button_visible: true,
             button_sensitive: false,
+            button_tooltip: "",
+            spinner_visible: true,
         }),
         Liveness::Live => None,
     }
 }
 
-/// The three placeholder facts `placeholder_panel` derives from a liveness.
+/// The placeholder facts `placeholder_panel` derives from a liveness and a
+/// focus state.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 struct PlaceholderPanel {
     state_text: &'static str,
     button_visible: bool,
     button_sensitive: bool,
+    button_tooltip: &'static str,
+    spinner_visible: bool,
 }
 
 /// Pushes `panel` onto `placeholder`, or hides the panel when `panel` is
@@ -1099,6 +1147,8 @@ fn apply_placeholder(placeholder: &SlotPlaceholder, panel: Option<PlaceholderPan
     placeholder.set_button_label("Start");
     placeholder.set_button_visible(panel.button_visible);
     placeholder.set_button_sensitive(panel.button_sensitive);
+    placeholder.set_button_tooltip(panel.button_tooltip);
+    placeholder.set_spinner_visible(panel.spinner_visible);
     placeholder.set_visible(true);
 }
 
@@ -1374,14 +1424,16 @@ mod tests {
 
     #[test]
     fn a_queued_account_gets_the_queued_line_and_no_button() {
-        let panel = placeholder_panel(Liveness::Queued).expect("a queued account shows a panel");
+        let panel =
+            placeholder_panel(Liveness::Queued, false).expect("a queued account shows a panel");
 
         assert_eq!((panel.state_text, panel.button_visible), ("Queued", false));
     }
 
     #[test]
     fn a_parked_accounts_panel_is_unchanged_by_the_queued_state() {
-        let panel = placeholder_panel(Liveness::Parked).expect("a parked account shows a panel");
+        let panel =
+            placeholder_panel(Liveness::Parked, false).expect("a parked account shows a panel");
 
         assert_eq!(
             (
@@ -1395,7 +1447,42 @@ mod tests {
 
     #[test]
     fn a_live_account_shows_no_panel() {
-        assert_eq!(placeholder_panel(Liveness::Live), None);
+        assert_eq!(placeholder_panel(Liveness::Live, false), None);
+        assert_eq!(placeholder_panel(Liveness::Live, true), None);
+    }
+
+    #[test]
+    fn a_starting_accounts_panel_names_the_ellipsis_and_spins() {
+        let panel =
+            placeholder_panel(Liveness::Starting, false).expect("a starting account shows a panel");
+
+        assert_eq!(
+            (panel.state_text, panel.spinner_visible),
+            ("Starting…", true)
+        );
+    }
+
+    #[test]
+    fn only_a_focused_parked_slot_names_its_own_chord_in_the_button_tooltip() {
+        let focused =
+            placeholder_panel(Liveness::Parked, true).expect("a parked account shows a panel");
+        let unfocused =
+            placeholder_panel(Liveness::Parked, false).expect("a parked account shows a panel");
+
+        assert_eq!(
+            (focused.button_tooltip, unfocused.button_tooltip),
+            ("Start (Ctrl+S)", "")
+        );
+    }
+
+    #[test]
+    fn a_queued_or_starting_slots_button_tooltip_is_never_set_even_when_focused() {
+        let queued =
+            placeholder_panel(Liveness::Queued, true).expect("a queued account shows a panel");
+        let starting =
+            placeholder_panel(Liveness::Starting, true).expect("a starting account shows a panel");
+
+        assert_eq!((queued.button_tooltip, starting.button_tooltip), ("", ""));
     }
 
     #[test]

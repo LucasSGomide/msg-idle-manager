@@ -112,46 +112,30 @@ impl SessionSidebar {
             .replace(Some(Box::new(handler)));
     }
 
-    /// How many accounts are currently ticked. The window asks
-    /// [`idle_manager_core::WorkspaceBook::destinations`] with this on every
-    /// redraw and hands the answer back through
-    /// [`SessionSidebar::set_move_destinations`], so the `Move to…` menu is
-    /// never stale by the time it opens (`FR.17.2`).
-    #[must_use]
-    pub fn ticked_count(&self) -> usize {
-        self.imp().ticked_count()
-    }
-
-    /// Supplies what the window found fits the current ticked count. The
-    /// sidebar never decides which workspaces have room itself.
+    /// Supplies what the window found fits a single account's move — the
+    /// destinations `idle_manager_core::WorkspaceBook::destinations(1)`
+    /// offers, since a row's own `Move to ▸` submenu (design rule 23) always
+    /// moves exactly one account. The sidebar never decides which workspaces
+    /// have room itself.
     pub fn set_move_destinations(&self, destinations: Destinations) {
         self.imp().set_move_destinations(destinations);
     }
 
-    /// Leaves selection mode and clears every tick. Call only after a move or
-    /// a create has actually been applied — never after a cancelled name
-    /// window, so a mistyped name never costs the selection (`FR.17.7`).
-    pub fn end_selection(&self) {
-        self.imp().end_selection();
-    }
-
-    /// Registers `handler` to run with the ticked ids and the chosen
-    /// destination when `Move to…` picks one. The sidebar decides nothing
-    /// about whether the move can happen; the window asks the book
-    /// (architecture rule 8). Replaces any previous handler.
-    pub fn connect_move_requested(&self, handler: impl Fn(Vec<SessionId>, MoveTarget) + 'static) {
+    /// Registers `handler` to run with an account's id and the chosen
+    /// destination when its row's `Move to ▸` submenu picks one. The sidebar
+    /// decides nothing about whether the move can happen; the window asks
+    /// the book (architecture rule 8). Replaces any previous handler.
+    pub fn connect_move_requested(&self, handler: impl Fn(SessionId, MoveTarget) + 'static) {
         self.imp()
             .on_move_requested
             .replace(Some(Box::new(handler)));
     }
 
-    /// Registers `handler` to run whenever the sidebar's own selection state
-    /// changes — the mode toggled, or a tick toggled — so the window knows to
-    /// redraw and carry the change to the row widgets. Replaces any previous
-    /// handler.
-    pub fn connect_selection_changed(&self, handler: impl Fn() + 'static) {
+    /// Registers `handler` to run when the sidebar's own `+ Add account`
+    /// button is pressed (design rule 22). Replaces any previous handler.
+    pub fn connect_add_account_requested(&self, handler: impl Fn() + 'static) {
         self.imp()
-            .on_selection_changed
+            .on_add_account_requested
             .replace(Some(Box::new(handler)));
     }
 
@@ -205,23 +189,6 @@ impl SessionSidebar {
         self.imp()
             .on_delete_requested
             .replace(Some(Box::new(handler)));
-    }
-
-    /// Drops `id` from the ticked set, without changing selection mode
-    /// itself. Called once an account is actually gone — a delete — so a
-    /// stale id in the set never survives it (item 11 task 08). A no-op if
-    /// `id` was not ticked.
-    pub fn forget_ticked(&self, id: &SessionId) {
-        self.imp().forget_ticked(id);
-    }
-
-    /// Whether a click ticks a row instead of switching to it right now
-    /// (item 11 task 05). The window's navigation shortcuts read this before
-    /// acting: while the owner is choosing accounts to move, `Shift`+`Tab`
-    /// and `Ctrl`+`Tab` must change nothing on screen (`FR.23.4`).
-    #[must_use]
-    pub(crate) fn is_selecting(&self) -> bool {
-        self.imp().is_selecting.get()
     }
 }
 

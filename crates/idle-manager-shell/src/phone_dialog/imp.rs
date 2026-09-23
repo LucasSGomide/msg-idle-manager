@@ -57,6 +57,8 @@ pub struct PhoneDialog {
     #[template_child]
     status_label: TemplateChild<gtk::Label>,
     #[template_child]
+    intro_label: TemplateChild<gtk::Label>,
+    #[template_child]
     link_block: TemplateChild<gtk::Box>,
     #[template_child]
     link_label: TemplateChild<gtk::Label>,
@@ -276,6 +278,13 @@ impl PhoneDialog {
         } else {
             self.status_label.remove_css_class(DIM_CLASS);
         }
+        // The explanatory sentence (2.11's wireframe) only where the status
+        // line alone would otherwise be the dialog's entire content: nothing
+        // enrolled yet and no code on screen.
+        self.intro_label.set_visible(matches!(
+            (&status, self.phase.get()),
+            (PhoneStatus::NotEnrolled, CodePhase::Idle)
+        ));
         self.enrol_button
             .set_sensitive(enrol_allowed(&status, self.phase.get()));
         self.revoke_button.set_sensitive(revoke_allowed(&status));
@@ -308,17 +317,28 @@ impl PhoneDialog {
 
 /// The status line for `status`, given where the code stands: the four
 /// answers the link can give, with the not-listening one dimmed (design
-/// rule 8), and — only while no phone is enrolled — the word that the last
-/// code ran out.
+/// rule 8); a live code always reads as waiting, whatever `status` says
+/// underneath it; and — only while no phone is enrolled and no code is
+/// live — the word that the last code ran out. `Enrolled`/`Un-enrolled` in
+/// the domain's own vocabulary read as `Connected`/`Not connected` here
+/// (2.11's wireframe: "Enrol" and "Un-enrol" become "Connect" and
+/// "Disconnect"). The domain carries no device name to complete the
+/// wireframe's `Connected: {device}.` literally, so a plain `Connected.`
+/// stands in for it.
 fn status_line(status: &PhoneStatus, phase: CodePhase) -> StatusLine {
     let (text, dim) = match status {
         PhoneStatus::NotListening { reason } => (format!("Not listening: {reason}"), true),
+        _ if matches!(phase, CodePhase::Live { .. }) => {
+            ("Waiting for the phone…".to_owned(), false)
+        }
         PhoneStatus::NotEnrolled if phase == CodePhase::Expired => {
             ("The code expired; start again".to_owned(), false)
         }
-        PhoneStatus::NotEnrolled => ("No phone enrolled".to_owned(), false),
-        PhoneStatus::Enrolled { attached: false } => ("Phone enrolled".to_owned(), false),
-        PhoneStatus::Enrolled { attached: true } => ("Phone connected".to_owned(), false),
+        PhoneStatus::NotEnrolled => ("Not connected.".to_owned(), false),
+        PhoneStatus::Enrolled { attached: false } => {
+            ("Paired, but not connected right now.".to_owned(), false)
+        }
+        PhoneStatus::Enrolled { attached: true } => ("Connected.".to_owned(), false),
     };
     StatusLine { text, dim }
 }
@@ -333,12 +353,12 @@ fn secs_left(expires_at: Instant, now: Instant) -> u64 {
     expires_at.saturating_duration_since(now).as_secs()
 }
 
-/// `Enrol…` is offered while the desktop listens and no code is live.
+/// `Connect phone…` is offered while the desktop listens and no code is live.
 fn enrol_allowed(status: &PhoneStatus, phase: CodePhase) -> bool {
     !matches!(status, PhoneStatus::NotListening { .. }) && !matches!(phase, CodePhase::Live { .. })
 }
 
-/// `Un-enrol` is offered only while there is a phone to cut off.
+/// `Disconnect` is offered only while there is a phone to cut off.
 fn revoke_allowed(status: &PhoneStatus) -> bool {
     matches!(status, PhoneStatus::Enrolled { .. })
 }
@@ -365,9 +385,9 @@ mod tests {
         assert_eq!(
             lines.map(|line| line.text),
             [
-                "No phone enrolled",
-                "Phone enrolled",
-                "Phone connected",
+                "Not connected.",
+                "Paired, but not connected right now.",
+                "Connected.",
                 "Not listening: no mesh network address found",
             ]
         );
@@ -400,9 +420,37 @@ mod tests {
             lines.map(|line| line.text),
             [
                 "The code expired; start again",
-                "Phone enrolled",
+                "Paired, but not connected right now.",
                 "Not listening: no mesh network address found",
             ]
+        );
+    }
+
+    #[test]
+    fn a_live_code_always_reads_as_waiting_whatever_status_says_underneath() {
+        let live = CodePhase::Live {
+            expires_at: Instant::now() + Duration::from_secs(600),
+        };
+        let lines = [
+            status_line(&PhoneStatus::NotEnrolled, live),
+            status_line(&PhoneStatus::Enrolled { attached: false }, live),
+        ];
+
+        assert_eq!(
+            lines.map(|line| line.text),
+            ["Waiting for the phone…", "Waiting for the phone…"]
+        );
+    }
+
+    #[test]
+    fn not_listening_wins_over_a_live_code() {
+        let live = CodePhase::Live {
+            expires_at: Instant::now() + Duration::from_secs(600),
+        };
+
+        assert_eq!(
+            status_line(&not_listening(), live).text,
+            "Not listening: no mesh network address found"
         );
     }
 

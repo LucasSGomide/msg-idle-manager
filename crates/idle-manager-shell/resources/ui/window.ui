@@ -1,54 +1,37 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <interface>
   <requires lib="gtk" version="4.0"/>
-  <menu id="phone_menu_model">
-    <section>
-      <item>
-        <attribute name="label">Enrol a phone…</attribute>
-        <attribute name="action">win.enrol-phone</attribute>
-      </item>
-      <item>
-        <attribute name="label">Un-enrol the phone</attribute>
-        <attribute name="action">win.revoke-phone</attribute>
-      </item>
-    </section>
-    <section>
-      <item>
-        <attribute name="label">Keyboard Shortcuts</attribute>
-        <attribute name="action">win.show-help-overlay</attribute>
-      </item>
-    </section>
-  </menu>
   <template class="IdleManagerWindow" parent="GtkApplicationWindow">
     <property name="title">Idle Manager</property>
     <property name="default-width">1280</property>
     <property name="default-height">800</property>
     <child type="titlebar">
       <object class="GtkHeaderBar" id="header_bar">
+        <property name="title-widget">
+          <object class="GtkLabel" id="title_label">
+            <property name="ellipsize">end</property>
+            <style>
+              <class name="title"/>
+            </style>
+          </object>
+        </property>
         <child type="start">
-          <object class="GtkButton" id="reload_button">
-            <property name="icon-name">view-refresh-symbolic</property>
-            <property name="tooltip-text">Reload the focused game (F5)</property>
-          </object>
-        </child>
-        <child type="end">
-          <object class="GtkButton" id="add_game_button">
-            <property name="label">Add game</property>
-            <property name="tooltip-text">Add a game account</property>
-          </object>
-        </child>
-        <child type="end">
           <object class="GtkToggleButton" id="sidebar_toggle">
             <property name="icon-name">sidebar-show-symbolic</property>
             <property name="active">true</property>
             <property name="tooltip-text">Show or hide the account list (Ctrl+B)</property>
           </object>
         </child>
+        <child type="start">
+          <object class="GtkButton" id="reload_button">
+            <property name="icon-name">view-refresh-symbolic</property>
+            <property name="tooltip-text">Nothing to reload</property>
+          </object>
+        </child>
         <child type="end">
-          <object class="GtkMenuButton" id="phone_menu">
+          <object class="GtkMenuButton" id="main_menu">
             <property name="icon-name">open-menu-symbolic</property>
-            <property name="tooltip-text">Menu</property>
-            <property name="menu-model">phone_menu_model</property>
+            <property name="tooltip-text">Main menu</property>
           </object>
         </child>
         <child type="end">
@@ -59,29 +42,123 @@
             </style>
             <child>
               <object class="GtkToggleButton" id="layout_single">
-                <property name="label">1</property>
                 <property name="active">true</property>
                 <property name="tooltip-text">One game (Ctrl+1)</property>
+                <child>
+                  <object class="GtkBox">
+                    <property name="halign">center</property>
+                    <property name="valign">center</property>
+                    <style>
+                      <class name="arrangement-picture"/>
+                      <class name="arrangement-single"/>
+                    </style>
+                    <child>
+                      <object class="GtkBox">
+                        <style>
+                          <class name="arrangement-cell"/>
+                        </style>
+                      </object>
+                    </child>
+                  </object>
+                </child>
               </object>
             </child>
             <child>
               <object class="GtkToggleButton" id="layout_side_by_side">
-                <property name="label">2</property>
-                <property name="tooltip-text">Two games (Ctrl+2)</property>
+                <property name="tooltip-text">Two side by side (Ctrl+2)</property>
                 <property name="group">layout_single</property>
+                <child>
+                  <object class="GtkBox">
+                    <property name="halign">center</property>
+                    <property name="valign">center</property>
+                    <style>
+                      <class name="arrangement-picture"/>
+                      <class name="arrangement-side-by-side"/>
+                    </style>
+                    <child>
+                      <object class="GtkBox">
+                        <style>
+                          <class name="arrangement-cell"/>
+                        </style>
+                      </object>
+                    </child>
+                    <child>
+                      <object class="GtkBox">
+                        <style>
+                          <class name="arrangement-cell"/>
+                        </style>
+                      </object>
+                    </child>
+                  </object>
+                </child>
               </object>
             </child>
             <child>
               <object class="GtkToggleButton" id="layout_grid">
-                <property name="label">4</property>
-                <property name="tooltip-text">Four games (Ctrl+4)</property>
+                <property name="tooltip-text">Four in a grid (Ctrl+4)</property>
                 <property name="group">layout_single</property>
+                <child>
+                  <object class="GtkGrid">
+                    <property name="halign">center</property>
+                    <property name="valign">center</property>
+                    <property name="column-homogeneous">true</property>
+                    <property name="row-homogeneous">true</property>
+                    <style>
+                      <class name="arrangement-picture"/>
+                      <class name="arrangement-grid"/>
+                    </style>
+                    <child>
+                      <object class="GtkBox">
+                        <layout>
+                          <property name="column">0</property>
+                          <property name="row">0</property>
+                        </layout>
+                        <style>
+                          <class name="arrangement-cell"/>
+                        </style>
+                      </object>
+                    </child>
+                    <child>
+                      <object class="GtkBox">
+                        <layout>
+                          <property name="column">1</property>
+                          <property name="row">0</property>
+                        </layout>
+                        <style>
+                          <class name="arrangement-cell"/>
+                        </style>
+                      </object>
+                    </child>
+                    <child>
+                      <object class="GtkBox">
+                        <layout>
+                          <property name="column">0</property>
+                          <property name="row">1</property>
+                        </layout>
+                        <style>
+                          <class name="arrangement-cell"/>
+                        </style>
+                      </object>
+                    </child>
+                    <child>
+                      <object class="GtkBox">
+                        <layout>
+                          <property name="column">1</property>
+                          <property name="row">1</property>
+                        </layout>
+                        <style>
+                          <class name="arrangement-cell"/>
+                        </style>
+                      </object>
+                    </child>
+                  </object>
+                </child>
               </object>
             </child>
             <child>
               <object class="GtkToggleButton" id="layout_mobile">
-                <property name="label">Phone</property>
-                <property name="tooltip-text">Show one game at a phone's size</property>
+                <property name="icon-name">phone-symbolic</property>
+                <property name="tooltip-text">Phone size (412 × 915)</property>
                 <property name="group">layout_single</property>
               </object>
             </child>
@@ -89,14 +166,14 @@
         </child>
         <child type="end">
           <object class="GtkBox" id="pager">
-            <property name="tooltip-text">Next account (Shift+Tab)</property>
+            <property name="tooltip-text">Next page (Ctrl+Page Down)</property>
             <style>
               <class name="linked"/>
             </style>
             <child>
               <object class="GtkButton" id="page_previous">
                 <property name="icon-name">go-previous-symbolic</property>
-                <property name="tooltip-text">Previous page</property>
+                <property name="tooltip-text">Previous page (Ctrl+Page Up)</property>
               </object>
             </child>
             <child>
@@ -110,7 +187,7 @@
             <child>
               <object class="GtkButton" id="page_next">
                 <property name="icon-name">go-next-symbolic</property>
-                <property name="tooltip-text">Next page</property>
+                <property name="tooltip-text">Next page (Ctrl+Page Down)</property>
               </object>
             </child>
           </object>

@@ -50,16 +50,27 @@ pub struct Row {
     /// into the book (naming rule 12).
     #[property(get, set)]
     is_kept_awake: Cell<bool>,
-    /// The trailing keep-awake indication's text: the glyph when the account
-    /// is kept awake, empty otherwise. A separate property from
-    /// `is_kept_awake` because the two are read by different widgets — the
-    /// menu's checkbox reads the raw flag, the indicator label reads this.
+    /// The workspace this account currently belongs to, as a plain id
+    /// string. What the row's own `Move to ▸` submenu shows insensitive and
+    /// marked "(here)" rather than as a live choice (design rule 23).
     #[property(get, set)]
-    keep_awake_mark: RefCell<String>,
+    workspace_id: RefCell<String>,
+    /// That workspace's name, so `Move to ▸` can name the "(here)" entry
+    /// even when [`idle_manager_core::WorkspaceBook::destinations`] leaves a
+    /// full workspace out of the offered list.
+    #[property(get, set)]
+    workspace_name: RefCell<String>,
+    /// Whether this account holds the shown workspace's focused slot,
+    /// independently of `status` — a parked or starting focused account
+    /// never reads `status == "current"` (liveness outranks visibility in
+    /// `status_key`), so this is what the focus bar and the row menu's
+    /// accelerator actually key on (design rule 26).
+    #[property(get, set)]
+    is_current: Cell<bool>,
     /// Whether this row is the dim "No accounts" leaf under an empty
     /// workspace rather than a real account (roadmap item 11). The factory
-    /// reads this to hide the dot, the keep-awake mark and the ⋯ menu, and to
-    /// keep the row from being activated or ticked.
+    /// reads this to hide the status mark, the keep-awake icon and the ⋯
+    /// menu, and to keep the row from being activated.
     #[property(get, set)]
     is_placeholder: Cell<bool>,
 }

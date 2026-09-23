@@ -24,6 +24,8 @@ pub struct SlotPlaceholder {
     #[template_child]
     state_label: TemplateChild<gtk::Label>,
     #[template_child]
+    state_spinner: TemplateChild<gtk::Spinner>,
+    #[template_child]
     action_button: TemplateChild<gtk::Button>,
 
     /// The account's display name, shown large at the top of the panel.
@@ -45,6 +47,18 @@ pub struct SlotPlaceholder {
     /// while it drains. Defaults visible, so every present caller is unchanged.
     #[property(get, set, default = true)]
     button_visible: Cell<bool>,
+    /// The button's tooltip. Empty by default; `Start (Ctrl+S)` on a parked
+    /// slot that also holds the window's focus, naming the chord that would
+    /// press it, so the redesign's per-target tooltip rule reaches the grid
+    /// too (design rule 26).
+    #[property(get, set)]
+    button_tooltip: RefCell<String>,
+    /// Whether the spinner beside the state line spins. `true` only while
+    /// starting — a working state the word alone was easy to miss beside a
+    /// name that also dims for `parked` (design rule 1's shape-not-only-colour
+    /// reasoning, carried onto this panel).
+    #[property(get, set)]
+    spinner_visible: Cell<bool>,
 
     pub(super) on_start_requested: RefCell<Option<StartHandler>>,
 }
@@ -89,6 +103,12 @@ impl ObjectImpl for SlotPlaceholder {
             .sync_create()
             .build();
         obj.bind_property("button-visible", &*self.action_button, "visible")
+            .sync_create()
+            .build();
+        obj.bind_property("button-tooltip", &*self.action_button, "tooltip-text")
+            .sync_create()
+            .build();
+        obj.bind_property("spinner-visible", &*self.state_spinner, "visible")
             .sync_create()
             .build();
 

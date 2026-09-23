@@ -5,7 +5,6 @@
 //! either layout (architecture rules 8, 12).
 
 use std::cell::{Cell, OnceCell, RefCell};
-use std::collections::HashSet;
 use std::sync::{Arc, Once};
 
 use gio::prelude::ActionMapExt;
@@ -27,16 +26,25 @@ use super::row::{Row, status_label};
 use super::workspace_row::WorkspaceRow;
 use crate::memory_footer::MemoryFooter;
 
-/// The status-dot keys `sidebar.css` styles, one class each. Cleared and
-/// re-applied on every bind because the list recycles row widgets.
-const STATUS_CLASSES: [&str; 6] = [
-    "status-current",
-    "status-visible",
-    "status-background",
-    "status-parked",
-    "status-starting",
-    "status-queued",
-];
+/// The status keys that share the mark stack's `"dot"` page — a filled dot
+/// for `current`/`visible`, a ring for `background` (design rule 1). Cleared
+/// and re-applied on every bind because the list recycles row widgets; the
+/// other three keys (`parked`, `starting`, `queued`) pick a different stack
+/// page instead of one of these classes, so they need no class of their own
+/// here.
+const DOT_CLASSES: [&str; 3] = ["status-current", "status-visible", "status-background"];
+
+/// A status key's mark-stack page name — which of the leading mark's shapes
+/// this state draws, matching the stack pages [`build_row_widgets`] builds
+/// (design rule 1, `FR.25.3`).
+fn mark_page(status: &str) -> &'static str {
+    match status {
+        "parked" => "parked",
+        "starting" => "starting",
+        "queued" => "queued",
+        _ => "dot",
+    }
+}
 
 /// A handler run with the activated account's id when the user clicks a row.
 type ActivateHandler = Box<dyn Fn(SessionId)>;
@@ -87,14 +95,13 @@ type ParkAllHandler = Box<dyn Fn(WorkspaceId)>;
 /// item is chosen. Otherwise exactly [`ParkAllHandler`].
 type StartAllHandler = Box<dyn Fn(WorkspaceId)>;
 
-/// A handler run with the ticked ids and the chosen destination when `Move
-/// to…` picks an existing workspace.
-type MoveHandler = Box<dyn Fn(Vec<SessionId>, MoveTarget)>;
+/// A handler run with an account's id and the chosen destination when its
+/// row's `Move to ▸` submenu picks one (design rule 23).
+type MoveHandler = Box<dyn Fn(SessionId, MoveTarget)>;
 
-/// A handler run whenever the sidebar's own selection state changes — the
-/// mode toggled, or a tick toggled — telling the window a redraw is needed to
-/// carry the change to the row widgets (`FR.17.4`).
-type SelectionChangedHandler = Box<dyn Fn()>;
+/// A handler run when the sidebar's own `+ Add account` button is pressed
+/// (design rule 22).
+type AddAccountHandler = Box<dyn Fn()>;
 
 /// The name the per-row menu's action group is inserted under. Local to the
 /// row's own `MenuButton`, distinct from any application- or window-scoped
@@ -159,13 +166,7 @@ pub struct SessionSidebar {
     #[template_child]
     footer: TemplateChild<gtk::Box>,
     #[template_child]
-    select_toggle: TemplateChild<gtk::ToggleButton>,
-    #[template_child]
-    selection_bar: TemplateChild<gtk::Box>,
-    #[template_child]
-    ticked_label: TemplateChild<gtk::Label>,
-    #[template_child]
-    move_to_button: TemplateChild<gtk::MenuButton>,
+    add_account_button: TemplateChild<gtk::Button>,
 
     /// The memory readout pinned to the foot of the column (item 05 task 04).
     /// Sampling starts when the window attaches its ports.
@@ -181,18 +182,14 @@ pub struct SessionSidebar {
     /// so the `notify::expanded` handler it drives through does not report a
     /// click nobody made.
     applying_expansion: Cell<bool>,
-    /// Whether a click ticks a row instead of switching to it (item 11 task
-    /// 05, `FR.17.1`). `pub(super)`: `SessionSidebar::is_selecting` (item 14
-    /// task 04) reads it so the window's navigation shortcuts can tell
-    /// whether the sidebar owns the screen right now (`FR.23.4`).
-    pub(super) is_selecting: Cell<bool>,
-    /// The ticked account ids — a set of ids, not the list's own positional
-    /// selection, since a collapsed heading leaves the model and would take a
-    /// positional selection with it (`FR.17.4`).
-    ticked: RefCell<HashSet<SessionId>>,
-    /// What the window last reported as fitting the current ticked count,
+    /// The workspace `sync` last found shown, as a plain id string —
+    /// `bind_heading_menu` reads it on every bind so only that heading's
+    /// `Park all` / `Start all` carry an accelerator (design rule 27).
+    shown_workspace: RefCell<Option<String>>,
+    /// What the window last reported as fitting a single account's move,
     /// supplied through [`SessionSidebar::set_move_destinations`] and
-    /// materialised into the `Move to…` menu when it opens.
+    /// materialised into each row's `Move to ▸` submenu on its next bind
+    /// (design rule 23).
     move_destinations: RefCell<Destinations>,
     pub(super) on_activated: RefCell<Option<ActivateHandler>>,
     pub(super) on_parking_toggled: RefCell<Option<ParkingHandler>>,
@@ -201,7 +198,7 @@ pub struct SessionSidebar {
     pub(super) on_delete_requested: RefCell<Option<DeleteHandler>>,
     pub(super) on_expansion_toggled: RefCell<Option<ExpansionHandler>>,
     pub(super) on_move_requested: RefCell<Option<MoveHandler>>,
-    pub(super) on_selection_changed: RefCell<Option<SelectionChangedHandler>>,
+    pub(super) on_add_account_requested: RefCell<Option<AddAccountHandler>>,
     pub(super) on_workspace_rename_requested: RefCell<Option<WorkspaceRenameHandler>>,
     pub(super) on_workspace_remove_requested: RefCell<Option<WorkspaceRemoveHandler>>,
     pub(super) on_park_all_requested: RefCell<Option<ParkAllHandler>>,
@@ -267,19 +264,19 @@ impl ObjectImpl for SessionSidebar {
             };
             let id = SessionId::new(row.id());
             let imp = sidebar.imp();
-            if imp.is_selecting.get() {
-                imp.toggle_tick(&id);
-            } else if let Some(handler) = imp.on_activated.borrow().as_ref() {
+            if let Some(handler) = imp.on_activated.borrow().as_ref() {
                 handler(id);
             }
         });
 
         let sidebar = self.obj().downgrade();
-        self.select_toggle.connect_toggled(move |toggle| {
+        self.add_account_button.connect_clicked(move |_| {
             let Some(sidebar) = sidebar.upgrade() else {
                 return;
             };
-            sidebar.imp().set_selecting(toggle.is_active());
+            if let Some(handler) = sidebar.imp().on_add_account_requested.borrow().as_ref() {
+                handler();
+            }
         });
 
         self.footer.append(&self.memory_footer);
@@ -306,6 +303,8 @@ impl SessionSidebar {
         // reached `Window::set_expanded` while `Window::redraw` still held the
         // book borrowed, panicking on the re-entrant `borrow_mut`.
         self.applying_expansion.set(true);
+        self.shown_workspace
+            .replace(Some(book.active_id().as_str().to_owned()));
 
         let root = self.root.get().expect("root set in constructed");
         root.remove_all();
@@ -319,7 +318,13 @@ impl SessionSidebar {
                 .map(|session| {
                     let visibility = book.placement(session.id()).unwrap_or(Visibility::OffGrid);
                     let current = current_id == Some(session.id());
-                    Row::new(session, visibility, current)
+                    Row::new(
+                        session,
+                        visibility,
+                        current,
+                        workspace.id().as_str(),
+                        workspace.name(),
+                    )
                 })
                 .collect();
             root.append(&WorkspaceRow::new(
@@ -380,145 +385,21 @@ impl SessionSidebar {
         self.memory_footer.start_sampling(probe);
     }
 
-    /// How many accounts are currently ticked — what the window asks
-    /// [`idle_manager_core::WorkspaceBook::destinations`] with before calling
-    /// [`SessionSidebar::set_move_destinations`] back.
-    pub(super) fn ticked_count(&self) -> usize {
-        self.ticked.borrow().len()
-    }
-
-    /// Records what the window found fits the current ticked count, and
-    /// rebuilds the `Move to…` menu from it. Cheap — a handful of menu items —
-    /// so calling it on every redraw, whether or not the menu is open, costs
-    /// nothing and keeps it never stale by the time it does open.
+    /// Records what the window found fits a single account's move — read by
+    /// each row's own `Move to ▸` submenu the next time it binds
+    /// (`bind_row_menu`). Cheap to call on every redraw, whether or not any
+    /// row's menu is open, so it is never stale by the time one does open.
     pub(super) fn set_move_destinations(&self, destinations: Destinations) {
         self.move_destinations.replace(destinations);
-        self.rebuild_move_menu();
-    }
-
-    /// Leaves selection mode and clears every tick. Called by the window only
-    /// after a move or a create has actually been applied — a cancelled name
-    /// window calls nothing, so the mode and every tick survive it
-    /// (`FR.17.7`).
-    pub(super) fn end_selection(&self) {
-        self.select_toggle.set_active(false);
-    }
-
-    fn set_selecting(&self, selecting: bool) {
-        self.is_selecting.set(selecting);
-        self.select_toggle
-            .set_label(if selecting { "Done" } else { "Select" });
-        if !selecting {
-            self.ticked.borrow_mut().clear();
-        }
-        self.selection_bar.set_visible(selecting);
-        self.update_selection_bar();
-        self.notify_selection_changed();
-    }
-
-    /// Drops `id` from the ticked set, without touching selection mode.
-    /// Called once an account is actually gone, so a stale id never lingers
-    /// in the set (item 11 task 08). A no-op if `id` was not ticked.
-    pub(super) fn forget_ticked(&self, id: &SessionId) {
-        if self.ticked.borrow_mut().remove(id) {
-            self.update_selection_bar();
-            self.notify_selection_changed();
-        }
-    }
-
-    fn toggle_tick(&self, id: &SessionId) {
-        let mut ticked = self.ticked.borrow_mut();
-        if !ticked.remove(id) {
-            ticked.insert(id.clone());
-        }
-        drop(ticked);
-        self.update_selection_bar();
-        self.notify_selection_changed();
-    }
-
-    fn update_selection_bar(&self) {
-        let count = self.ticked.borrow().len();
-        self.ticked_label.set_label(&format!("{count} ticked"));
-        self.move_to_button.set_sensitive(count > 0);
-    }
-
-    fn notify_selection_changed(&self) {
-        if let Some(handler) = self.on_selection_changed.borrow().as_ref() {
-            handler();
-        }
-    }
-
-    /// Rebuilds the `Move to…` popover from the last
-    /// [`SessionSidebar::set_move_destinations`] answer: one item per offered
-    /// workspace, choosing it through a single parameterised action so the
-    /// menu never needs one action per workspace, then a section break and
-    /// `New workspace…` (design rule 7), insensitive while
-    /// [`idle_manager_core::Destinations::can_create`] says no room exists for
-    /// a brand new workspace to hold the ticked count.
-    fn rebuild_move_menu(&self) {
-        let destinations = self.move_destinations.borrow();
-
-        let menu = gio::Menu::new();
-        for workspace in destinations.workspaces() {
-            let item = gio::MenuItem::new(Some(workspace.name()), None);
-            item.set_action_and_target_value(
-                Some(&format!("{MOVE_ACTION_GROUP}.{CHOOSE_ACTION}")),
-                Some(&workspace.id().as_str().to_variant()),
-            );
-            menu.append_item(&item);
-        }
-        let new_workspace_section = gio::Menu::new();
-        new_workspace_section.append(
-            Some("New workspace…"),
-            Some(&format!("{MOVE_ACTION_GROUP}.{NEW_WORKSPACE_ACTION}")),
-        );
-        menu.append_section(None, &new_workspace_section);
-        self.move_to_button.set_menu_model(Some(&menu));
-
-        let choose = gio::SimpleAction::new(CHOOSE_ACTION, Some(glib::VariantTy::STRING));
-        let sidebar = self.obj().downgrade();
-        choose.connect_activate(move |_, target| {
-            let Some(sidebar) = sidebar.upgrade() else {
-                return;
-            };
-            let Some(workspace_id) = target.and_then(glib::Variant::get::<String>) else {
-                return;
-            };
-            let imp = sidebar.imp();
-            let ids: Vec<SessionId> = imp.ticked.borrow().iter().cloned().collect();
-            if let Some(handler) = imp.on_move_requested.borrow().as_ref() {
-                handler(ids, MoveTarget::Existing(WorkspaceId::new(workspace_id)));
-            }
-        });
-
-        let new_workspace = gio::SimpleAction::new(NEW_WORKSPACE_ACTION, None);
-        new_workspace.set_enabled(destinations.can_create());
-        let sidebar = self.obj().downgrade();
-        new_workspace.connect_activate(move |_, _| {
-            let Some(sidebar) = sidebar.upgrade() else {
-                return;
-            };
-            let imp = sidebar.imp();
-            let ids: Vec<SessionId> = imp.ticked.borrow().iter().cloned().collect();
-            if let Some(handler) = imp.on_move_requested.borrow().as_ref() {
-                handler(ids, MoveTarget::New);
-            }
-        });
-
-        let group = gio::SimpleActionGroup::new();
-        group.add_action(&choose);
-        group.add_action(&new_workspace);
-        self.move_to_button
-            .insert_action_group(MOVE_ACTION_GROUP, Some(&group));
     }
 }
 
-/// The action group the `Move to…` button's menu items are inserted under.
-const MOVE_ACTION_GROUP: &str = "move-to";
-/// The single parameterised action every `Move to…` menu item activates, the
-/// chosen workspace's id as its string target.
-const CHOOSE_ACTION: &str = "choose";
-/// The action the `Move to…` menu's `New workspace…` item is bound to.
+/// The parameterised action every `Move to ▸` item but the last activates,
+/// namespaced under [`ROW_ACTION_GROUP`] like every other item in a row's
+/// menu, the chosen workspace's id as its string target (design rule 23).
+const MOVE_ACTION: &str = "move-to";
+/// The action `Move to ▸`'s trailing `New workspace…` item is bound to,
+/// namespaced under [`ROW_ACTION_GROUP`].
 const NEW_WORKSPACE_ACTION: &str = "new-workspace";
 
 /// The function [`gtk::TreeListModel`] calls to find a node's children: a
@@ -548,13 +429,13 @@ fn install_styles() {
 }
 
 /// Builds the factory that turns each flat position into either layout: a
-/// heading's name alone, or an account's name, dot, keep-awake mark and ⋯
-/// menu — one `GtkTreeExpander` wrapping a superset box, since `::setup` runs
-/// before the bound row's type is known
-/// (`docs/research/gtk4-drag-and-accordion.md:90`). The dot's class, its hover
-/// text and the menu item's label all come from the row's status key and
-/// liveness, derived once in [`super::row`], so items 03 and 08 extend that
-/// and never this.
+/// heading's name alone, or an account's focus bar, mark, name, keep-awake
+/// mark and ⋯ menu — one `GtkTreeExpander` wrapping a superset box, since
+/// `::setup` runs before the bound row's type is known
+/// (`docs/research/gtk4-drag-and-accordion.md:90`). The mark's shape and
+/// class, its hover text and the menu item's label all come from the row's
+/// status key and liveness, derived once in [`super::row`], so items 03 and
+/// 08 extend that and never this.
 fn row_factory(sidebar: &super::SessionSidebar) -> gtk::SignalListItemFactory {
     let factory = gtk::SignalListItemFactory::new();
 
@@ -587,16 +468,16 @@ fn row_factory(sidebar: &super::SessionSidebar) -> gtk::SignalListItemFactory {
         let Some(row) = expander.child().and_downcast::<gtk::Box>() else {
             return;
         };
-        let Some(tick) = row.first_child().and_downcast::<gtk::CheckButton>() else {
+        let Some(focus_bar) = row.first_child() else {
             return;
         };
-        let Some(name) = tick.next_sibling().and_downcast::<gtk::Label>() else {
+        let Some(mark_stack) = focus_bar.next_sibling().and_downcast::<gtk::Stack>() else {
             return;
         };
-        let Some(dot) = name.next_sibling() else {
+        let Some(name) = mark_stack.next_sibling().and_downcast::<gtk::Label>() else {
             return;
         };
-        let Some(keep_awake_mark) = dot.next_sibling().and_downcast::<gtk::Label>() else {
+        let Some(keep_awake_mark) = name.next_sibling().and_downcast::<gtk::Image>() else {
             return;
         };
         let Some(settings) = keep_awake_mark
@@ -606,9 +487,9 @@ fn row_factory(sidebar: &super::SessionSidebar) -> gtk::SignalListItemFactory {
             return;
         };
         let widgets = RowWidgets {
-            tick,
+            focus_bar,
+            mark_stack,
             name,
-            dot,
             keep_awake_mark,
             settings,
         };
@@ -629,14 +510,14 @@ fn row_factory(sidebar: &super::SessionSidebar) -> gtk::SignalListItemFactory {
     factory
 }
 
-/// The five widgets every row's box holds, leading tick box first then
-/// trailing order, found once per bind and handed to whichever branch binds
-/// them — kept under clippy's argument-count budget as one value.
+/// The five widgets every row's box holds, leading edge first then trailing
+/// order, found once per bind and handed to whichever branch binds them —
+/// kept under clippy's argument-count budget as one value.
 struct RowWidgets {
-    tick: gtk::CheckButton,
+    focus_bar: gtk::Widget,
+    mark_stack: gtk::Stack,
     name: gtk::Label,
-    dot: gtk::Widget,
-    keep_awake_mark: gtk::Label,
+    keep_awake_mark: gtk::Image,
     settings: gtk::MenuButton,
 }
 
@@ -648,8 +529,10 @@ struct RowWidgets {
 /// the `Next workspace (Ctrl+Tab)` hover text (`FR.25.1`) — a heading itself
 /// stays undecorated (design rule 13), so the tooltip is the only thing it
 /// gains. The ⋯ menu button is shown for every heading, `Ungrouped` included
-/// (item 14 task 07), and only outside selection mode, so a click there
-/// cannot change the list mid-select (item 11 task 06).
+/// (item 14 task 07). Its ⋯ button stays in the tree, opacity-hidden by
+/// `sidebar.css` until hover, focus or its own open popover reveals it
+/// (design rule 21) — never `set_visible(false)`, which would take it out of
+/// tab order too.
 fn bind_heading(
     item: &gtk::ListItem,
     expander: &gtk::TreeExpander,
@@ -670,21 +553,22 @@ fn bind_heading(
         .name
         .set_label(&glib::markup_escape_text(&workspace.name()));
     widgets.name.set_tooltip_text(Some(NEXT_WORKSPACE_TOOLTIP));
-    widgets.tick.set_visible(false);
-    widgets.dot.set_visible(false);
+    widgets.focus_bar.set_visible(false);
+    widgets.mark_stack.set_visible(false);
     widgets.keep_awake_mark.set_visible(false);
+    widgets.settings.set_visible(true);
 
-    let is_selecting = sidebar
-        .upgrade()
-        .is_some_and(|sidebar| sidebar.imp().is_selecting.get());
-    widgets.settings.set_visible(!is_selecting);
-    bind_heading_menu(&widgets.settings, &workspace, sidebar);
+    let shown = sidebar.upgrade().is_some_and(|sidebar| {
+        sidebar.imp().shown_workspace.borrow().as_deref() == Some(workspace.id().as_str())
+    });
+    bind_heading_menu(&widgets.settings, &workspace, shown, sidebar);
 }
 
-/// Binds the account layout: the name markup, the status dot's class, hover
-/// text and accessible label, the keep-awake mark, and the ⋯ menu — or, for
-/// the dim "No accounts" placeholder, the name alone with everything else
-/// hidden and the row not activatable.
+/// Binds the account layout: the name markup, the leading mark's shape,
+/// class, hover text and accessible label, the focus bar, the keep-awake
+/// icon, and the ⋯ menu — or, for the dim "No accounts" placeholder, the
+/// name alone with everything else hidden and the row not activatable and
+/// not targetable by right-click or `Shift`+`F10` (design rule 21).
 fn bind_account(
     item: &gtk::ListItem,
     account: &Row,
@@ -695,62 +579,49 @@ fn bind_account(
     widgets.name.set_label(&account.name_markup());
 
     if account.is_placeholder() {
-        widgets.tick.set_visible(false);
-        widgets.dot.set_visible(false);
+        widgets.focus_bar.set_visible(false);
+        widgets.mark_stack.set_visible(false);
         widgets.keep_awake_mark.set_visible(false);
         widgets.settings.set_visible(false);
         return;
     }
 
-    bind_tick(&widgets.tick, account, sidebar);
-
-    widgets.dot.set_visible(true);
     let key = account.status();
-    for class in STATUS_CLASSES {
-        widgets.dot.remove_css_class(class);
-    }
-    widgets.dot.add_css_class(&format!("status-{key}"));
-    // The dot is the only *visible* state signal now (design rule 1); the
-    // state word still names it for a pointer and a screen reader, from the
-    // same key that picked the class above.
-    let state = status_label(&key);
-    widgets.dot.set_tooltip_text(Some(state));
-    widgets
-        .dot
-        .update_property(&[gtk::accessible::Property::Label(state)]);
-    // Cleared and re-applied on every bind, like the dot's classes above: the
-    // list recycles this label across accounts, so a mark left set from a
-    // previous bind must not survive onto one with the flag off.
-    let mark = account.keep_awake_mark();
-    widgets.keep_awake_mark.set_label(&mark);
-    widgets.keep_awake_mark.set_visible(!mark.is_empty());
-    widgets.settings.set_visible(true);
-    bind_row_menu(&widgets.settings, account, sidebar);
-}
+    // The focus bar keys on `is-current`, not `status == "current"`: a
+    // parked or starting focused account never reads `"current"` (liveness
+    // outranks visibility in `status_key`), but it can still hold the
+    // window's focused slot (design rule 26; measured 2026-09-22).
+    widgets.focus_bar.set_visible(account.is_current());
 
-/// Binds the leading tick box: visible only while selecting, checked from the
-/// sidebar's own ticked set. It carries no click handler of its own — it is
-/// `can-target: false` (set once in [`build_row_widgets`]), a pure display
-/// that lets a click land on the row underneath, so ticking it and ticking
-/// anywhere else on the row are the same one path through
-/// `list_view`'s own `activate` (`FR.17.1`). That also sidesteps the
-/// recycled-widget hazard a real per-bind `toggled` connection would have: no
-/// handler to disconnect, and `set_active` here fires nothing to misfire.
-fn bind_tick(
-    tick: &gtk::CheckButton,
-    account: &Row,
-    sidebar: &glib::WeakRef<super::SessionSidebar>,
-) {
-    let Some(sidebar) = sidebar.upgrade() else {
-        return;
-    };
-    let imp = sidebar.imp();
-    let selecting = imp.is_selecting.get();
-    tick.set_visible(selecting);
-    if selecting {
-        let id = SessionId::new(account.id());
-        tick.set_active(imp.ticked.borrow().contains(&id));
+    widgets.mark_stack.set_visible(true);
+    let page = mark_page(&key);
+    widgets.mark_stack.set_visible_child_name(page);
+    if page == "dot" {
+        let dot = widgets
+            .mark_stack
+            .child_by_name("dot")
+            .expect("built in build_row_widgets");
+        for class in DOT_CLASSES {
+            dot.remove_css_class(class);
+        }
+        dot.add_css_class(&format!("status-{key}"));
     }
+    // The mark is the only *visible* state signal now (design rule 1); the
+    // state word still names it for a pointer and a screen reader, from the
+    // same key that picked the shape above. Set on the stack, which is what a
+    // pointer actually hovers and what carries the accessible role.
+    let state = status_label(&key);
+    widgets.mark_stack.set_tooltip_text(Some(state));
+    widgets
+        .mark_stack
+        .update_property(&[gtk::accessible::Property::Label(state)]);
+
+    widgets.keep_awake_mark.set_visible(account.is_kept_awake());
+    widgets.settings.set_visible(true);
+    // Design rule 27: only the focused account's own menu shows the
+    // Park/Start and Rename accelerators — `is-current`, not `status`, for
+    // the same reason the focus bar above reads it.
+    bind_row_menu(&widgets.settings, account, account.is_current(), sidebar);
 }
 
 /// Reports a person's own expand or collapse of `workspace`'s heading through
@@ -777,9 +648,10 @@ fn wire_expansion_toggled(
     });
 }
 
-/// Builds one row's widget tree — name, status dot, keep-awake mark and the ⋯
-/// menu button, in that trailing order — wired to no signals and bound to no
-/// item yet. A heading only ever shows the name; [`bind_heading`] and the
+/// Builds one row's widget tree — a focus bar, the leading status mark, the
+/// name, the keep-awake icon and the ⋯ menu button, in that order — wired for
+/// hover, right-click and `Shift`+`F10` / `Menu` (design rule 21) but bound to
+/// no item yet. A heading only ever shows the name; [`bind_heading`] and the
 /// account branch of [`row_factory`]'s bind closure decide which widgets show.
 /// The menu's model and action group are built per bind in [`bind_row_menu`],
 /// since the Park/Start item's label inverts with the bound account. Split
@@ -787,18 +659,12 @@ fn wire_expansion_toggled(
 /// tree is one level of abstraction, binding it is another (code standards
 /// rule 6).
 fn build_row_widgets() -> gtk::Box {
-    // Hidden outside selection mode; shown and its checked state set only for
-    // an account row, in [`bind_tick`] (design rule 6 — paid for by the
-    // 200 px width, not by the name giving way). `can-target: false` makes it
-    // a pure display: a click meant for it reaches the row underneath
-    // instead, so ticking the box and ticking anywhere else on the row are
-    // the same path through `list_view`'s own `activate`.
-    let tick = gtk::CheckButton::builder()
-        .valign(gtk::Align::Center)
-        .can_target(false)
-        .focusable(false)
-        .build();
-    tick.set_visible(false);
+    // The focused row's 3 px bar (design rule 26), shown only for the
+    // `current` account by [`bind_account`]. `sidebar.css` colours it in the
+    // theme's own selection colour.
+    let focus_bar = gtk::Box::builder().valign(gtk::Align::Fill).build();
+    focus_bar.add_css_class("focus-bar");
+    focus_bar.set_visible(false);
 
     let name = gtk::Label::builder()
         .use_markup(true)
@@ -807,43 +673,108 @@ fn build_row_widgets() -> gtk::Box {
         .ellipsize(pango::EllipsizeMode::End)
         .build();
 
-    // A bare coloured dot, no word beside it: the colour is the only visible
-    // state signal (design rule 1). The `Img` role plus the accessible label
-    // set on every bind keep the state reachable to a screen reader.
-    let dot = gtk::Box::builder()
-        .width_request(10)
-        .height_request(10)
+    // The leading mark: one shape per state, design rule 1. A `GtkStack` so
+    // exactly one of the four pages shows at a time — a filled dot or a ring
+    // (`"dot"`, [`bind_account`] toggles which via a CSS class), a pause icon,
+    // a spinner, or a clock-like icon — without hiding and showing four
+    // separate siblings by hand. The `Img` role plus the accessible label set
+    // on every bind keep the state reachable to a screen reader.
+    let mark_stack = gtk::Stack::builder()
         .valign(gtk::Align::Center)
         .accessible_role(gtk::AccessibleRole::Img)
         .build();
+    mark_stack.add_css_class("status-mark");
+
+    let dot = gtk::Box::builder()
+        .width_request(10)
+        .height_request(10)
+        .build();
     dot.add_css_class("status-dot");
+    mark_stack.add_named(&dot, Some("dot"));
+
+    let pause = gtk::Image::from_icon_name("media-playback-pause-symbolic");
+    pause.add_css_class("mark-parked");
+    mark_stack.add_named(&pause, Some("parked"));
+
+    let queued = gtk::Image::from_icon_name("document-open-recent-symbolic");
+    queued.add_css_class("mark-queued");
+    mark_stack.add_named(&queued, Some("queued"));
+
+    let spinner = gtk::Spinner::builder()
+        .width_request(12)
+        .height_request(12)
+        .spinning(true)
+        .build();
+    spinner.add_css_class("mark-starting");
+    mark_stack.add_named(&spinner, Some("starting"));
 
     // Hidden by default: shown only on a bind where the bound account's flag
     // is on, so a recycled row never shows a stale mark left by whichever
-    // account it held before (code standards rule 18).
-    let keep_awake_mark = gtk::Label::builder()
-        .valign(gtk::Align::Center)
-        .visible(false)
-        .build();
+    // account it held before (code standards rule 18). An icon, not the
+    // diamond glyph this replaced, per the redesign's icon table.
+    let keep_awake_mark = gtk::Image::from_icon_name("view-pin-symbolic");
+    keep_awake_mark.set_valign(gtk::Align::Center);
+    keep_awake_mark.set_visible(false);
+    keep_awake_mark.set_tooltip_text(Some("Keeps running when hidden"));
     keep_awake_mark.add_css_class("keep-awake-mark");
 
+    // Always in the tree and always visible — `sidebar.css` opacity-hides it
+    // until the row is hovered, keyboard-focused or its own popover is open
+    // (design rule 21). Never `set_visible(false)` outside the placeholder
+    // row, which would also drop it from tab order.
     let settings = gtk::MenuButton::builder()
         .valign(gtk::Align::Center)
         .icon_name("view-more-symbolic")
         .build();
     settings.add_css_class("flat");
+    settings.add_css_class("row-menu-button");
 
     let row = gtk::Box::builder()
         .orientation(gtk::Orientation::Horizontal)
         .spacing(6)
         .build();
-    row.append(&tick);
+    row.add_css_class("sidebar-row");
+    row.append(&focus_bar);
+    row.append(&mark_stack);
     row.append(&name);
-    row.append(&dot);
     row.append(&keep_awake_mark);
     row.append(&settings);
 
+    wire_row_menu_gestures(&row, &settings);
+
     row
+}
+
+/// Right-click and `Shift`+`F10` / `Menu` anywhere on `row` open `settings`'s
+/// own popover — the same menu the ⋯ button opens (design rule 21). Neither
+/// is automatic on a `GtkListView` row.
+fn wire_row_menu_gestures(row: &gtk::Box, settings: &gtk::MenuButton) {
+    let click = gtk::GestureClick::new();
+    click.set_button(gdk::BUTTON_SECONDARY);
+    let popup_target = settings.downgrade();
+    click.connect_pressed(move |gesture, _, _, _| {
+        gesture.set_state(gtk::EventSequenceState::Claimed);
+        if let Some(settings) = popup_target.upgrade() {
+            settings.popup();
+        }
+    });
+    row.add_controller(click);
+
+    let key = gtk::EventControllerKey::new();
+    let popup_target = settings.downgrade();
+    key.connect_key_pressed(move |_, keyval, _, modifiers| {
+        let is_menu_key = keyval == gdk::Key::Menu;
+        let is_shift_f10 =
+            keyval == gdk::Key::F10 && modifiers.contains(gdk::ModifierType::SHIFT_MASK);
+        if !is_menu_key && !is_shift_f10 {
+            return glib::Propagation::Proceed;
+        }
+        if let Some(settings) = popup_target.upgrade() {
+            settings.popup();
+        }
+        glib::Propagation::Stop
+    });
+    row.add_controller(key);
 }
 
 /// Rebuilds `settings`'s menu model and action group from `data`'s current
@@ -880,38 +811,112 @@ fn accelerated_item(label: &str, action: &str, accelerator: &str) -> gio::MenuIt
     item
 }
 
+/// Rebuilds `settings`'s menu model and action group from `data`'s current
+/// standing: `Park`/`Start` and `Keep running when hidden` in one section,
+/// `Move to ▸` and `Rename…` in a second, `Delete account…` set apart in a
+/// third (2.5's wireframe). `is_focused` is whether `data` is the sidebar's
+/// `current` row — only there do the Park/Start and `Rename…` items carry
+/// their accelerator (design rule 27); every other row's menu shows the same
+/// items with no chord beside them.
 fn bind_row_menu(
     settings: &gtk::MenuButton,
     data: &Row,
+    is_focused: bool,
     sidebar: &glib::WeakRef<super::SessionSidebar>,
 ) {
-    let id = SessionId::new(data.id());
-    let delete_id = id.clone();
+    let destinations = sidebar
+        .upgrade()
+        .map(|sidebar| sidebar.imp().move_destinations.borrow().clone())
+        .unwrap_or_default();
+
+    settings.set_menu_model(Some(&build_row_menu_model(data, is_focused, &destinations)));
+    settings.insert_action_group(
+        ROW_ACTION_GROUP,
+        Some(&build_row_action_group(data, &destinations, sidebar)),
+    );
+}
+
+/// Builds a row's menu model: `Park`/`Start` and `Keep running when hidden`
+/// in one section, `Move to ▸` and `Rename…` in a second, `Delete account…`
+/// set apart in a third (2.5's wireframe). `is_focused` is whether `data` is
+/// the sidebar's `current` row — only there do the Park/Start and `Rename…`
+/// items carry their accelerator (design rule 27); every other row's menu
+/// shows the same items with no chord beside them. Split from
+/// [`bind_row_menu`] to keep both halves under clippy's line budget (code
+/// standards rule 6): building the model is one level of abstraction, wiring
+/// the actions it names is another.
+fn build_row_menu_model(data: &Row, is_focused: bool, destinations: &Destinations) -> gio::Menu {
+    let menu = gio::Menu::new();
 
     let action_label = data.action_label();
-    let menu = gio::Menu::new();
-    // The Park/Start item names its own chord beside the label, since a menu
-    // item has nowhere to hover — the accelerator for the direction this row
-    // currently offers, which is the one `Ctrl`+`P` / `Ctrl`+`S` pair member
-    // that is not inert on it (`FR.25.4`, design rules 19 and 20).
-    menu.append_item(&accelerated_item(
-        action_label.as_str(),
-        &format!("{ROW_ACTION_GROUP}.{PARKING_ACTION}"),
-        data.action_accelerator().as_str(),
-    ));
-    menu.append(
+    let parking_accelerator = is_focused.then(|| data.action_accelerator());
+    let actions_section = gio::Menu::new();
+    match parking_accelerator {
+        // The Park/Start item names its own chord beside the label, since a
+        // menu item has nowhere to hover — the accelerator for the direction
+        // this row currently offers, which is the one `Ctrl`+`P` / `Ctrl`+`S`
+        // pair member that is not inert on it (`FR.25.4`, design rules 19,
+        // 20, 27).
+        Some(accelerator) => actions_section.append_item(&accelerated_item(
+            action_label.as_str(),
+            &format!("{ROW_ACTION_GROUP}.{PARKING_ACTION}"),
+            accelerator.as_str(),
+        )),
+        None => actions_section.append(
+            Some(action_label.as_str()),
+            Some(&format!("{ROW_ACTION_GROUP}.{PARKING_ACTION}")),
+        ),
+    }
+    actions_section.append(
         Some("Keep running when hidden"),
         Some(&format!("{ROW_ACTION_GROUP}.{KEEP_AWAKE_ACTION}")),
     );
-    menu.append(
-        Some("Rename…"),
-        Some(&format!("{ROW_ACTION_GROUP}.{RENAME_ACTION}")),
-    );
-    menu.append(
+    menu.append_section(None, &actions_section);
+
+    let move_section = gio::Menu::new();
+    let move_to_submenu =
+        build_move_submenu(destinations, &data.workspace_id(), &data.workspace_name());
+    move_section.append_submenu(Some("Move to"), &move_to_submenu);
+    if is_focused {
+        move_section.append_item(&accelerated_item(
+            "Rename…",
+            &format!("{ROW_ACTION_GROUP}.{RENAME_ACTION}"),
+            "F2",
+        ));
+    } else {
+        move_section.append(
+            Some("Rename…"),
+            Some(&format!("{ROW_ACTION_GROUP}.{RENAME_ACTION}")),
+        );
+    }
+    menu.append_section(None, &move_section);
+
+    let delete_section = gio::Menu::new();
+    delete_section.append(
         Some("Delete account…"),
         Some(&format!("{ROW_ACTION_GROUP}.{DELETE_ACTION}")),
     );
-    settings.set_menu_model(Some(&menu));
+    menu.append_section(None, &delete_section);
+
+    menu
+}
+
+/// Builds the action group [`build_row_menu_model`]'s items activate: park,
+/// keep-awake, rename, delete, and `Move to ▸`'s two actions. Neither
+/// `parking` nor `move_to`/`new_workspace` decides anything itself — each
+/// carries only the account's id (and, for `move_to`, the chosen
+/// workspace's), leaving the transition to the window (architecture
+/// rule 8). The `keep-awake` action's `change-state` handler reports the
+/// requested value as an intent and never calls
+/// [`gio::SimpleAction::set_state`] itself, so the checkbox only moves once
+/// the book's answer comes back through [`SessionSidebar::sync`] and this
+/// runs again.
+fn build_row_action_group(
+    data: &Row,
+    destinations: &Destinations,
+    sidebar: &glib::WeakRef<super::SessionSidebar>,
+) -> gio::SimpleActionGroup {
+    let id = SessionId::new(data.id());
 
     let parking = gio::SimpleAction::new(PARKING_ACTION, None);
     parking.set_enabled(data.action_sensitive());
@@ -932,7 +937,7 @@ fn bind_row_menu(
         &data.is_kept_awake().to_variant(),
     );
     let keep_awake_sidebar = sidebar.clone();
-    let rename_id = id.clone();
+    let keep_awake_id = id.clone();
     keep_awake.connect_change_state(move |_, requested| {
         let Some(requested) = requested.and_then(glib::Variant::get::<bool>) else {
             return;
@@ -941,7 +946,7 @@ fn bind_row_menu(
             return;
         };
         if let Some(handler) = sidebar.imp().on_keep_awake_toggled.borrow().as_ref() {
-            handler(id.clone(), requested);
+            handler(keep_awake_id.clone(), requested);
         }
     });
 
@@ -950,6 +955,7 @@ fn bind_row_menu(
     // while an account is starting, unlike `PARKING_ACTION` above
     // (`FR.13.1`).
     let rename_sidebar = sidebar.clone();
+    let rename_id = id.clone();
     rename.connect_activate(move |_, _| {
         let Some(sidebar) = rename_sidebar.upgrade() else {
             return;
@@ -963,6 +969,7 @@ fn bind_row_menu(
     // Always sensitive, like `RENAME_ACTION` — offered for an account in any
     // state or workspace (`FR.21.1`).
     let delete_sidebar = sidebar.clone();
+    let delete_id = id.clone();
     delete.connect_activate(move |_, _| {
         let Some(sidebar) = delete_sidebar.upgrade() else {
             return;
@@ -972,12 +979,89 @@ fn bind_row_menu(
         }
     });
 
+    // `Move to ▸`'s items (design rule 23): `MOVE_ACTION` picks an existing
+    // workspace by its id, targeted the same way the old sidebar-wide
+    // `Move to…` button's `choose` action was; `NEW_WORKSPACE_ACTION` opens
+    // the "New workspace" window for this one account.
+    let move_to = gio::SimpleAction::new(MOVE_ACTION, Some(glib::VariantTy::STRING));
+    let move_sidebar = sidebar.clone();
+    let move_id = id.clone();
+    move_to.connect_activate(move |_, target| {
+        let Some(sidebar) = move_sidebar.upgrade() else {
+            return;
+        };
+        let Some(workspace_id) = target.and_then(glib::Variant::get::<String>) else {
+            return;
+        };
+        if let Some(handler) = sidebar.imp().on_move_requested.borrow().as_ref() {
+            handler(
+                move_id.clone(),
+                MoveTarget::Existing(WorkspaceId::new(workspace_id)),
+            );
+        }
+    });
+
+    let new_workspace = gio::SimpleAction::new(NEW_WORKSPACE_ACTION, None);
+    new_workspace.set_enabled(destinations.can_create());
+    let new_workspace_sidebar = sidebar.clone();
+    new_workspace.connect_activate(move |_, _| {
+        let Some(sidebar) = new_workspace_sidebar.upgrade() else {
+            return;
+        };
+        if let Some(handler) = sidebar.imp().on_move_requested.borrow().as_ref() {
+            handler(id.clone(), MoveTarget::New);
+        }
+    });
+
     let group = gio::SimpleActionGroup::new();
     group.add_action(&parking);
     group.add_action(&keep_awake);
     group.add_action(&rename);
     group.add_action(&delete);
-    settings.insert_action_group(ROW_ACTION_GROUP, Some(&group));
+    group.add_action(&move_to);
+    group.add_action(&new_workspace);
+    group
+}
+
+/// The `Move to ▸` submenu for an account currently in `own_workspace_id`
+/// (named `own_workspace_name`): that workspace first, always, shown
+/// insensitive and marked "(here)" — an item with no bound action, which
+/// `GtkPopoverMenu` already draws disabled, so the reader can see where the
+/// account already is without it being a live choice, and shown even when a
+/// full workspace drops out of `destinations` itself (`WorkspaceBook::destinations`'s
+/// `count` check already counts this account once) — then every other
+/// destination `destinations` offers, then a section break and `New
+/// workspace…` (design rule 7), insensitive when
+/// [`idle_manager_core::Destinations::can_create`] says no room exists
+/// (design rule 23). A pure builder over its inputs, so it needs no sidebar
+/// or window access of its own (code standards rule 6).
+fn build_move_submenu(
+    destinations: &Destinations,
+    own_workspace_id: &str,
+    own_workspace_name: &str,
+) -> gio::Menu {
+    let submenu = gio::Menu::new();
+    submenu.append(Some(&format!("{own_workspace_name} (here)")), None);
+    for workspace in destinations.workspaces() {
+        if workspace.id().as_str() == own_workspace_id {
+            continue;
+        }
+        let item = gio::MenuItem::new(Some(workspace.name()), None);
+        item.set_action_and_target_value(
+            Some(&format!("{ROW_ACTION_GROUP}.{MOVE_ACTION}")),
+            Some(&workspace.id().as_str().to_variant()),
+        );
+        submenu.append_item(&item);
+    }
+
+    let new_workspace_section = gio::Menu::new();
+    new_workspace_section.append(
+        Some("New workspace…"),
+        Some(&format!("{ROW_ACTION_GROUP}.{NEW_WORKSPACE_ACTION}")),
+    );
+    submenu.append_section(None, &new_workspace_section);
+
+    submenu
 }
 
 /// Rebuilds `settings`'s menu model and action group from `workspace`'s
@@ -988,31 +1072,60 @@ fn bind_row_menu(
 /// a row's own Park/Start item follows its account's state (design rule 2);
 /// then, for a named workspace, `Rename…` and `Remove workspace`. `Ungrouped`
 /// gets the first section alone — it has no name to rename and cannot be
-/// removed (item 14 task 07). Rebuilt on every bind for the same reason
-/// `bind_row_menu` is (the list recycles this `MenuButton`).
+/// removed (item 14 task 07). `shown` is whether `workspace` is the one on
+/// screen — only there do `Park all` / `Start all` carry their accelerator
+/// (design rule 27); elsewhere the same two items show with no chord.
+/// Rebuilt on every bind for the same reason `bind_row_menu` is (the list
+/// recycles this `MenuButton`).
 fn bind_heading_menu(
     settings: &gtk::MenuButton,
     workspace: &WorkspaceRow,
+    shown: bool,
     sidebar: &glib::WeakRef<super::SessionSidebar>,
 ) {
     let id = WorkspaceId::new(workspace.id());
-    let is_ungrouped = id.is_ungrouped();
 
+    settings.set_menu_model(Some(&build_heading_menu_model(&id, shown)));
+    settings.insert_action_group(
+        HEADING_ACTION_GROUP,
+        Some(&build_heading_action_group(workspace, &id, sidebar)),
+    );
+}
+
+/// Builds a heading's menu model: `Park all` and `Start all` first, the
+/// deliberate actions (design rule 5), carrying their accelerator only when
+/// `shown` says this heading is the one on screen (design rule 27); then, for
+/// a named workspace, `Rename…` and `Remove workspace`. `Ungrouped` gets the
+/// first section alone — it has no name to rename and cannot be removed
+/// (item 14 task 07). Split from [`bind_heading_menu`] the same way
+/// [`build_row_menu_model`] is from `bind_row_menu` (code standards rule 6).
+fn build_heading_menu_model(id: &WorkspaceId, shown: bool) -> gio::Menu {
     let menu = gio::Menu::new();
     let actions = gio::Menu::new();
-    actions.append_item(&accelerated_item(
-        "Park all",
-        &format!("{HEADING_ACTION_GROUP}.{PARK_ALL_ACTION}"),
-        "<Control><Shift>p",
-    ));
-    actions.append_item(&accelerated_item(
-        "Start all",
-        &format!("{HEADING_ACTION_GROUP}.{START_ALL_ACTION}"),
-        "<Control><Shift>s",
-    ));
+    if shown {
+        actions.append_item(&accelerated_item(
+            "Park all",
+            &format!("{HEADING_ACTION_GROUP}.{PARK_ALL_ACTION}"),
+            "<Control><Shift>p",
+        ));
+        actions.append_item(&accelerated_item(
+            "Start all",
+            &format!("{HEADING_ACTION_GROUP}.{START_ALL_ACTION}"),
+            "<Control><Shift>s",
+        ));
+    } else {
+        actions.append(
+            Some("Park all"),
+            Some(&format!("{HEADING_ACTION_GROUP}.{PARK_ALL_ACTION}")),
+        );
+        actions.append(
+            Some("Start all"),
+            Some(&format!("{HEADING_ACTION_GROUP}.{START_ALL_ACTION}")),
+        );
+    }
     menu.append_section(None, &actions);
 
-    if !is_ungrouped {
+    if !id.is_ungrouped() {
         let settings_section = gio::Menu::new();
         settings_section.append(
             Some("Rename…"),
@@ -1024,7 +1137,16 @@ fn bind_heading_menu(
         );
         menu.append_section(None, &settings_section);
     }
-    settings.set_menu_model(Some(&menu));
+    menu
+}
+
+/// Builds the action group [`build_heading_menu_model`]'s items activate.
+fn build_heading_action_group(
+    workspace: &WorkspaceRow,
+    id: &WorkspaceId,
+    sidebar: &glib::WeakRef<super::SessionSidebar>,
+) -> gio::SimpleActionGroup {
+    let is_ungrouped = id.is_ungrouped();
 
     let park_all = gio::SimpleAction::new(PARK_ALL_ACTION, None);
     park_all.set_enabled(workspace.can_park_all());
@@ -1076,6 +1198,7 @@ fn bind_heading_menu(
 
         let remove = gio::SimpleAction::new(WORKSPACE_REMOVE_ACTION, None);
         let remove_sidebar = sidebar.clone();
+        let remove_id = id.clone();
         remove.connect_activate(move |_, _| {
             let Some(sidebar) = remove_sidebar.upgrade() else {
                 return;
@@ -1086,7 +1209,7 @@ fn bind_heading_menu(
                 .borrow()
                 .as_ref()
             {
-                handler(id.clone());
+                handler(remove_id.clone());
             }
         });
 
@@ -1094,5 +1217,5 @@ fn bind_heading_menu(
         group.add_action(&remove);
     }
 
-    settings.insert_action_group(HEADING_ACTION_GROUP, Some(&group));
+    group
 }

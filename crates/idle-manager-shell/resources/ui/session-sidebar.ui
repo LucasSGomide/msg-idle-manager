@@ -10,24 +10,27 @@
       <class name="navigation-sidebar"/>
     </style>
     <child>
-      <object class="GtkBox" id="title_row">
+      <object class="GtkButton" id="add_account_button">
         <property name="margin-start">6</property>
         <property name="margin-end">6</property>
         <property name="margin-top">6</property>
         <property name="margin-bottom">6</property>
+        <property name="tooltip-text">Add account (Ctrl+N)</property>
         <child>
-          <object class="GtkLabel">
-            <property name="label">Accounts</property>
-            <property name="hexpand">true</property>
-            <property name="xalign">0</property>
-            <style>
-              <class name="heading"/>
-            </style>
-          </object>
-        </child>
-        <child>
-          <object class="GtkToggleButton" id="select_toggle">
-            <property name="label">Select</property>
+          <object class="GtkBox">
+            <property name="halign">center</property>
+            <property name="spacing">6</property>
+            <child>
+              <object class="GtkImage">
+                <property name="icon-name">list-add-symbolic</property>
+              </object>
+            </child>
+            <child>
+              <object class="GtkLabel">
+                <property name="label">Add account</property>
+                <property name="ellipsize">end</property>
+              </object>
+            </child>
           </object>
         </child>
       </object>
@@ -55,31 +58,6 @@
         <style>
           <class name="dim-label"/>
         </style>
-      </object>
-    </child>
-    <child>
-      <object class="GtkBox" id="selection_bar">
-        <property name="visible">false</property>
-        <property name="margin-start">6</property>
-        <property name="margin-end">6</property>
-        <property name="margin-top">6</property>
-        <property name="margin-bottom">6</property>
-        <child>
-          <object class="GtkLabel" id="ticked_label">
-            <property name="label">0 ticked</property>
-            <property name="hexpand">true</property>
-            <property name="xalign">0</property>
-            <style>
-              <class name="dim-label"/>
-            </style>
-          </object>
-        </child>
-        <child>
-          <object class="GtkMenuButton" id="move_to_button">
-            <property name="label">Move to…</property>
-            <property name="sensitive">false</property>
-          </object>
-        </child>
       </object>
     </child>
     <child>

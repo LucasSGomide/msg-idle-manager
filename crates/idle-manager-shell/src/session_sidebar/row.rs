@@ -9,11 +9,6 @@ use gtk4 as gtk;
 
 use idle_manager_core::{Liveness, Session, Visibility};
 
-/// The glyph the trailing keep-awake indication renders. A diamond, not a
-/// circle, so it never reads as a second status dot (design rule 6) — it
-/// names a configuration that does not change, not a state that does.
-const KEEP_AWAKE_MARK: &str = "◆";
-
 /// The dim line a named workspace with no accounts shows once expanded — a
 /// real leaf in the tree, indented exactly like an account row, rather than
 /// hidden state on the heading, so the tree model's own expand/collapse
@@ -33,10 +28,23 @@ impl Row {
     /// answer, never `session.visibility()` directly, since an account in a
     /// workspace that is not shown must key as `background` regardless of the
     /// slot it still holds there (`FR.15.7`). `current` marks the row whose
-    /// account holds the shown workspace's focused slot.
+    /// account holds the shown workspace's focused slot, independently of
+    /// `status`: a parked or starting account's `status` never reads
+    /// `"current"` (liveness outranks visibility in [`status_key`]), but the
+    /// focused slot can hold an account in any of those states, and the
+    /// `is-current` property this sets is what the row's focus bar and its
+    /// menu's accelerator actually key on (design rule 26; measured
+    /// 2026-09-22: keying either on `status == "current"` leaves a focused
+    /// parked account with neither).
     ///
     /// [`WorkspaceBook::placement`]: idle_manager_core::WorkspaceBook::placement
-    pub(crate) fn new(session: &Session, visibility: Visibility, current: bool) -> Self {
+    pub(crate) fn new(
+        session: &Session,
+        visibility: Visibility,
+        current: bool,
+        workspace_id: &str,
+        workspace_name: &str,
+    ) -> Self {
         let (liveness, display_name) = (session.liveness(), session.display_name());
 
         let row: Self = glib::Object::builder()
@@ -51,16 +59,15 @@ impl Row {
             .property("action-accelerator", action_accelerator(liveness))
             .property("action-sensitive", action_sensitive(liveness))
             .property("is-kept-awake", session.is_kept_awake())
-            .property(
-                "keep-awake-mark",
-                keep_awake_indication(session.is_kept_awake()),
-            )
+            .property("workspace-id", workspace_id)
+            .property("workspace-name", workspace_name)
+            .property("is-current", current)
             .build();
         row
     }
 
     /// The dim, insensitive "No accounts" leaf shown under a named workspace
-    /// that holds nothing, once expanded. Carries no account id, no dot, no
+    /// that holds nothing, once expanded. Carries no account id, no mark, no
     /// menu and no keep-awake mark; [`Row::is_placeholder`] is what the
     /// factory reads to hide those widgets and skip activation.
     pub(crate) fn placeholder() -> Self {
@@ -79,7 +86,9 @@ impl Row {
             .property("action-accelerator", "")
             .property("action-sensitive", false)
             .property("is-kept-awake", false)
-            .property("keep-awake-mark", "")
+            .property("workspace-id", "")
+            .property("workspace-name", "")
+            .property("is-current", false)
             .property("is-placeholder", true)
             .build()
     }
@@ -164,15 +173,6 @@ pub(super) fn action_sensitive(liveness: Liveness) -> bool {
     !matches!(liveness, Liveness::Starting | Liveness::Queued)
 }
 
-/// The row's trailing keep-awake indication: the glyph while the account's
-/// flag is on, empty while it is off. A separate, independent mark from
-/// `status_key` — keep-awake is a configuration a row carries, not a sixth
-/// state (design rule 1); two facts that can both be true at once must not
-/// share one key.
-pub(super) fn keep_awake_indication(is_kept_awake: bool) -> &'static str {
-    if is_kept_awake { KEEP_AWAKE_MARK } else { "" }
-}
-
 /// The name label's Pango markup. Dimmed for an account that is not on screen
 /// *or* not running — parked and queued are both "not running" and share the
 /// style (design rule 3); bold for the current row; plain otherwise (design
@@ -207,6 +207,36 @@ mod tests {
         let off_grid = status_key(Liveness::Parked, Visibility::OffGrid, false);
 
         assert_eq!((in_slot, off_grid), ("parked", "parked"));
+    }
+
+    /// Regression: a focused, parked account's `status` reads `"parked"`,
+    /// never `"current"` (liveness outranks visibility in `status_key`), so
+    /// the row's own `is-current` property — not `status` — is what the
+    /// focus bar and the row menu's accelerator must key on. Measured
+    /// 2026-09-22 under a headless run: keying either on `status ==
+    /// "current"` left a focused-but-parked row with neither.
+    #[test]
+    fn a_focused_parked_account_is_current_even_though_its_status_is_parked() {
+        let mut book = SessionBook::new();
+        let id = SessionId::new("session-0001");
+        book.add(&id, "Alt", "https://example.test/alt");
+        book.park(&id);
+        let session = book
+            .sessions()
+            .iter()
+            .find(|session| session.id() == &id)
+            .expect("just added to the book");
+
+        let row = Row::new(
+            session,
+            Visibility::InSlot(SlotId::FIRST),
+            true,
+            "workspace-0001",
+            "Party",
+        );
+
+        assert_eq!(row.status(), "parked");
+        assert!(row.is_current());
     }
 
     #[test]
@@ -300,14 +330,6 @@ mod tests {
             (while_starting, while_live, while_parked),
             (false, true, true)
         );
-    }
-
-    #[test]
-    fn the_keep_awake_indication_shows_only_when_the_flag_is_on() {
-        let on = keep_awake_indication(true);
-        let off = keep_awake_indication(false);
-
-        assert_eq!((on, off), (KEEP_AWAKE_MARK, ""));
     }
 
     #[test]

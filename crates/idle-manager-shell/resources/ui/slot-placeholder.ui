@@ -24,10 +24,22 @@
           </object>
         </child>
         <child>
-          <object class="GtkLabel" id="state_label">
-            <style>
-              <class name="dim-label"/>
-            </style>
+          <object class="GtkBox" id="state_row">
+            <property name="halign">center</property>
+            <property name="spacing">6</property>
+            <child>
+              <object class="GtkSpinner" id="state_spinner">
+                <property name="spinning">true</property>
+                <property name="visible">false</property>
+              </object>
+            </child>
+            <child>
+              <object class="GtkLabel" id="state_label">
+                <style>
+                  <class name="dim-label"/>
+                </style>
+              </object>
+            </child>
           </object>
         </child>
         <child>

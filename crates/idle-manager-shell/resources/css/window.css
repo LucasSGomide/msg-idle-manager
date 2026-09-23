@@ -1,0 +1,36 @@
+/* The header bar's arrangement toggles (design rule 24): a picture of the
+ * arrangement rather than a numeral, drawn from plain boxes with a
+ * `currentColor` border at roughly 16 x 12 so it follows the toggle's own
+ * checked colour in light and dark themes and needs no bespoke icon asset.
+ *
+ * Every cell gets an explicit `min-width`/`min-height` — a bare `GtkBox`
+ * requests 0 x 0 on its own, so with none the cell collapses to its 1 px
+ * border alone (measured 2026-09-22: the `1` and `2` pictures drew as a
+ * stray line). The `4` picture's cells stopped setting `hexpand`/`vexpand`
+ * for the same reason in reverse: expanding let them fill whatever extra
+ * room the toggle button's own minimum size left over, growing well past
+ * 16 x 12 — `column-homogeneous`/`row-homogeneous` on the `GtkGrid` plus a
+ * fixed cell size is what keeps the grid itself small, and `halign`/`valign`
+ * `center` on each picture (set in `window.ui`) is what keeps it centred
+ * rather than stretched inside the button. */
+
+.arrangement-cell {
+  border: 1px solid currentColor;
+}
+
+.arrangement-single .arrangement-cell {
+  min-width: 14px;
+  min-height: 10px;
+}
+
+.arrangement-side-by-side .arrangement-cell {
+  min-width: 6px;
+  min-height: 10px;
+  margin: 0 1px;
+}
+
+.arrangement-grid .arrangement-cell {
+  min-width: 6px;
+  min-height: 4px;
+  margin: 1px;
+}
