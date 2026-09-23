@@ -391,6 +391,29 @@ keyboard check is run with a game page holding the keyboard, not the sidebar
 - `GtkShortcutsWindow` is deprecated from GTK 4.18; `Cargo.toml` pins `v4_10`,
   so no deprecation lint fires and libadwaita is still not a dependency.
 
+## As built
+
+- The eight chords are six new variants on item 14's one shortcut table, each
+  acting through the control the mouse already presses (the toggles, the row
+  menu's own parking handler, Park all / Start all), never past it. All eight
+  are inert while the sidebar is selecting.
+- Park and start are two idempotent chords, not one flip key. A chord that does
+  not apply is consumed and silent. This departs from design rule 2's
+  one-control shape, so rule 2 was narrowed to controls with a visible label
+  and rule 20 records the keyboard case.
+- `tab_held` became `chord_held` and stopped being about Tab: every shortcut
+  except Reload and Zoom runs once while held, and any key release clears it.
+- The focus fix calls the `grab_focus` both engines had carried unused since
+  item 12. It hangs off the end of `redraw`, the one funnel all eleven focus
+  routes already pass through, with `last_focus_grab` keeping it a focus change
+  rather than a grab on every redraw; it steps aside for a dialog, a text entry
+  and selection mode. Re-activating the window makes the hand-over again,
+  because no redraw follows a dialog closing.
+- Win32 reports the unshifted virtual key while GDK delivers the shifted one, so
+  the table matches both letter cases and takes the direction from the modifier
+  bit. A test maps every Windows virtual key and checks it decides the same
+  shortcut as the Linux keyval. `VK_3` stays unbound, as `Ctrl+3` does on Linux.
+
 ## Blockers
 
 - **Answered on Linux, open on Windows.** Whether a `WebKitWebView` handed

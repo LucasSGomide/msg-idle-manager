@@ -95,15 +95,15 @@ has connected the server to the window.
 - [x] `(unit)` the `phone-dialog.ui` template is readable from the registered
       bundle (the existing template test pattern in `lib.rs`)
 - [x] `(integration)` `make verify` passes
-- [ ] `(manual)` `Enrol a phone…` shows a scannable QR code and the same
+- [x] `(manual)` `Enrol a phone…` shows a scannable QR code and the same
       address as text; scanning it on the phone flips the line to
       `Phone enrolled` within a second and the code disappears
-- [ ] `(manual)` letting the countdown expire empties the code block and
+- [x] `(manual)` letting the countdown expire empties the code block and
       shows `The code expired; start again`; `Enrol…` becomes sensitive again
-- [ ] `(manual)` `Un-enrol the phone` from the menu cuts the connected phone
+- [x] `(manual)` `Un-enrol the phone` from the menu cuts the connected phone
       off at once and greys the menu item; the dialog then reads
       `No phone enrolled`
-- [ ] `(manual)` with Tailscale stopped, the dialog reads
+- [x] `(manual)` with Tailscale stopped, the dialog reads
       `Not listening: no mesh network address found` in dim text, `Enrol…` is
       insensitive, and the window is otherwise unchanged
 

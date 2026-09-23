@@ -72,14 +72,14 @@ the port and the override.
 
 - [x] `(integration)` `make verify`, `make windows-check` and
       `make windows-package` pass
-- [ ] `(manual)` in the Windows VM with the `[listen]` override, the phone
+- [x] `(manual)` in the Windows VM with the `[listen]` override, the phone
       enrols through the QR code, turns mobile mode on, sees the game move,
       taps a game button with visible effect, scrolls, parks and starts an
       account, leaves, and is cut off by `Un-enrol the phone`
-- [ ] `(manual)` on Linux, the median tap-to-visible time over ten taps is
+- [x] `(manual)` on Linux, the median tap-to-visible time over ten taps is
       under one second on the home network and on mobile data, recorded in
       `## Measured`
-- [ ] `(manual)` frames arrive at 10 or more per second on the home network,
+- [x] `(manual)` frames arrive at 10 or more per second on the home network,
       recorded in `## Measured`
 - [x] `(manual)` processor time of the process tree while attached is
       recorded beside the resting figure, and the resting figure with the

@@ -8,10 +8,8 @@ this task's `test-script.md` section written and run.
 
 A folder lives from breakdown until the item's branch lands — through review and
 merge, not just until the boxes are ticked. It is retired only once the roadmap
-item's header carries `Landed:` or `Merged:`. Items 01–07, 09–12, 14 and 15 are `done`.
+item's header carries `Landed:` or `Merged:`. Items 01–07 and 09–15 are `done`.
 
 | # | Roadmap item | Tasks | Progress | Status |
 |---|---|---|---|---|
-| [13](13-phone-operation/) | Operating an account from a phone | 8 | 3/8 | in-progress |
-| [14](14-keyboard-navigation/) | Keyboard navigation and paged workspaces | 8 | 8/8 | done |
-| [15](15-window-shortcuts-and-focus/) | Window shortcuts, and focus that hands over the keyboard | 5 | 5/5 | done |
+| [13](13-phone-operation/) | Operating an account from a phone | 8 | 8/8 | done |

@@ -20,10 +20,10 @@ window. 08 runs alone last.
 | # | Task | Scope | Depends on | Criteria | Status |
 |---|---|---|---|---|---|
 | [01](01-remote-vocabulary-ports-and-phone-record.md) | The remote vocabulary, its two ports, and the phone record on disk | back-end | — | 9/9 | done |
-| [02](02-capture-script-and-wake-on-the-engine-seam.md) | Capturing a frame, running a script and waking a view on both engines | front-end | — | 6/9 | in-progress |
-| [03](03-the-mobile-layout-on-the-desktop.md) | The Mobile layout on the desktop | full-stack | 01 | 7/10 | in-progress |
+| [02](02-capture-script-and-wake-on-the-engine-seam.md) | Capturing a frame, running a script and waking a view on both engines | front-end | — | 9/9 | done |
+| [03](03-the-mobile-layout-on-the-desktop.md) | The Mobile layout on the desktop | full-stack | 01 | 10/10 | done |
 | [04](04-the-remote-server.md) | The remote server: enrolment, the socket and its proof | back-end | 01 | 10/10 | done |
-| [05](05-the-phone-page.md) | The phone page | front-end | 04 | 3/10 | in-progress |
+| [05](05-the-phone-page.md) | The phone page | front-end | 04 | 10/10 | done |
 | [06](06-wiring-the-phone-into-the-window.md) | Wiring the phone into the window | full-stack | 02, 03, 04 | 9/9 | done |
-| [07](07-the-phone-dialog-and-header-menu.md) | The phone dialog and the header menu | front-end | 06 | 4/8 | in-progress |
-| [08](08-windows-verification-and-measurements.md) | Windows verification, the measurements and the docs | full-stack | 05, 07 | 3/6 | in-progress |
+| [07](07-the-phone-dialog-and-header-menu.md) | The phone dialog and the header menu | front-end | 06 | 8/8 | done |
+| [08](08-windows-verification-and-measurements.md) | Windows verification, the measurements and the docs | full-stack | 05, 07 | 6/6 | done |

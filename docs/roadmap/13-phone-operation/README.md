@@ -1,6 +1,6 @@
 # 13 — Operating an account from a phone
 
-**Depends on:** 11, 12 · **Status:** in-progress · **Estimate:** 13
+**Depends on:** 11, 12 · **Status:** done · **Estimate:** 13
 
 ## Context
 

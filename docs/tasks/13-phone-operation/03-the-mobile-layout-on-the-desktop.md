@@ -113,13 +113,13 @@ return. The phone later drives the same switch through the same code.
       and the snapshot of a saved file written during mobile mode is
       unchanged from the pre-mobile one
 - [x] `(integration)` `make verify` passes
-- [ ] `(manual)` pressing `Phone` shows one 412 × 915 outlined slot with the
+- [x] `(manual)` pressing `Phone` shows one 412 × 915 outlined slot with the
       focused game inside and no grip, and with the window at its default
       800 px height the slot is clipped at the bottom, not scaled
-- [ ] `(manual)` pressing `2` restores the two-slot arrangement with the same
+- [x] `(manual)` pressing `2` restores the two-slot arrangement with the same
       accounts in the same slots; quitting in mobile mode and relaunching
       opens in the layout the workspace had before
-- [ ] `(manual)` `Ctrl`+`+` and `Ctrl`+wheel over the `Mobile` slot change
+- [x] `(manual)` `Ctrl`+`+` and `Ctrl`+wheel over the `Mobile` slot change
       nothing and show no readout
 
 ## References

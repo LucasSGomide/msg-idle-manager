@@ -110,12 +110,12 @@ wait, and look at the pictures on each system.
       running game writes a new frame every 2 s; after minimising the window
       for 30 s the frames written during that time differ from each other
       (or the item's first Blocker is recorded as failed, with the files kept)
-- [ ] `(manual)` in the Windows VM with the same switch, the same check
+- [x] `(manual)` in the Windows VM with the same switch, the same check
       produces JPEG files that differ over 30 s minimised
-- [ ] `(manual)` on Linux, an account with keep-awake off keeps ticking in the
+- [x] `(manual)` on Linux, an account with keep-awake off keeps ticking in the
       repository's `vischeck` page while minimised after `set_watched(true)`
       is triggered from a debug key, and stops again after `set_watched(false)`
-- [ ] `(manual)` toggling keep-awake from a row's menu still reloads the page
+- [x] `(manual)` toggling keep-awake from a row's menu still reloads the page
       and the account behaves as item 04's test script describes
 
 ## References

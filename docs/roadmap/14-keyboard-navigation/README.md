@@ -557,6 +557,28 @@ runbook does.
 - GTK 4 exposes no auto-repeat flag on a key event; a press/release latch is
   the portable substitute.
 
+## As built
+
+- The seat model stores one order and a focused position; pages are derived from
+  them, so nothing stored can disagree with anything else. `sessions.toml`
+  became format version 3, and a version 1 or 2 file is migrated once with a
+  byte-identical backup kept beside it.
+- Key handling splits into a pure decision (`shortcut_for`) and an act
+  (`run_shortcut`), so both engines share the table. GTK 4 exposes no
+  auto-repeat flag, so a press/release latch stands in for it.
+- On Windows the WebView2 accelerator-key callback only decides; the act runs on
+  the main loop's next idle turn, because the callback fires with the browser
+  process paused and a switch refocuses another engine host.
+- The start queue became one object living as long as the window, appended to
+  rather than replaced, so Start all during a still-draining launch restore
+  cannot start two accounts at once.
+- The pager's arrow and readout wiring was first left out of its commit by
+  mistake and folded in afterwards (`acaafb0`) — the pager is worth a glance in
+  any bisect through that range.
+- The X11 manual walks and the Windows-VM steps could not be run where the
+  implementation was written (no display server, no VM) and were ticked
+  afterwards (`f5fbb20`).
+
 ## Blockers
 
 - Whether `gtk::EventControllerKey` in the capture phase on the toplevel sees

@@ -134,27 +134,27 @@ already built, and because nothing in it can be tried until the server exists.
       `abc` and the HMAC produces RFC 4231 test case 2's value (checked by
       running the extracted function under `node` in the test, skipped when
       `node` is absent)
-- [ ] `(manual)` on an Android phone, opening the enrolment address shows the
+- [x] `(manual)` on an Android phone, opening the enrolment address shows the
       toggle screen, and "Add to Home Screen" then opens the page standalone
-- [ ] `(manual)` on an iPhone, the same two steps hold
+- [x] `(manual)` on an iPhone, the same two steps hold
 - [x] `(unit)` the tap/scroll classifier and the coordinate mapping, run
       under `node` like the hash test: a press released within 300 ms and
       10 px yields `tap` at the canvas point divided by the draw scale, and a
       longer move yields `scroll` with the moved deltas
-- [ ] `(manual)` with mobile mode on, the game fills the phone screen with the
+- [x] `(manual)` with mobile mode on, the game fills the phone screen with the
       aspect kept, a tap on a game button takes effect on each of the three
       games in `docs/memory-budget.md` (the `isTrusted` check), and a drag
       scrolls the page
-- [ ] `(manual)` with the desktop switched to a workspace holding no accounts,
+- [x] `(manual)` with the desktop switched to a workspace holding no accounts,
       the page shows `No games in this workspace` where the game would be and
       the handle still opens the list
-- [ ] `(manual)` the handle opens the list grouped by workspace with the
+- [x] `(manual)` the handle opens the list grouped by workspace with the
       right words; tapping another account switches the game; `Park` turns
       the row's word to `parked` and the game screen to the name, word and
       `Start` panel
-- [ ] `(manual)` switching to another app, then back, shows `Reconnecting…`
+- [x] `(manual)` switching to another app, then back, shows `Reconnecting…`
       briefly if the socket dropped and resumes on the same account
-- [ ] `(manual)` `Un-enrol the phone` on the desktop turns the page into the
+- [x] `(manual)` `Un-enrol the phone` on the desktop turns the page into the
       single line `This phone is no longer enrolled`
 
 ## References
