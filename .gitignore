@@ -2,10 +2,21 @@
 /target
 *.profraw
 
-# Temporary: the reboot/Google-auth investigation handover. Not part of the
-# planning docs and never committed — it names live profile paths and is a
-# scratch record, deleted once the diagnosis lands.
+# A session's hand-over note. Not part of the planning docs and never
+# committed — it names live profile paths and is a scratch record.
 /docs/handover.md
+
+# The pre-publication audit (docs/prompts/15). It locates personal data by
+# file and commit, so it stays on this machine.
+/docs/public-release-audit.md
 
 # Windows release zips; shared into the Windows VM as drive Z: (docs/windows-vm.md).
 /dist
+
+# Editor and OS files.
+.idea/
+.vscode/
+*.swp
+*~
+.DS_Store
+Thumbs.db
