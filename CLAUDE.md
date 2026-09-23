@@ -1,3 +1,8 @@
+The hooks, settings and `/msg-*` skills named below live in a `.claude/` folder
+that is private to the maintainer and not part of this repository. Without them,
+the rules below are conventions to follow by hand; `make roadmap-sync` and
+`make roadmap-check` work either way.
+
 <!-- msg-roadmap:start -->
 
 ## Planning workflow
