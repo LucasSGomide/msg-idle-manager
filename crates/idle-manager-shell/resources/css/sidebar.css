@@ -1,10 +1,12 @@
 /* Sidebar row status marker (design rule 1, roadmap item 11's redesign): a
- * shape per state, not colour alone, so the mark still tells current from
- * background from parked at 10 px and for a colour-blind reader. The four
- * shapes sit as named pages of one `GtkStack` (`session_sidebar/imp.rs`
- * `build_row_widgets`) — a filled dot or a ring share the `"dot"` page and
- * one CSS class toggled per bind, `"parked"`/`"queued"`/`"starting"` are
- * their own pages with a fixed class each. Only the current row's dot
+ * shape per state, not colour alone, so the mark still tells parked/starting/
+ * queued apart for a colour-blind reader — reverted by owner feedback
+ * 2026-09-22 for `background`, which reads better as the original filled
+ * dot than as a ring; only `parked`/`starting`/`queued` still change shape.
+ * Those three sit as named pages of one `GtkStack`
+ * (`session_sidebar/imp.rs` `build_row_widgets`) sized to match the dot at
+ * 10 px (`Image::set_pixel_size`, `Spinner`'s own width/height request); the
+ * dot page's own class is toggled per bind. Only the current row's dot
  * glows. */
 
 .status-dot {
@@ -27,11 +29,10 @@
   background-color: #33d17a;
 }
 
-/* Running out of sight: a ring, amber — a shape distinct from the filled
- * dot above it, not only a different colour (design rule 1). */
+/* Running out of sight: a filled dot, amber — colour is what separates it
+ * from the green states and the grey/purple icons either side of it. */
 .status-dot.status-background {
-  background-color: transparent;
-  border: 2px solid #f5c211;
+  background-color: #f5c211;
 }
 
 /* Parked: not running at all. A pause icon, grey — the mark for a state
@@ -57,13 +58,15 @@
   color: #62a0ea;
 }
 
-/* The focused row's 3 px bar (design rule 26), in the theme's own selection
- * colour — the row-side half of the same claim the focused slot's outline
- * makes in the grid. Hidden (zero width) on every row but `current`. */
+/* The focused row's 3 px bar (design rule 26): the same neutral foreground
+ * tint `session_grid/imp.rs`'s focused-slot outline uses, not a named theme
+ * colour — reverted by owner feedback 2026-09-22, which found the theme's
+ * blue selection colour too loud for a mark that sits beside a status dot
+ * on every row. Hidden (zero width) on every row but `current`. */
 .focus-bar {
   min-width: 3px;
   margin-right: 3px;
-  background-color: @theme_selected_bg_color;
+  background-color: alpha(currentColor, 0.55);
 }
 
 /* A row's or heading's ⋯ menu button stays in the tree always, opacity-
@@ -82,15 +85,6 @@
   opacity: 1;
 }
 
-/* Keep-awake indication (design rule 6, roadmap item 11's redesign: an icon
- * now, not a glyph). Quieter than every status-mark rule above and never
- * glows: it marks a configuration nobody is about to change, not a state
- * the mark beside it is already carrying. */
-.keep-awake-mark {
-  opacity: 0.55;
-  margin-right: 2px;
-}
-
 /* Window-level message strip (design rule 9): one line under the header bar,
  * spanning the sidebar and the grid, for something that happened before the
  * user acted. Tinted with the theme's warning colour so it reads as "attention,
@@ -99,15 +93,6 @@
   padding: 6px 8px;
   background-color: alpha(@warning_color, 0.15);
   border-bottom: 1px solid alpha(@warning_color, 0.4);
-}
-
-/* Keep-awake indication (design rule 6). Quieter than every status-dot rule
- * above and never glows: it marks a configuration nobody is about to change,
- * not a state the dot beside it is already carrying. */
-.keep-awake-mark {
-  font-size: 0.75em;
-  opacity: 0.45;
-  margin-right: 2px;
 }
 
 /* The sidebar's memory footer (item 05, design rule 11). Separated from the

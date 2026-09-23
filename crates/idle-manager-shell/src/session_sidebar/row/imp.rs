@@ -69,8 +69,8 @@ pub struct Row {
     is_current: Cell<bool>,
     /// Whether this row is the dim "No accounts" leaf under an empty
     /// workspace rather than a real account (roadmap item 11). The factory
-    /// reads this to hide the status mark, the keep-awake icon and the ⋯
-    /// menu, and to keep the row from being activated.
+    /// reads this to hide the status mark and the ⋯ menu, and to keep the
+    /// row from being activated.
     #[property(get, set)]
     is_placeholder: Cell<bool>,
 }

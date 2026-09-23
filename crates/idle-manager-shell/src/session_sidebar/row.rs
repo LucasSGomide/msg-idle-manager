@@ -67,9 +67,9 @@ impl Row {
     }
 
     /// The dim, insensitive "No accounts" leaf shown under a named workspace
-    /// that holds nothing, once expanded. Carries no account id, no mark, no
-    /// menu and no keep-awake mark; [`Row::is_placeholder`] is what the
-    /// factory reads to hide those widgets and skip activation.
+    /// that holds nothing, once expanded. Carries no account id, no mark and
+    /// no menu; [`Row::is_placeholder`] is what the factory reads to hide
+    /// those widgets and skip activation.
     pub(crate) fn placeholder() -> Self {
         glib::Object::builder()
             .property("id", "")

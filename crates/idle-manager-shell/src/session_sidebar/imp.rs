@@ -477,20 +477,13 @@ fn row_factory(sidebar: &super::SessionSidebar) -> gtk::SignalListItemFactory {
         let Some(name) = mark_stack.next_sibling().and_downcast::<gtk::Label>() else {
             return;
         };
-        let Some(keep_awake_mark) = name.next_sibling().and_downcast::<gtk::Image>() else {
-            return;
-        };
-        let Some(settings) = keep_awake_mark
-            .next_sibling()
-            .and_downcast::<gtk::MenuButton>()
-        else {
+        let Some(settings) = name.next_sibling().and_downcast::<gtk::MenuButton>() else {
             return;
         };
         let widgets = RowWidgets {
             focus_bar,
             mark_stack,
             name,
-            keep_awake_mark,
             settings,
         };
 
@@ -510,14 +503,13 @@ fn row_factory(sidebar: &super::SessionSidebar) -> gtk::SignalListItemFactory {
     factory
 }
 
-/// The five widgets every row's box holds, leading edge first then trailing
+/// The four widgets every row's box holds, leading edge first then trailing
 /// order, found once per bind and handed to whichever branch binds them —
 /// kept under clippy's argument-count budget as one value.
 struct RowWidgets {
     focus_bar: gtk::Widget,
     mark_stack: gtk::Stack,
     name: gtk::Label,
-    keep_awake_mark: gtk::Image,
     settings: gtk::MenuButton,
 }
 
@@ -555,7 +547,6 @@ fn bind_heading(
     widgets.name.set_tooltip_text(Some(NEXT_WORKSPACE_TOOLTIP));
     widgets.focus_bar.set_visible(false);
     widgets.mark_stack.set_visible(false);
-    widgets.keep_awake_mark.set_visible(false);
     widgets.settings.set_visible(true);
 
     let shown = sidebar.upgrade().is_some_and(|sidebar| {
@@ -565,10 +556,10 @@ fn bind_heading(
 }
 
 /// Binds the account layout: the name markup, the leading mark's shape,
-/// class, hover text and accessible label, the focus bar, the keep-awake
-/// icon, and the ⋯ menu — or, for the dim "No accounts" placeholder, the
-/// name alone with everything else hidden and the row not activatable and
-/// not targetable by right-click or `Shift`+`F10` (design rule 21).
+/// class, hover text and accessible label, the focus bar, and the ⋯ menu —
+/// or, for the dim "No accounts" placeholder, the name alone with
+/// everything else hidden and the row not activatable and not targetable by
+/// right-click or `Shift`+`F10` (design rule 21).
 fn bind_account(
     item: &gtk::ListItem,
     account: &Row,
@@ -581,7 +572,6 @@ fn bind_account(
     if account.is_placeholder() {
         widgets.focus_bar.set_visible(false);
         widgets.mark_stack.set_visible(false);
-        widgets.keep_awake_mark.set_visible(false);
         widgets.settings.set_visible(false);
         return;
     }
@@ -616,7 +606,6 @@ fn bind_account(
         .mark_stack
         .update_property(&[gtk::accessible::Property::Label(state)]);
 
-    widgets.keep_awake_mark.set_visible(account.is_kept_awake());
     widgets.settings.set_visible(true);
     // Design rule 27: only the focused account's own menu shows the
     // Park/Start and Rename accelerators — `is-current`, not `status`, for
@@ -673,12 +662,15 @@ fn build_row_widgets() -> gtk::Box {
         .ellipsize(pango::EllipsizeMode::End)
         .build();
 
-    // The leading mark: one shape per state, design rule 1. A `GtkStack` so
-    // exactly one of the four pages shows at a time — a filled dot or a ring
-    // (`"dot"`, [`bind_account`] toggles which via a CSS class), a pause icon,
-    // a spinner, or a clock-like icon — without hiding and showing four
-    // separate siblings by hand. The `Img` role plus the accessible label set
-    // on every bind keep the state reachable to a screen reader.
+    // The leading mark: one shape per state for `parked`/`starting`/`queued`
+    // (design rule 1); `current`/`visible`/`background` share the plain dot,
+    // coloured only (owner feedback 2026-09-22 dropped `background`'s ring in
+    // favour of its original filled dot). A `GtkStack` so exactly one of the
+    // four pages shows at a time without hiding and showing four separate
+    // siblings by hand. Every page is sized to match the dot's 10 px, so the
+    // mark never grows or shrinks the row when its state changes. The `Img`
+    // role plus the accessible label set on every bind keep the state
+    // reachable to a screen reader.
     let mark_stack = gtk::Stack::builder()
         .valign(gtk::Align::Center)
         .accessible_role(gtk::AccessibleRole::Img)
@@ -693,30 +685,22 @@ fn build_row_widgets() -> gtk::Box {
     mark_stack.add_named(&dot, Some("dot"));
 
     let pause = gtk::Image::from_icon_name("media-playback-pause-symbolic");
+    pause.set_pixel_size(10);
     pause.add_css_class("mark-parked");
     mark_stack.add_named(&pause, Some("parked"));
 
     let queued = gtk::Image::from_icon_name("document-open-recent-symbolic");
+    queued.set_pixel_size(10);
     queued.add_css_class("mark-queued");
     mark_stack.add_named(&queued, Some("queued"));
 
     let spinner = gtk::Spinner::builder()
-        .width_request(12)
-        .height_request(12)
+        .width_request(10)
+        .height_request(10)
         .spinning(true)
         .build();
     spinner.add_css_class("mark-starting");
     mark_stack.add_named(&spinner, Some("starting"));
-
-    // Hidden by default: shown only on a bind where the bound account's flag
-    // is on, so a recycled row never shows a stale mark left by whichever
-    // account it held before (code standards rule 18). An icon, not the
-    // diamond glyph this replaced, per the redesign's icon table.
-    let keep_awake_mark = gtk::Image::from_icon_name("view-pin-symbolic");
-    keep_awake_mark.set_valign(gtk::Align::Center);
-    keep_awake_mark.set_visible(false);
-    keep_awake_mark.set_tooltip_text(Some("Keeps running when hidden"));
-    keep_awake_mark.add_css_class("keep-awake-mark");
 
     // Always in the tree and always visible — `sidebar.css` opacity-hides it
     // until the row is hovered, keyboard-focused or its own popover is open
@@ -737,7 +721,6 @@ fn build_row_widgets() -> gtk::Box {
     row.append(&focus_bar);
     row.append(&mark_stack);
     row.append(&name);
-    row.append(&keep_awake_mark);
     row.append(&settings);
 
     wire_row_menu_gestures(&row, &settings);

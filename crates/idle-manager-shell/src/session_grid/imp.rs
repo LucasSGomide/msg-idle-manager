@@ -923,11 +923,11 @@ impl SessionGrid {
 
         let base = obj.color();
         let hairline = gdk::RGBA::new(base.red(), base.green(), base.blue(), 0.15);
-        // The focused slot's outline (design rule 26): the theme's own
-        // selection colour, not a tint of the plain foreground — a heavier,
-        // more legible claim on the one place the window is currently about.
-        let marker = selection_color(&*obj)
-            .unwrap_or_else(|| gdk::RGBA::new(base.red(), base.green(), base.blue(), 0.55));
+        // The focused slot's outline (design rule 26): the plain foreground
+        // tint, not a named theme colour — reverted by owner feedback
+        // 2026-09-22, which found the theme's blue selection colour too loud
+        // next to a game's own page. Widens to 3 px, unlike the tint itself.
+        let marker = gdk::RGBA::new(base.red(), base.green(), base.blue(), 0.55);
 
         for column in 1..columns {
             let x = width as f32 * column as f32 / columns as f32;
@@ -967,22 +967,6 @@ impl SessionGrid {
             );
         }
     }
-}
-
-/// The theme's own selection colour, `@theme_selected_bg_color` — `None` if
-/// the running theme never named it, which [`SessionGrid::draw_slot_lines`]
-/// falls back from (constraint 6: unverified on Windows, whether the shipped
-/// theme names it at all).
-///
-/// `StyleContext::lookup_color` is the only avenue gtk4-rs 4.10 offers for a
-/// *named* theme colour — the non-deprecated `Widget::color()` reads the
-/// plain foreground, not a specific palette entry — so this is the one place
-/// the deprecated call is still reached for, kept to this single line.
-#[allow(deprecated)]
-fn selection_color(widget: &impl IsA<gtk::Widget>) -> Option<gdk::RGBA> {
-    widget
-        .style_context()
-        .lookup_color("theme_selected_bg_color")
 }
 
 /// Draws `rect`'s four edges `thickness` pixels wide, inside the rectangle.

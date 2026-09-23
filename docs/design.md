@@ -9,23 +9,29 @@ preference, and the next person will not know whether to keep it.
 Numbered, because roadmap items cite them by number — renumbering breaks the
 citations, so append rather than reorder.
 
-1. **Mark a sidebar row's state with one leading mark whose shape and colour
-   both differ per state, and nothing else visible; carry the state word only
-   as the mark's tooltip and accessible label, and derive the mark's shape,
-   its CSS class and its hover text from a single status key in
-   `session_sidebar/row.rs` and `sidebar.css`.** The marker has to carry several
-   facts as the roadmap grows — visibility now, parked in item 03, unresponsive
-   in item 08 — so a key-per-state that the mark's shape, its CSS class *and*
-   its hover text all derive from keeps each new state one arm of one match,
-   never a fourth branch in the row factory; dropping the always-visible word
-   hands the trailing edge back the width a name was losing to it, and a
-   pointer or a screen reader still names the state on demand. A colour-only
-   dot fails at 10 px and for a colour-blind reader, and a shape costs the
-   trailing edge no extra width (roadmap item 11's redesign, `FR.25.3`). The
-   states this repo has so far: `current` (holds the focused slot) — a filled
-   dot, green, with a neon glow, name bold; `visible` (on screen, not focused)
-   — a filled dot, green, flat; `background` (running out of sight) — a ring,
-   amber, name dimmed to 55% alpha; `parked` (not running, whatever place it
+1. **Mark a sidebar row's state with one leading mark, colour always and
+   shape for the states that need it, and nothing else visible; carry the
+   state word only as the mark's tooltip and accessible label, and derive
+   the mark's shape, its CSS class and its hover text from a single status
+   key in `session_sidebar/row.rs` and `sidebar.css`.** The marker has to
+   carry several facts as the roadmap grows — visibility now, parked in
+   item 03, unresponsive in item 08 — so a key-per-state that the mark's
+   shape, its CSS class *and* its hover text all derive from keeps each new
+   state one arm of one match, never a fourth branch in the row factory;
+   dropping the always-visible word hands the trailing edge back the width a
+   name was losing to it, and a pointer or a screen reader still names the
+   state on demand. Shape earns its keep only where colour alone would
+   genuinely be lost — a state with no page to watch and no running process
+   reads differently in kind, not only in degree, from one still on screen —
+   so `parked`, `starting` and `queued` each get their own icon while
+   `current`, `visible` and `background` share the plain dot: owner feedback
+   2026-09-22 found `background`'s own ring shape read as a defect, not a
+   distinction, next to the plainer dot states either side of it, and it
+   reverted to a filled dot like them. The states this repo has so far:
+   `current` (holds the focused slot) — a filled dot, green, with a neon
+   glow, name bold; `visible` (on screen, not focused) — a filled dot,
+   green, flat; `background` (running out of sight) — a filled dot, amber,
+   name dimmed to 55% alpha; `parked` (not running, whatever place it
    still holds) — a pause icon, grey, name dimmed to 55% alpha; `starting`
    (unparked, no page painted yet) — a `GtkSpinner`, blue-tinted; `queued`
    (restored and waiting its turn in the start queue, item 07) — a clock icon,
@@ -93,22 +99,26 @@ citations, so append rather than reorder.
    that giving way costs the name only length, never legibility.** The name
    label is the row's only hexpanding child and already ellipsises with
    `pango::EllipsizeMode::End`, so it is the one part built to lose length;
-   every fact after it — the status dot, the keep-awake mark, the menu button —
-   keeps its full width and its full position, whatever the account
-   is called. But the sidebar's `width-request` is not a number fixed once and
-   forgotten: it is the trailing edge's total natural width plus enough room
-   left over for a short name to still render in full, and it is *derived*
-   from that edge, not the other way around. Item 04's keep-awake mark moved
-   it from 220 to 240 for exactly this reason — at 220 a four-letter name
-   collapsed to a bare ellipsis, which is the edge eating the name rather than
-   the name giving way to it. Then dropping the status word and the standalone
+   every fact after it — the status mark, the menu button — keeps its full
+   width and its full position, whatever the account is called. But the
+   sidebar's `width-request` is not a number fixed once and forgotten: it is
+   the trailing edge's total natural width plus enough room left over for a
+   short name to still render in full, and it is *derived* from that edge,
+   not the other way around. Item 04's keep-awake mark moved it from 220 to
+   240 for exactly this reason — at 220 a four-letter name collapsed to a
+   bare ellipsis, which is the edge eating the name rather than the name
+   giving way to it. Then dropping the status word and the standalone
    action button (rules 1, 2) shrank the edge and the check ran the other way:
    240 to 150, settled by eye with a three-letter name still rendering in full
    beside the dot. Roadmap item 11 turned the list into a two-level tree —
    indenting every account row under its workspace's heading — and moved it
    150 to 200, so an indented short name still rendered in full beside the dot
-   with the tree's own indent taken into account. The next item that changes a
-   trailing fact, or another level of indent, owes the same check: settle the
+   with the tree's own indent taken into account; the same item later dropped
+   the keep-awake mark from the row entirely (owner feedback 2026-09-22 found
+   it added nothing the row menu's own checkable item does not already say),
+   which only widens the margin the 200 px check already had. The next item
+   that changes a trailing fact, or another level of indent, owes the same
+   check: settle the
    width by eye, with a short name on screen, rather than let the name
    silently absorb — or keep paying for — a fact's cost.
 
@@ -401,17 +411,22 @@ citations, so append rather than reorder.
 
 26. **Name the focused account in the header's title widget and in the
     tooltip of every control that targets it, and mark the focused slot with
-    a 3 px outline and its row with a 3 px leading bar, both in the theme's
-    selection colour (`@theme_selected_bg_color`).** The window's keys and
-    buttons act on one account at a time, and the owner has to see which one
-    without hunting for it: the title reads `{account} · {workspace}` and
-    ellipsises at the end rather than pushing on the controls beside it
-    (rule 27), reload's tooltip names the account it would reload, and the
-    slot's own outline and the row's own bar both widen from the 2 px this
-    file described before this rule to 3 px, in the selection colour rather
-    than the plain foreground tint — a heavier, more legible claim on the one
-    place and the one row the window is currently about (roadmap item 11's
-    redesign).
+    a 3 px outline and its row with a 3 px leading bar, both in the same
+    neutral foreground tint the rest of the grid's own lines already use.**
+    The window's keys and buttons act on one account at a time, and the
+    owner has to see which one without hunting for it: the title reads
+    `{account} · {workspace}` and ellipsises at the end rather than pushing
+    on the controls beside it (rule 27), reload's tooltip names the account
+    it would reload, and the slot's own outline and the row's own bar both
+    widen from the 2 px this file described before this rule to 3 px — a
+    heavier, more legible claim on the one place and the one row the window
+    is currently about, from the width alone. A first pass drew both in the
+    theme's own selection colour (`@theme_selected_bg_color`); owner feedback
+    2026-09-22 found it too loud beside a game's own page and beside a
+    row's status dot, and both reverted to the plain foreground tint —
+    `alpha(currentColor, 0.55)` — that every other line in the grid and the
+    sidebar already draws in, so the width is what marks the focused place,
+    not a colour nothing else on screen uses (roadmap item 11's redesign).
 
 27. **Show a menu item's accelerator only where that key would actually do
     the same thing right now — the focused account's own menu, and the shown
