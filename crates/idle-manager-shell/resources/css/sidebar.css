@@ -23,12 +23,15 @@
 /* On screen and holding the focused slot: a filled dot, green, glowing. */
 .status-dot.status-current {
   background-color: #33d17a;
-  /* Scaled down with the dot itself, again — halved a second time from the
-   * 2px/0.5px and 4px/1px this glow used at the dot's 8 px round (owner
-   * feedback 2026-09-22, third pass). */
+  /* A soft halo a few px wide around the 4 px dot — obvious at a glance, not
+   * a hairline. The 1px/0.25px and 2px/0.5px pair this replaces (settled at
+   * the dot's 8 px round, owner feedback 2026-09-22) had halved along with
+   * the dot down to 4 px and stopped reading as a glow at all (confirmed
+   * headless, item 13: invisible against the sidebar background at that
+   * size). Re-measured bigger so it survives the dot's own shrink. */
   box-shadow:
-    0 0 1px 0.25px alpha(#33d17a, 0.9),
-    0 0 2px 0.5px alpha(#33d17a, 0.45);
+    0 0 3px 1px alpha(#33d17a, 0.9),
+    0 0 6px 2px alpha(#33d17a, 0.5);
 }
 
 /* On screen but not focused: a filled dot, green, calm. */

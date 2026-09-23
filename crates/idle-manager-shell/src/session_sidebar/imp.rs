@@ -667,10 +667,13 @@ fn build_row_widgets() -> gtk::Box {
     // coloured only (owner feedback 2026-09-22 dropped `background`'s ring in
     // favour of its original filled dot). A `GtkStack` so exactly one of the
     // four pages shows at a time without hiding and showing four separate
-    // siblings by hand. Every page is sized to match the dot's 10 px, so the
-    // mark never grows or shrinks the row when its state changes. The `Img`
-    // role plus the accessible label set on every bind keep the state
-    // reachable to a screen reader.
+    // siblings by hand. Homogeneous by default, so the stack always allocates
+    // every page's combined footprint — the icon pages' own 10 px, not the
+    // dot's declared 4 — even while only one page shows, so the mark never
+    // grows or shrinks the row when its state changes; the dot page centres
+    // inside that larger box (its own `halign`/`valign`) instead of
+    // stretching to fill it. The `Img` role plus the accessible label set on
+    // every bind keep the state reachable to a screen reader.
     let mark_stack = gtk::Stack::builder()
         .valign(gtk::Align::Center)
         .accessible_role(gtk::AccessibleRole::Img)
@@ -681,10 +684,17 @@ fn build_row_widgets() -> gtk::Box {
     // edge, while a symbolic icon's glyph sits inside a small margin baked
     // into the icon itself, so the two never read as the same size at equal
     // declared dimensions. Settled here after two rounds of owner feedback
-    // (10 → 8 → 4 px, 2026-09-22).
+    // (10 → 8 → 4 px, 2026-09-22). `halign`/`valign` Center, not the default
+    // Fill: the stack is homogeneous (every page shares its allocation, so a
+    // state change never resizes the row) and the icon pages' own rendered
+    // footprint is wider than their 10 px `pixel_size` request, so without
+    // centring the dot stretched to fill that larger box and rendered at
+    // ~14 px on screen instead of its declared 4 (measured headless, item 13).
     let dot = gtk::Box::builder()
         .width_request(4)
         .height_request(4)
+        .halign(gtk::Align::Center)
+        .valign(gtk::Align::Center)
         .build();
     dot.add_css_class("status-dot");
     mark_stack.add_named(&dot, Some("dot"));
