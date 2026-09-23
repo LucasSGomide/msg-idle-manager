@@ -9,23 +9,27 @@ preference, and the next person will not know whether to keep it.
 Numbered, because roadmap items cite them by number — renumbering breaks the
 citations, so append rather than reorder.
 
-1. **Mark a sidebar row's state with one coloured dot and nothing else visible;
-   carry the state word only as the dot's tooltip and accessible label, and
-   derive dot class and hover text from a single status key in
+1. **Mark a sidebar row's state with one leading mark whose shape and colour
+   both differ per state, and nothing else visible; carry the state word only
+   as the mark's tooltip and accessible label, and derive the mark's shape,
+   its CSS class and its hover text from a single status key in
    `session_sidebar/row.rs` and `sidebar.css`.** The marker has to carry several
    facts as the roadmap grows — visibility now, parked in item 03, unresponsive
-   in item 08 — so a key-per-state that the dot's CSS class *and* its hover text
-   both derive from keeps each new state one arm of one match, never a fourth
-   branch in the row factory; dropping the always-visible word hands the
-   trailing edge back the width a name was losing to it, and a pointer or a
-   screen reader still names the state on demand. The states this repo has so
-   far: `current` (holds the focused slot) — green dot with a neon glow, name
-   bold; `visible` (on screen, not focused) — green dot, flat; `background`
-   (running out of sight) — amber dot, flat, name dimmed to 55% alpha; `parked`
-   (not running, whatever place it still holds) — grey dot, flat, name dimmed to
-   55% alpha; `starting` (unparked, no page painted yet) — blue dot, flat;
-   `queued` (restored and waiting its turn in the start queue, item 07) — purple
-   dot, flat, name dimmed to 55% alpha. The glow is `current`'s alone: it marks
+   in item 08 — so a key-per-state that the mark's shape, its CSS class *and*
+   its hover text all derive from keeps each new state one arm of one match,
+   never a fourth branch in the row factory; dropping the always-visible word
+   hands the trailing edge back the width a name was losing to it, and a
+   pointer or a screen reader still names the state on demand. A colour-only
+   dot fails at 10 px and for a colour-blind reader, and a shape costs the
+   trailing edge no extra width (roadmap item 11's redesign, `FR.25.3`). The
+   states this repo has so far: `current` (holds the focused slot) — a filled
+   dot, green, with a neon glow, name bold; `visible` (on screen, not focused)
+   — a filled dot, green, flat; `background` (running out of sight) — a ring,
+   amber, name dimmed to 55% alpha; `parked` (not running, whatever place it
+   still holds) — a pause icon, grey, name dimmed to 55% alpha; `starting`
+   (unparked, no page painted yet) — a `GtkSpinner`, blue-tinted; `queued`
+   (restored and waiting its turn in the start queue, item 07) — a clock icon,
+   purple, name dimmed to 55% alpha. The glow is `current`'s alone: it marks
    the one row you are looking at, not every row that is busy.
 
    **The ordering, now that there are six.** A key is chosen by walking a fixed
@@ -338,3 +342,100 @@ citations, so append rather than reorder.
     idempotent keys cannot. The heading menu's `Park all` / `Start all` were
     already a pair rather than a flip, and `Ctrl`+`Shift`+`P` /
     `Ctrl`+`Shift`+`S` follow them unchanged (`FR.26.4`).
+
+21. **Show a row's or heading's ⋯ menu button only on the row under the
+    pointer and on the selected row, and open the same menu from a right-click
+    or `Shift`+`F10` / `Menu` anywhere on the row.** The button sits in the
+    widget tree on every row, always — nothing is built or torn down on
+    hover — so revealing it is a CSS-driven opacity change on pointer-enter,
+    pointer-leave and selection that costs no relayout and moves no other
+    child on the row. A hover or a selection is what "the row under
+    discussion" means on a pointer or a keyboard alike, so the same three
+    routes — click the button, right-click, `Shift`+`F10` — all open the one
+    menu `bind_row_menu` / `bind_heading_menu` already builds; none of them is
+    a second path with its own idea of what the row offers (roadmap item 11's
+    redesign).
+
+22. **Put `Add account` at the top of the sidebar as its own full-width
+    button, first above the tree, and nowhere in the header bar.** Adding is
+    an action on the list beneath it, not a window-level command, so it
+    belongs where the list starts rather than at the header bar's end edge,
+    as far from the list as the window allowed before this rule. It keeps its
+    own accelerator (`Ctrl`+`N`) and needs no icon beyond `list-add-symbolic`
+    to be found (roadmap item 11's redesign).
+
+23. **Move an account between workspaces with a `Move to ▸` submenu in its own
+    ⋯ menu, never with a selection mode.** A mode is invisible until it is
+    found, and the common case is one account moving at a time — a submenu
+    reachable from the row already open for every other action costs the
+    reader nothing a separate mode would have saved, and removes a whole
+    state the window's keyboard shortcuts had to know to suspend. `Move to ▸`
+    lists every destination [`idle_manager_core::WorkspaceBook::destinations`]
+    offers for one account, the row's own containing workspace shown and
+    insensitive rather than omitted — an item with no bound action, which
+    `GtkPopoverMenu` already draws disabled — so the reader can see where the
+    account already is without it being a live choice, then a section break
+    and `New workspace…` (design rule 7), insensitive exactly as the
+    sidebar's old selection bar kept it, when `Destinations::can_create` says
+    no room exists (roadmap item 11's redesign, `FR.17.2`).
+
+24. **Draw an arrangement toggle as a picture of the arrangement it chooses —
+    nested boxes with a `currentColor` border, at 16 × 12 — and name its
+    chord in the tooltip, never a bare numeral.** `1`, `2` and `4` have to be
+    learned; a small drawing of one game, two side by side or four in a grid
+    does not, and it draws crisp at that size from plain `GtkBox` borders, so
+    it needs no bespoke icon asset and follows the toggle's own checked
+    colour in light and dark themes for free. `Phone` keeps
+    `phone-symbolic`, which already reads as a picture (roadmap item 11's
+    redesign).
+
+25. **Put a control that acts on the sidebar — the toggle that shows or hides
+    it, the button that reloads its focused account's page — at the header
+    bar's start edge, directly above the sidebar, in that order.** A toggle
+    sits next to what it toggles, and reload acts on the one account the
+    sidebar is currently pointing at; grouping both at the edge nearest the
+    pane they govern reads as one cluster of "controls about the list,"
+    never scattered across the header bar the way the window's earlier
+    header put reload at the start and the toggle at the end (roadmap
+    item 11's redesign).
+
+26. **Name the focused account in the header's title widget and in the
+    tooltip of every control that targets it, and mark the focused slot with
+    a 3 px outline and its row with a 3 px leading bar, both in the theme's
+    selection colour (`@theme_selected_bg_color`).** The window's keys and
+    buttons act on one account at a time, and the owner has to see which one
+    without hunting for it: the title reads `{account} · {workspace}` and
+    ellipsises at the end rather than pushing on the controls beside it
+    (rule 27), reload's tooltip names the account it would reload, and the
+    slot's own outline and the row's own bar both widen from the 2 px this
+    file described before this rule to 3 px, in the selection colour rather
+    than the plain foreground tint — a heavier, more legible claim on the one
+    place and the one row the window is currently about (roadmap item 11's
+    redesign).
+
+27. **Show a menu item's accelerator only where that key would actually do
+    the same thing right now — the focused account's own menu, and the shown
+    workspace's own heading menu — and leave it off every other row's menu.**
+    A row's Park/Start item already only ever shows the one accelerator that
+    is not inert on it (design rules 19, 20); this rule is the same reasoning
+    carried to which *row* gets an accelerator printed at all. `Ctrl`+`P`
+    beside a row that is not focused would teach the reader the wrong key —
+    that chord acts on the focused account, whichever row that is — so
+    `bind_row_menu` sets `action-accelerator` only for the row the sidebar
+    currently marks `current`, and `bind_heading_menu` sets `Park all` /
+    `Start all`'s accelerators only for the heading of the shown workspace
+    (roadmap item 11's redesign).
+
+28. **Give no text-bearing widget in the redesigned screens a fixed width; let
+    a label ellipsise at its end and let a dialog carry a minimum width and
+    grow to its content instead.** pt-BR runs up to 35% longer than English
+    for the same sentence, and a width fixed in pixels or characters is
+    exactly where that growth breaks a layout — a button clipping its own
+    label, a dialog cutting off a sentence a language never gets to finish.
+    Every screen this file's rules describe already ellipsises the sidebar's
+    account and workspace names (rule 6) and sizes a dialog to its content
+    (rules 7, 8); this rule makes that the standard for anything this
+    redesign touches, not a property of the two screens that happened to need
+    it first, so the string table a later translation lands under this
+    project's structure finds nothing here left to undo (roadmap item 11's
+    redesign).
