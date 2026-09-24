@@ -16,7 +16,15 @@
 # one is installed and nothing set NODE_BIN; a system node already on PATH is
 # untouched.
 NODE_BIN ?= $(lastword $(sort $(wildcard $(HOME)/.nvm/versions/node/*/bin)))
-export PATH := $(HOME)/.cargo/bin$(if $(NODE_BIN),:$(NODE_BIN)):$(PATH)
+#
+# `clang-cl` and `lld-link` (roadmap item 16) have the same problem in another
+# shape: Ubuntu's `clang`/`lld`/`llvm` packages put only versioned names on
+# PATH and keep the plain ones in `/usr/lib/llvm-<N>/bin`. Add the newest of
+# those, so CI and a fresh machine need no profile edit; override LLVM_BIN for
+# an LLVM unpacked elsewhere. `vpk` is a .NET global tool, which lands in
+# ~/.dotnet/tools and is only on PATH once the .NET profile script has run.
+LLVM_BIN ?= $(lastword $(sort $(wildcard /usr/lib/llvm-*/bin)))
+export PATH := $(HOME)/.cargo/bin$(if $(NODE_BIN),:$(NODE_BIN))$(if $(LLVM_BIN),:$(LLVM_BIN)):$(HOME)/.dotnet/tools:$(PATH)
 
 CARGO ?= cargo
 PACKAGE := idle-manager
@@ -40,7 +48,7 @@ WINDOWS_CRT_DIR := target/windows-sdk/crt
 .DEFAULT_GOAL := help
 
 .PHONY: help bootstrap system-check dev run watch build release check fmt fmt-check lint \
-        test doc audit arch-check windows-check windows-build windows-package verify clean \
+        test doc audit arch-check windows-check windows-build windows-package linux-package verify clean \
         memory-report release-version release-notes release-prepare release-tools-test
 
 help:  ## list every target
@@ -151,23 +159,38 @@ $(WINDOWS_PKG_CONFIG):
 	@printf '#!/bin/sh\nexec pkg-config --define-prefix "$$@"\n' > $@
 	@chmod +x $@
 
-windows-check: system-check $(WINDOWS_PKG_CONFIG)  ## type-check and lint the Windows build from Linux
+windows-check: $(WINDOWS_PKG_CONFIG)  ## type-check and lint the Windows build from Linux
+	@./scripts/system-check.sh clang-cl lld-link
+	# `cargo xwin clippy`, not plain `cargo clippy --target`: the update crate's
+	# `velopack` dependency reaches `ring` (roadmap item 16 task 03), whose build
+	# script compiles C and needs the MSVC headers `cargo xwin` downloads and
+	# points a real cross C compiler (`clang-cl`, on `PATH`) at — plain clippy
+	# never sets either up.
 	PKG_CONFIG_ALLOW_CROSS=1 PKG_CONFIG_PATH=$(abspath $(WINDOWS_SDK_DIR))/lib/pkgconfig PKG_CONFIG=$(abspath $(WINDOWS_PKG_CONFIG)) \
-		$(CARGO) clippy --workspace --all-targets --target $(WINDOWS_TARGET) -- --deny warnings
+		$(CARGO) xwin clippy --workspace --all-targets --target $(WINDOWS_TARGET) -- --deny warnings
 
 # PROFILE=release for an optimised build, e.g. `make windows-build PROFILE=release`.
 windows-build: $(WINDOWS_PKG_CONFIG)  ## cross-compile idle-manager.exe into dist/idle-manager-dev/
+	@./scripts/system-check.sh clang-cl lld-link
 	PKG_CONFIG_ALLOW_CROSS=1 PKG_CONFIG_PATH=$(abspath $(WINDOWS_SDK_DIR))/lib/pkgconfig PKG_CONFIG=$(abspath $(WINDOWS_PKG_CONFIG)) \
 		$(CARGO) xwin build --locked --target $(WINDOWS_TARGET) -p $(PACKAGE) $(if $(filter release,$(PROFILE)),--release)
 	@mkdir -p dist/idle-manager-dev
 	cp target/$(WINDOWS_TARGET)/$(if $(filter release,$(PROFILE)),release,debug)/idle-manager.exe dist/idle-manager-dev/
 	cp $(WINDOWS_SDK_DIR)/bin/*.dll dist/idle-manager-dev/
 
-windows-package: $(WINDOWS_PKG_CONFIG)  ## build the release exe and zip it with GTK's runtime parts for handing out
+windows-package: $(WINDOWS_PKG_CONFIG)  ## build the release exe and pack it into a Velopack portable zip for handing out
+	@./scripts/system-check.sh vpk
 	$(MAKE) windows-build PROFILE=release
 	WINDOWS_CRT_DIR=$(WINDOWS_CRT_DIR) WINDOWS_CRT_PACKAGE=$(WINDOWS_CRT_PACKAGE) ./scripts/windows-crt-fetch.sh
 	WINDOWS_SDK_DIR=$(WINDOWS_SDK_DIR) WINDOWS_TARGET=$(WINDOWS_TARGET) PACKAGE=$(PACKAGE) \
 		WINDOWS_CRT_DIR=$(WINDOWS_CRT_DIR) CARGO=$(CARGO) ./scripts/windows-package.sh
+
+# --- linux (roadmap item 16 task 03) -----------------------------------------
+
+linux-package:  ## build the release binary and pack it into an AppImage for handing out
+	@./scripts/system-check.sh vpk
+	$(MAKE) release
+	PACKAGE=$(PACKAGE) CARGO=$(CARGO) ./scripts/linux-package.sh
 
 # --- diagnosis --------------------------------------------------------------
 

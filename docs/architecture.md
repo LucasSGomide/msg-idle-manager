@@ -14,7 +14,7 @@ crate is written is in [`code-standards.md`](code-standards.md).
 
 ## The shape
 
-One binary, six crates, one direction of dependency.
+One binary, seven crates, one direction of dependency.
 
 ```
                         ┌─────────────────────────────┐
@@ -44,11 +44,33 @@ One binary, six crates, one direction of dependency.
 
 Arrows are "depends on". There is no arrow back up, and none sideways.
 
-Two of the four adapters *drive* the application — the shell from the desktop's
-own window, the remote crate from a phone on the network — and both do it the
-same way: they turn what the user did into a domain intent and render the state
-the domain answers with (rule 8). The other two are driven: the store and
-metrics answer when asked.
+Two of the four adapters above *drive* the application — the shell from the
+desktop's own window, the remote crate from a phone on the network — and both
+do it the same way: they turn what the user did into a domain intent and
+render the state the domain answers with (rule 8). The other two are driven:
+the store and metrics answer when asked.
+
+A seventh crate hangs off the binary alone, fitting neither pattern:
+
+```
+                        ┌─────────────────────────────┐
+                        │        idle-manager         │
+                        └──────────────┬──────────────┘
+                                       ▼
+                      ┌──────────────────────────────┐
+                      │      idle-manager-update      │
+                      │ Velopack's install/update     │
+                      │ hooks, called before anything │
+                      │ else exists (roadmap item 16) │
+                      └──────────────────────────────┘
+```
+
+`idle-manager-update` neither drives nor is driven: it is the hook Velopack's
+own helper restarts the program into mid-swap, run as the very first statement
+of `main`, before the renderer choice, before tracing, before any store is
+opened (code standards rule 18). It is the one crate in the workspace allowed
+to depend on Velopack, the same way `idle-manager-metrics` is the one crate
+allowed to depend on `/proc` (rules 2–4).
 
 ## Rules
 
@@ -152,6 +174,9 @@ idle-manager/
 │   ├── idle-manager-remote/         the phone server (roadmap item 13): the
 │   │   ├── assets/phone.html         second driving adapter, on std threads
 │   │   └── src/                      and sockets, depending on the core alone
+│   ├── idle-manager-update/         Velopack's install/update hooks (roadmap
+│   │   └── src/lib.rs                item 16): the one crate allowed to know
+│   │                                 Velopack exists
 │   └── idle-manager-shell/
 │       ├── build.rs                 compiles resources/ into a GResource
 │       ├── resources/
@@ -184,5 +209,6 @@ idle-manager/
 | Anything naming `WebKitGTK` or `WebView2` directly | `idle-manager-shell/src/web_engine/` (roadmap item 12) |
 | A word the phone and the desktop exchange, or the policy that reads it | `idle-manager-core/src/remote.rs` |
 | Anything that opens a socket, speaks HTTP or WebSocket, or encodes a frame | `idle-manager-remote` (roadmap item 13) |
+| Anything naming `Velopack` directly, or the install/update hooks | `idle-manager-update` (roadmap item 16) |
 | Knowing which adapter is used | `crates/idle-manager/src/main.rs` |
 | A game's starting URL, user agent or zoom | `presets/<game>.toml` |

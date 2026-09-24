@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=Idle Manager
+Comment=Keep several browser idle games running at once, in one window
+Exec=idle-manager
+Icon=idle-manager
+Terminal=false
+Categories=Game;

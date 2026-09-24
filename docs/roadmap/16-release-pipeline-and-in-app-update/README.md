@@ -554,20 +554,35 @@ both systems.
   not install it by default, is not verified (exploration section 4). The
   fallback is a plain tarball of the binary swapped with `self-replace`, which
   the exploration found safe for a single Linux binary.
-- **Whether `clang-cl` and `lld-link` are on `PATH` on the runner** after `apt
-  install clang lld llvm` is not verified (exploration section 3); `ring`'s
-  build script names `clang-cl` explicitly. Locally neither is installed
-  (`make bootstrap` today installs no system packages, `Makefile`).
-- **The repository has no icon and no `.desktop` file** (exploration section
-  4 and the missing-files list), and `vpk [linux] pack` needs both to write an
-  AppImage. A plain 256 px PNG and a two-line desktop file are made in the
-  packaging task; a designed icon is not this item's job.
+- **Resolved (task 03, 2026-09-24): `apt install clang lld llvm` alone does
+  not put `clang-cl`/`lld-link`/`llvm-lib` on `PATH`.** Ubuntu's packages
+  place only the *versioned* names (`clang-cl-21`, `lld-link-21`,
+  `llvm-lib-21`, …) in `/usr/bin`; the unversioned names `cargo xwin` looks
+  for live in `/usr/lib/llvm-<N>/bin`, which the runner (and any developer
+  machine) must add to `PATH` itself — `scripts/system-check.sh`'s
+  missing-tool message now prints the exact line
+  (`docs/stack.md`'s "Cross-compiling" section has the full account,
+  including that `lld-link` actually comes free from the pinned Rust
+  toolchain's own bundled `rust-lld` and only `clang` and `llvm-lib` need a
+  real install). Confirmed by cross-compiling and linking the real release
+  binary (`cargo xwin build --release`) with no other change.
+- **The repository has no icon and no `.desktop` file — resolved (task 03).**
+  `release/idle-manager.png` (a plain, generated 256 px placeholder — a
+  designed icon is still not this item's job) and
+  `release/idle-manager.desktop` now exist and are staged into the AppImage
+  by `scripts/linux-package.sh`.
 - **The repository must be public** for the unauthenticated release check and
   for free runner minutes; `docs/prompts/15-audit-the-repository-before-making-it-public.md`
   has not been executed and `docs/public-release-audit.md` is git-ignored.
-- **Velopack's `--noDelta` and the exact `vpk` flags for a Linux pack from a
-  bare folder** are read from its documentation, not run here; the packaging
-  task pins them.
+- **Resolved (task 03): the exact `vpk` flags for both platforms.** The
+  installed `vpk` 1.2.158 has no `--noDelta` flag at all — the exploration's
+  own notes predate a CLI rename to `--delta <MODE>`, disabled with `--delta
+  None`. Both `vpk [win] pack` and `vpk [linux] pack` (the bracketed
+  directive is literal CLI syntax, confirmed by `vpk`'s own
+  `[15:08:06 INF] Directive enabled for cross-compiling from Linux (current
+  os) to Windows.` log line) were run for real against the project's own
+  release binaries; `scripts/windows-package.sh` and `scripts/linux-package.sh`
+  carry the flags that worked.
 - **`Update.exe` kills the app 60 s after asking it to exit.** Closing four
   web views on the Windows engine has never been timed against that
   (`crates/idle-manager-shell/src/window/imp.rs` `connect_close_request`,

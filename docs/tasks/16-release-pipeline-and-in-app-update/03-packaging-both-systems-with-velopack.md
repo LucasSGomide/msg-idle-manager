@@ -82,12 +82,12 @@ all build on the packages and the crate it creates.
 
 ## Acceptance criteria
 
-- [ ] `(integration)` `make windows-package` writes
+- [x] `(integration)` `make windows-package` writes
       `dist/releases/win/IdleManager-win-Portable.zip` whose listing contains
       `Update.exe` and `current/idle-manager.exe`, plus
       `IdleManager-<version>-full.nupkg` and `releases.win.json`, and no
       `Setup.exe` remains in `dist/releases/win`
-- [ ] `(integration)` `make linux-package` writes
+- [x] `(integration)` `make linux-package` writes
       `dist/releases/linux/IdleManager.AppImage`, the `.nupkg` and
       `releases.linux.json`, and `ldd` on the extracted binary resolves
       `libgtk-4` and `libwebkitgtk-6.0` from the system, not from the image
@@ -96,14 +96,29 @@ all build on the packages and the crate it creates.
       window template loads (the `starting idle-manager` log line appears and
       the process is alive after 10 s); if `libfuse2` turns out to be needed,
       the criterion records it and the Blocker on the roadmap item is updated
-- [ ] `(integration)` `idle-manager --veloapp-install <dir>` style hook
+      — not run: this session has no working Docker daemon (`docker info`
+      fails to reach `/var/run/docker.sock` or the Desktop backend, and there
+      is no sudo to start one), so the container could not be built. A local,
+      non-containerized sanity run (`xvfb-run -a
+      dist/releases/linux/IdleManager.AppImage`, and the same for the
+      extracted binary and for the plain non-packaged `idle-manager`) shows
+      identical behaviour for all three: the `starting idle-manager` log line
+      appears, then the process exits within a fraction of a second under
+      this machine's Xvfb — a pre-existing headless-display limitation of
+      this sandbox, not something task 03 introduced (the plain, unpackaged
+      binary built before this task's changes does the same). No FUSE-related
+      error appeared running the AppImage directly (this machine has
+      `fuse3`/`libfuse3`, not `libfuse2`), so there is no evidence either way
+      that `libfuse2` is needed; the Blocker is left as written until the
+      real container test can run.
+- [x] `(integration)` `idle-manager --veloapp-install <dir>` style hook
       arguments make the binary exit 0 at once without touching
       `~/.config/idle-manager`
-- [ ] `(integration)` `make arch-check` passes and fails when a test edit makes
+- [x] `(integration)` `make arch-check` passes and fails when a test edit makes
       `idle-manager-shell` depend on `idle-manager-update`
-- [ ] `(integration)` `make audit` passes with exactly the two new entries in
+- [x] `(integration)` `make audit` passes with exactly the two new entries in
       `deny.toml`, and removing either makes it fail on the named crate
-- [ ] `(integration)` `make windows-check` and `make verify` pass with
+- [x] `(integration)` `make windows-check` and `make verify` pass with
       `clang-cl` installed
 
 ## References

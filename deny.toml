@@ -18,6 +18,15 @@ ignore = [
   # `x86_64-unknown-linux-gnu` we do need for our real, `webkit6`-based
   # dependencies). No upgrade exists (the advisory's own "Solution" line).
   "RUSTSEC-2024-0370",
+  # RUSTSEC-2024-0388 (`derivative` unmaintained). Reached through
+  # `velopack` 1.2.158 (roadmap item 16 task 03, the crate that owns
+  # packaging and the in-app update, the one place allowed to depend on it) →
+  # `derivative`, one of Velopack's own direct dependencies. No upgrade
+  # exists (the advisory's own "Solution" line: "No safe upgrade is
+  # available!") and it is Velopack's choice to make, not ours. Remove this
+  # entry the release a Velopack bump drops `derivative` from its own
+  # dependency tree.
+  "RUSTSEC-2024-0388",
 ]
 
 [licenses]
@@ -33,6 +42,12 @@ allow = [
   "Apache-2.0 WITH LLVM-exception",
   "BSD-2-Clause",
   "BSD-3-Clause",
+  # Community Data License Agreement Permissive 2.0: permissive, attribution
+  # only. Carried by `webpki-roots`, reached through `velopack` 1.2.158
+  # (roadmap item 16 task 03) → `ureq` → `webpki-roots`, one of `ureq`'s own
+  # TLS root-certificate dependencies. Remove this entry the release a
+  # Velopack bump drops `webpki-roots` from its own dependency tree.
+  "CDLA-Permissive-2.0",
   # The Independent JPEG Group licence: BSD-style, attribution only. Carried by
   # `jpeg-encoder` (roadmap item 13), which is `(MIT OR Apache-2.0) AND IJG`
   # because its quantisation tables and DCT are ported from libjpeg.

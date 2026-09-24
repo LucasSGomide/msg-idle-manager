@@ -62,6 +62,14 @@ const RENDERER_ENV: &str = "GSK_RENDERER";
 const RENDERER: &str = "opengl";
 
 fn main() -> ExitCode {
+    // Velopack's helper restarts this same binary with hook arguments during
+    // an install, an update or an uninstall and expects it to exit at once,
+    // before the window, the tracing subscriber or any store exists (code
+    // standards rule 18; roadmap item 16 task 03). This must be the first
+    // statement in `main` so an ordinary launch is the only path that reaches
+    // anything below it.
+    idle_manager_update::run_hooks();
+
     #[cfg(target_os = "linux")]
     let renderer_error = select_renderer();
 

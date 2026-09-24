@@ -1,9 +1,11 @@
 #!/usr/bin/env bash
-# Packs the optimised Windows program and the parts of GTK it needs at run time
-# into one zip anybody can unzip and double-click (roadmap item 12 task 08,
-# `FR.2.1`, `FR.3.4`).
+# Stages the optimised Windows program and the parts of GTK it needs at run
+# time, then hands the staged folder to Velopack's packer (roadmap item 16
+# task 03; before this, `FR.2.1`, `FR.3.4` were met with a plain zip — see
+# item 12 task 08 — Velopack now owns both the packaging and, from task 06
+# onward, the in-app update).
 #
-# What goes in, and why each part has to:
+# What goes into the staged folder, and why each part has to:
 #   idle-manager.exe                          the program itself
 #   *.dll                                     the GTK stack gvsbuild built
 #   vcruntime140.dll, msvcp140.dll, …         the Visual C++ runtime they all
@@ -13,14 +15,33 @@
 #   share/icons/{Adwaita,hicolor}             or every icon draws as a square
 #   lib/gdk-pixbuf-2.0/                       the image loaders, cache included
 #
-# The WebView2 runtime is deliberately *not* in the zip: Windows already ships
-# it, and bundling a second copy would be both large and wrong (task 08's own
-# context). `WebView2Loader.dll` is only carried if the executable actually
-# imports it — see the check below, which records the answer either way.
+# The WebView2 runtime is deliberately *not* staged: Windows already ships it,
+# and bundling a second copy would be both large and wrong (item 12 task 08's
+# own context). `WebView2Loader.dll` is only carried if the executable
+# actually imports it — see the check below, which records the answer either
+# way.
 #
-# The zip lands in `dist/`, which `scripts/windows-vm/compose.yml` bind-mounts
-# into the VM as drive `Z:`, so the file that gets handed out is the same file
-# that gets tested (`docs/windows-vm.md`).
+# `vpk [win] pack` (the `[win]` directive, not a placeholder — it tells
+# Velopack's CLI to cross-package for Windows from this Linux host) turns the
+# staged folder into `IdleManager-win-Portable.zip` (a small `Update.exe`
+# beside a `current/` folder holding the program — unzip anywhere, double
+# click, still no installer) plus the `.nupkg` and `releases.win.json` a later
+# task's update port reads. It also writes `IdleManager-win-Setup.exe`, an
+# installer this project does not want (no admin rights, no install step);
+# deleting it rather than passing `--noInst` keeps the command exactly the one
+# this task's own technical details name, and costs one `rm`.
+# `--runtime win-x64` names the architecture explicitly — the cross-build only
+# ever targets `x86_64-pc-windows-msvc`, and leaving it out makes `vpk`
+# guess `x86` and warn on every run. `--delta None` is this vpk release's
+# spelling of what task 03 wrote as `--noDelta`: 1.2.158 renamed the flag to a
+# mode selector between when the task was written and when it shipped; there
+# is nothing here for a delta to apply against yet (`--noDelta` itself no
+# longer parses), and a real delta channel is task 06's job once a previous
+# release exists to diff against.
+#
+# The packages land in `dist/releases/win/`, which `scripts/windows-vm/compose.yml`
+# bind-mounts into the VM as drive `Z:`, so the file that gets handed out is
+# the same file that gets tested (`docs/windows-vm.md`).
 #
 # `WINDOWS_SDK_DIR`, `WINDOWS_TARGET`, `PACKAGE` and `CARGO` come from the
 # Makefile, which is where they are defined; this script only ever reads them.
@@ -32,8 +53,9 @@ set -euo pipefail
 : "${PACKAGE:?set by the Makefile}"
 CARGO="${CARGO:-cargo}"
 
-command -v zip >/dev/null || { echo "windows-package: install zip first" >&2; exit 1; }
+command -v vpk >/dev/null || { echo "windows-package: install vpk first (scripts/system-check.sh names the tool)" >&2; exit 1; }
 command -v jq >/dev/null || { echo "windows-package: install jq first" >&2; exit 1; }
+command -v unzip >/dev/null || { echo "windows-package: install unzip first" >&2; exit 1; }
 
 # The version comes from Cargo.toml through `cargo metadata`, never retyped
 # here (naming rule 1): the package's name in `dist/` and the version it
@@ -42,16 +64,20 @@ version=$($CARGO metadata --format-version 1 --no-deps \
   | jq -r --arg package "$PACKAGE" '.packages[] | select(.name == $package) | .version')
 [[ -n "$version" ]] || { echo "windows-package: could not read $PACKAGE's version" >&2; exit 1; }
 
-name="$PACKAGE-$version-windows-x64"
-staging="dist/.staging/$name"
-archive="dist/$name.zip"
+# The Velopack pack id (naming rule 5's crate/directory convention does not
+# apply here — this is the id the update client and the release feed key on,
+# and it is `IdleManager` on both systems, matching the `.desktop` file and
+# the AppImage's own pack id in `scripts/linux-package.sh`).
+pack_id="IdleManager"
+staging="dist/.staging/win"
+output_dir="dist/releases/win"
 exe="target/$WINDOWS_TARGET/release/$PACKAGE.exe"
 
 [[ -f "$exe" ]] || { echo "windows-package: $exe is missing; run make windows-build PROFILE=release" >&2; exit 1; }
 
 # A fresh staging folder every run: a file dropped from the package (a DLL that
-# left gvsbuild, say) must actually leave the zip too, and a stale leftover
-# would hide that.
+# left gvsbuild, say) must actually leave the package too, and a stale
+# leftover would hide that.
 rm -rf "dist/.staging"
 mkdir -p "$staging/share/glib-2.0/schemas" "$staging/share/icons"
 
@@ -113,17 +139,55 @@ else
     loader=$(find target/"$WINDOWS_TARGET"/release -name WebView2Loader.dll -print -quit)
     [[ -n "$loader" ]] || { echo "windows-package: the exe imports WebView2Loader.dll but none was found to ship" >&2; exit 1; }
     cp "$loader" "$staging/"
-    echo "windows-package: WebView2Loader.dll imported; carried into the zip"
+    echo "windows-package: WebView2Loader.dll imported; carried into the package"
   else
     echo "windows-package: WebView2Loader.dll is not imported (linked statically); not carried"
   fi
 fi
 
-rm -f "$archive"
-# Zipped from inside the staging folder, so the archive has no wrapping
-# directory: unzipping it into `C:\idle-manager` puts the program straight
-# there, which is the path `docs/windows-vm.md` tells a tester to use.
-(cd "$staging" && zip -qr "../../../$archive" .)
+rm -rf "$output_dir"
+mkdir -p "$output_dir"
+vpk "[win]" pack \
+  --packId "$pack_id" \
+  --packVersion "$version" \
+  --packDir "$staging" \
+  --mainExe "$PACKAGE.exe" \
+  --runtime win-x64 \
+  --delta None \
+  --outputDir "$output_dir"
 rm -rf "dist/.staging"
 
-echo "windows-package: wrote $archive ($(du -h "$archive" | cut -f1))"
+# The setup bundle is Velopack's default output, not something this project
+# asked for (no installer, no administrator rights — item 12 task 08's own
+# promise); deleting it here is cheaper than teaching `vpk` a flag that would
+# also need to survive whatever the CLI calls it next release.
+rm -f "$output_dir/$pack_id-win-Setup.exe"
+
+portable="$output_dir/$pack_id-win-Portable.zip"
+nupkg="$output_dir/$pack_id-$version-full.nupkg"
+feed="$output_dir/releases.win.json"
+for artefact in "$portable" "$nupkg" "$feed"; do
+  [[ -f "$artefact" ]] || { echo "windows-package: $artefact did not make it into $output_dir" >&2; exit 1; }
+done
+
+# Read into a variable rather than piping `unzip -l` straight into `grep -q`:
+# `grep -q` closes its end of the pipe on the first match, `unzip` then dies of
+# `SIGPIPE`, and `pipefail` turns that dead-pipe write into a false failure
+# even though the match was found.
+listing=$(unzip -l "$portable")
+
+if grep -q 'Update\.exe$' <<<"$listing"; then
+  echo "windows-package: $portable carries Update.exe"
+else
+  echo "windows-package: $portable is missing Update.exe" >&2
+  exit 1
+fi
+
+if grep -q "current/$PACKAGE.exe\$" <<<"$listing"; then
+  echo "windows-package: $portable carries current/$PACKAGE.exe"
+else
+  echo "windows-package: $portable is missing current/$PACKAGE.exe" >&2
+  exit 1
+fi
+
+echo "windows-package: wrote $portable, $nupkg and $feed ($(du -h "$portable" | cut -f1))"

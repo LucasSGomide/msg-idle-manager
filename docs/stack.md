@@ -83,6 +83,7 @@ probe.
 | `if-addrs` | 0.15 | Finds the mesh address in `100.64.0.0/10` to listen on |
 | `async-channel` | 2.5 | The intent channel from the server's threads to the GTK main context; no runtime, so no `tokio` |
 | `qrcode` | 0.14 | The enrolment address as a code the phone's camera reads, in `shell` only |
+| `velopack` | 1.2 | `run_hooks`'s `VelopackApp::build().run()`, in `idle-manager-update` only (roadmap item 16 task 03) — the one crate allowed to depend on it (architecture rules 2, 3, 4) |
 
 ## Development tooling
 
@@ -98,6 +99,8 @@ probe.
 | `cargo-xwin` | Supplies the MSVC CRT and Windows SDK import libraries for the cross build | `make windows-build` |
 | `jq`, `zip`, `unzip`, `curl` | Read the Visual Studio manifest and assemble the release zip | `make windows-package` |
 | `git-cliff` | Reads `cliff.toml` and the commit history to pick the next version and write the release notes | `make release-version`, `make release-notes`, `make release-prepare` |
+| `.NET SDK` | Runs `vpk`, Velopack's CLI, which is a .NET tool (roadmap item 16 task 03) | `dotnet tool install -g vpk` |
+| `vpk` | Packs the staged folder into the portable zip (Windows) or the AppImage (Linux) and writes the release feed both read from later | `make windows-package`, `make linux-package` |
 
 ## System packages
 
@@ -137,6 +140,32 @@ gvsbuild ships bake in the Windows build machine's own path, and
 file's own location instead. `PKG_CONFIG_ALLOW_CROSS`, `PKG_CONFIG_PATH` and
 `PKG_CONFIG` (pointed at the wrapper) are set by the two `make` targets, never
 needed by hand.
+
+Cross-compiling itself stayed pure Rust and prebuilt import libraries through
+roadmap item 12 — nothing needed a C compiler, so nothing named one. Roadmap
+item 16 task 03 changes that: `idle-manager-update`'s `velopack` dependency
+reaches `ureq` → `rustls` → `ring`, and `ring`'s build script compiles C
+straight into the target, `x86_64-pc-windows-msvc` included. `cargo xwin`
+already downloads the MSVC headers that C needs; what it does not supply is
+the compiler itself, so `clang-cl` (Clang's MSVC-compatible driver) and
+`lld-link` (LLD's MSVC-compatible linker) must be on `PATH` —
+`scripts/system-check.sh clang-cl lld-link` is what `make windows-check` and
+`make windows-build` check for first. `cargo xwin` looks for a plain `clang`
+on `PATH` and symlinks its own `clang-cl`; `lld-link` it gets for free from
+`rust-lld`, already bundled in the pinned Rust toolchain, unless a `lld-link`
+already on `PATH` shadows it; only `llvm-lib`, the archiver, has no such
+fallback and must resolve from a real LLVM install. `apt install clang lld
+llvm` (verified 2026-09-24, roadmap item 16 task 03's own Blocker) is *not*
+enough by itself: Ubuntu's packages place only the *versioned* names
+(`clang-cl-21`, `lld-link-21`, `llvm-lib-21`, …) in `/usr/bin`; the
+unversioned names above live in `/usr/lib/llvm-<N>/bin`, which is not on
+`PATH` by default, so that directory has to be added — `export
+PATH="$(echo /usr/lib/llvm-*/bin):$PATH"` after the `apt install`, which is
+exactly what `scripts/system-check.sh`'s own missing-tool message prints.
+This is also why `windows-check` runs `cargo xwin clippy` rather than plain
+`cargo clippy --target x86_64-pc-windows-msvc`: only the `xwin` subcommand
+points the C compiler at the downloaded MSVC sysroot, and without it `ring`'s
+build script cannot find `assert.h` or the rest of the C runtime headers.
 
 **The Visual C++ runtime the release zip carries.** Every DLL gvsbuild builds
 — 66 of the 67 in the package — and the program itself import

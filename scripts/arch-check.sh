@@ -15,11 +15,15 @@
 set -euo pipefail
 
 rules=(
-  "idle-manager-core     gtk4 gdk4 glib gio webkit6 serde toml wry webview2-com gdk4-win32 windows"
-  "idle-manager-store    gtk4 gdk4 webkit6 wry webview2-com gdk4-win32 windows idle-manager-remote"
-  "idle-manager-metrics  gtk4 gdk4 webkit6 wry webview2-com gdk4-win32 idle-manager-remote"
-  "idle-manager-shell    idle-manager-store idle-manager-metrics idle-manager-remote"
-  "idle-manager-remote   gtk4 gdk4 glib gio webkit6 wry webview2-com gdk4-win32 idle-manager-shell idle-manager-store idle-manager-metrics"
+  "idle-manager-core     gtk4 gdk4 glib gio webkit6 serde toml wry webview2-com gdk4-win32 windows idle-manager-update"
+  "idle-manager-store    gtk4 gdk4 webkit6 wry webview2-com gdk4-win32 windows idle-manager-remote idle-manager-update"
+  "idle-manager-metrics  gtk4 gdk4 webkit6 wry webview2-com gdk4-win32 idle-manager-remote idle-manager-update"
+  "idle-manager-shell    idle-manager-store idle-manager-metrics idle-manager-remote idle-manager-update"
+  "idle-manager-remote   gtk4 gdk4 glib gio webkit6 wry webview2-com gdk4-win32 idle-manager-shell idle-manager-store idle-manager-metrics idle-manager-update"
+  # The one place in the workspace allowed to know Velopack exists (roadmap
+  # item 16 task 03): it must never grow into the shell's own layer, its
+  # persistence, its memory accounting or the phone server.
+  "idle-manager-update   gtk4 gdk4 glib gio webkit6 wry webview2-com gdk4-win32 idle-manager-shell idle-manager-store idle-manager-metrics idle-manager-remote"
 )
 
 check_pass() {

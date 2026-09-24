@@ -24,7 +24,7 @@ last.
 |---|---|---|---|---|---|
 | [01](01-verifying-every-push-on-github.md) | Verifying every push on GitHub | back-end | — | 1/4 | in-progress |
 | [02](02-the-version-and-the-notes-from-the-commits.md) | The version and the notes from the commits | back-end | — | 7/7 | done |
-| [03](03-packaging-both-systems-with-velopack.md) | Packaging both systems with Velopack | back-end | 02 | 0/7 | not-started |
+| [03](03-packaging-both-systems-with-velopack.md) | Packaging both systems with Velopack | back-end | 02 | 6/7 | in-progress |
 | [04](04-signing-checksums-and-the-verifier.md) | Signing, checksums and the verifier | back-end | 03 | 0/7 | not-started |
 | [05](05-the-release-workflow.md) | The release workflow | back-end | 02, 03, 04 | 0/7 | not-started |
 | [06](06-the-update-port-policy-and-channel.md) | The update port, the policy and the Velopack channel | back-end | 03, 04 | 0/9 | not-started |
