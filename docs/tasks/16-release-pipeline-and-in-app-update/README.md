@@ -28,5 +28,5 @@ last.
 | [04](04-signing-checksums-and-the-verifier.md) | Signing, checksums and the verifier | back-end | 03 | 7/7 | done |
 | [05](05-the-release-workflow.md) | The release workflow | back-end | 02, 03, 04 | 1/7 | in-progress |
 | [06](06-the-update-port-policy-and-channel.md) | The update port, the policy and the Velopack channel | back-end | 03, 04 | 9/9 | done |
-| [07](07-the-update-notice-the-menu-and-the-window.md) | The update notice, the menu and the window wiring | front-end | 06 | 0/8 | not-started |
+| [07](07-the-update-notice-the-menu-and-the-window.md) | The update notice, the menu and the window wiring | front-end | 06 | 3/8 | in-progress |
 | [08](08-the-round-trip-on-both-systems-and-the-docs.md) | The round trip on both systems, and the docs | full-stack | 05, 07 | 0/6 | not-started |

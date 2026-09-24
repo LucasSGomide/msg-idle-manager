@@ -34,3 +34,17 @@
   min-height: 4px;
   margin: 1px;
 }
+
+/* The update notice (design rule 29, roadmap item 16 task 07): a bar under
+ * the header bar, directly beneath the message strip when both show
+ * (design rule 9's own strip sits above it). `@warning_color` rather than
+ * the `@warning_bg_color` token the task's own notes named — this file's
+ * only other warning-tinted bar, the sidebar's mark and the message strip
+ * itself (`sidebar.css`), already draw from `@warning_color` and that name
+ * is the one GTK's own stylesheet actually defines; reusing it keeps every
+ * warning-tinted surface in the app the same colour from one token. */
+.update-notice {
+  padding: 6px 8px;
+  background-color: alpha(@warning_color, 0.15);
+  border-bottom: 1px solid alpha(@warning_color, 0.4);
+}

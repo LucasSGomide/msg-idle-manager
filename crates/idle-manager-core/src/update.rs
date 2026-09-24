@@ -81,10 +81,15 @@ impl FromStr for Version {
 /// Two booleans never describe this: a version is only ever meaningful
 /// alongside the state that carries one, so "downloading, but which version"
 /// cannot be asked (code standards rule 1).
-#[derive(Debug, Clone, PartialEq, Eq)]
+///
+/// `Default` is `Idle` — task 07's window template struct needs one to hold
+/// this behind a plain `RefCell` before the first policy answer arrives, the
+/// same reason `WorkspaceBook` carries a manual `Default` of its own.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub enum UpdateState {
     /// Nothing to show. Nothing has been checked, or the last check found
     /// nothing worth showing.
+    #[default]
     Idle,
     /// A check is in flight. `manual` is true when the user asked for it
     /// from the menu, false for the launch-time or daily check — it decides

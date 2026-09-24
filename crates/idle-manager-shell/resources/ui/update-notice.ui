@@ -1,0 +1,45 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<interface>
+  <requires lib="gtk" version="4.0"/>
+  <template class="IdleManagerUpdateNotice" parent="GtkBox">
+    <property name="visible">false</property>
+    <property name="spacing">8</property>
+    <property name="hexpand">true</property>
+    <style>
+      <class name="update-notice"/>
+    </style>
+    <child>
+      <object class="GtkLabel" id="message_label">
+        <property name="hexpand">true</property>
+        <property name="xalign">0</property>
+        <property name="ellipsize">end</property>
+      </object>
+    </child>
+    <child>
+      <object class="GtkLinkButton" id="whats_new">
+        <property name="label">What's new</property>
+        <property name="visible">false</property>
+        <property name="valign">center</property>
+      </object>
+    </child>
+    <child>
+      <object class="GtkButton" id="action_button">
+        <property name="visible">false</property>
+        <property name="valign">center</property>
+        <style>
+          <class name="pill"/>
+        </style>
+      </object>
+    </child>
+    <child>
+      <object class="GtkButton" id="dismiss_button">
+        <property name="icon-name">window-close-symbolic</property>
+        <property name="tooltip-text">Dismiss</property>
+        <property name="valign">center</property>
+        <style>
+          <class name="flat"/>
+        </style>
+      </object>
+    </child>
+  </template>
+</interface>

@@ -158,7 +158,10 @@ citations, so append rather than reorder.
    now works) leaves a dismissed strip dismissed rather than reopening it. It is
    **one reusable widget** — `message_strip.rs` with `message-strip.ui` — set to
    a message and shown, or cleared, by whatever raises it; the launch failure
-   and the mid-session failure must not drift into two shapes.
+   and the mid-session failure must not drift into two shapes. This strip
+   carries no action button on purpose; rule 29's update notice is the
+   deliberately different bar beneath it, for the one case that is the
+   user's own decision rather than the machine's problem.
 
 10. **Acknowledge a direct gesture with a transient figure drawn over the place
     it affected — low in the place, centred, on its own opaque ground — that
@@ -454,3 +457,23 @@ citations, so append rather than reorder.
     it first, so the string table a later translation lands under this
     project's structure finds nothing here left to undo (roadmap item 11's
     redesign).
+
+29. **A bar under the header bar may carry one action only when the action is
+    the user's decision about their own program, never a repair of the
+    machine's problem.** Rule 9's message strip reports something that went
+    wrong before the user did anything and offers no action, because there is
+    nothing the user could decide that would fix a workspace that would not
+    load or a save that failed — the machine's own problem has no button.
+    The update notice (roadmap item 16 task 07, wireframe
+    `update-notice.md`) is the first case on the other side of that line: an
+    update existing is not a problem, and fetching it, restarting to install
+    it, or trying again after a failed download are all the user's own call
+    to make, on their own schedule, never the application's. It keeps rule
+    9's other two constraints exactly — dismiss-only-by-hand, and the
+    theme's warning tint rather than the error red, since "attention, not
+    urgent" describes an update just as well as a failed save — and adds
+    only the one thing rule 9 forbids its own strip: a single state-labelled
+    button (`Update`, `Restart now`, `Try again`) beside the dismiss cross.
+    Only text, the `What's new` link's visibility, and the button's label and
+    sensitivity ever change between its states (rule 12's own reasoning); the
+    bar itself, the link's place and the button's place never move.

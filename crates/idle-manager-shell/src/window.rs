@@ -37,7 +37,7 @@ use gtk4 as gtk;
 
 use idle_manager_core::{
     MemoryProbe, PhoneLink, PresetCatalogue, ProfileLocator, ProfileRemoval, RemoteIntent,
-    WorkspaceList, WorkspaceReadError, WorkspaceStore, ZoomMemory,
+    UpdateChannel, WorkspaceList, WorkspaceReadError, WorkspaceStore, ZoomMemory,
 };
 
 /// The ports the window runs against, built once by the composition root and
@@ -64,6 +64,15 @@ pub struct WindowPorts {
     /// server that could not start still hands over a link, one whose status
     /// says so, so the phone dialog can name the reason.
     pub phone: Option<PhonePorts>,
+    /// Checks GitHub for a newer release, fetches and verifies one, and
+    /// stages it to install once the app quits (roadmap item 16 task 07).
+    /// `Arc`, not `Rc`: every call is blocking and the window runs it through
+    /// `gio::spawn_blocking`, which needs `Send`. A build that could not
+    /// prepare a real channel — a `cargo run` dev build is not installed the
+    /// way Velopack expects — still hands over one whose every check answers
+    /// offline, so a broken channel never stops the app (architecture rule
+    /// 3).
+    pub update: Arc<dyn UpdateChannel>,
 }
 
 /// The two halves of the phone link the composition root built: the handle

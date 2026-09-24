@@ -322,6 +322,65 @@ impl UpdateChannel for VelopackChannel {
     }
 }
 
+/// A stand-in [`UpdateChannel`] for when [`VelopackChannel::new`] could not be
+/// built — most often a `cargo run` dev build, which is not installed the way
+/// Velopack expects, rather than a broken release. Every check answers
+/// [`UpdateError::Offline`], so the shell's own policy quietly returns to
+/// [`idle_manager_core::UpdateState::Idle`] exactly as it would for a real
+/// offline machine: no update UI, and the rest of the application runs
+/// unaffected (architecture rule 3 — a port that could not be built must
+/// never stop the app).
+#[derive(Debug, Default, Clone, Copy)]
+pub struct NoUpdateChannel;
+
+impl NoUpdateChannel {
+    /// Builds a channel that can never check, download or apply an update.
+    #[must_use]
+    pub fn new() -> Self {
+        Self
+    }
+}
+
+impl UpdateChannel for NoUpdateChannel {
+    fn check(&self) -> Result<idle_manager_core::UpdateCheck, UpdateError> {
+        Err(no_channel_error())
+    }
+
+    fn download(
+        &self,
+        _info: &UpdateInfo,
+        _progress: &(dyn Fn(u8) + Send),
+    ) -> Result<VerifiedPackage, UpdateError> {
+        Err(no_channel_error())
+    }
+
+    fn apply_on_exit(
+        &self,
+        _package: &VerifiedPackage,
+        _relaunch: bool,
+    ) -> Result<(), UpdateError> {
+        Err(no_channel_error())
+    }
+
+    fn current_version(&self) -> Version {
+        // Every crate in the workspace shares one version number
+        // (`version.workspace = true`), so this compiles to the same string
+        // the binary itself was built at even though no Velopack manifest
+        // exists to read it from.
+        Version::from_str(env!("CARGO_PKG_VERSION")).unwrap_or_else(|_| Version::new(0, 0, 0))
+    }
+
+    fn last_apply_failure(&self) -> Option<String> {
+        None
+    }
+}
+
+fn no_channel_error() -> UpdateError {
+    UpdateError::Offline {
+        reason: "no update channel is available in this build".to_string(),
+    }
+}
+
 /// `url` must be `https://github.com/<owner>/<repo>`, with no further path,
 /// query or fragment. Returns the URL with any trailing slash trimmed.
 fn validate_github_url(url: &str) -> Result<String, ChannelSetup> {
@@ -496,5 +555,21 @@ mod tests {
         let result = VelopackChannel::new("https://github.com/idle-manager/idle-manager/releases");
 
         assert!(matches!(result, Err(ChannelSetup::NotGithub { .. })));
+    }
+
+    #[test]
+    fn the_stand_in_channel_answers_offline_to_every_check_and_download() {
+        let channel = NoUpdateChannel::new();
+        let info = UpdateInfo {
+            version: Version::new(0, 3, 0),
+            notes_url: "https://example.test".to_string(),
+        };
+
+        assert!(matches!(channel.check(), Err(UpdateError::Offline { .. })));
+        assert!(matches!(
+            channel.download(&info, &|_| {}),
+            Err(UpdateError::Offline { .. })
+        ));
+        assert!(channel.last_apply_failure().is_none());
     }
 }

@@ -25,7 +25,7 @@ use gtk::prelude::*;
 use gtk4 as gtk;
 use idle_manager_core::{
     MemoryProbe, PhoneRecordStore, PresetCatalogue, ProfileLocator, ProfileRemoval, RemoteIntent,
-    WorkspaceStore, ZoomMemory,
+    UpdateChannel, WorkspaceStore, ZoomMemory,
 };
 #[cfg(target_os = "linux")]
 use idle_manager_metrics::ProcPssProbe;
@@ -37,9 +37,14 @@ use idle_manager_store::{
     TomlPhoneRecord, TomlPresetCatalogue, TomlWorkspaceStore, TomlZoomMemory, XdgProfileLocator,
     XdgProfileRemoval,
 };
+use idle_manager_update::{NoUpdateChannel, VelopackChannel};
 
 /// The application's D-Bus and settings identifier.
 const APP_ID: &str = "org.idlemanager.IdleManager";
+
+/// The GitHub repository every release is published to, and where the update
+/// channel checks for a newer one (roadmap item 16 task 07).
+const RELEASE_REPOSITORY: &str = "https://github.com/LucasSGomide/msg-idle-manager";
 
 /// The variable GTK reads, once at start-up, to choose its renderer.
 #[cfg(target_os = "linux")]
@@ -116,6 +121,18 @@ fn run() -> anyhow::Result<ExitCode> {
     #[cfg(windows)]
     let probe: Arc<dyn MemoryProbe> = Arc::new(ProcessTreeProbe::new());
 
+    // A `cargo run` dev build is not installed the way Velopack expects, so
+    // this legitimately fails there; the stand-in channel keeps the app
+    // running with updates quietly disabled rather than stopping it
+    // (architecture rule 3).
+    let update: Arc<dyn UpdateChannel> = match VelopackChannel::new(RELEASE_REPOSITORY) {
+        Ok(channel) => Arc::new(channel),
+        Err(error) => {
+            tracing::warn!(%error, "the update channel could not be prepared; updates are disabled");
+            Arc::new(NoUpdateChannel::new())
+        }
+    };
+
     // One link, one intent channel: the first activation takes them, since
     // two windows looping over one channel would each see half the phone's
     // messages.
@@ -157,6 +174,7 @@ fn run() -> anyhow::Result<ExitCode> {
                 probe: Arc::clone(&probe),
                 removal: Arc::clone(&removal),
                 phone: phone.borrow_mut().take(),
+                update: Arc::clone(&update),
             },
             read_outcome,
         );

@@ -26,6 +26,7 @@ mod session_grid;
 mod session_sidebar;
 mod slot_placeholder;
 mod start_queue;
+mod update_notice;
 mod web_engine;
 mod web_view;
 mod window;
@@ -246,6 +247,19 @@ mod tests {
     }
 
     #[test]
+    fn the_update_notice_template_is_readable_from_the_registered_bundle() {
+        register_resources().expect("register the compiled bundle");
+
+        let data = gio::resources_lookup_data(
+            "/org/idlemanager/IdleManager/ui/update-notice.ui",
+            gio::ResourceLookupFlags::NONE,
+        )
+        .expect("look up the update notice template by its resource path");
+
+        assert!(!data.is_empty());
+    }
+
+    #[test]
     fn the_help_overlay_is_readable_from_the_registered_bundle() {
         register_resources().expect("register the compiled bundle");
 
@@ -302,7 +316,11 @@ mod tests {
             gio::ResourceLookupFlags::NONE,
         )
         .expect("look up the window stylesheet by its resource path");
+        let css = std::str::from_utf8(&data).expect("the stylesheet is UTF-8");
 
-        assert!(!data.is_empty());
+        assert!(
+            css.contains(".update-notice"),
+            "window.css must style the update notice bar (design rule 29)"
+        );
     }
 }

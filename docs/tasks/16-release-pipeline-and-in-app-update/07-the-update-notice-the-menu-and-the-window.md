@@ -125,9 +125,9 @@ action button on purpose.
 
 ## Acceptance criteria
 
-- [ ] `(unit)` `update-notice.ui` is readable from the registered resource
+- [x] `(unit)` `update-notice.ui` is readable from the registered resource
       bundle, like every other template
-- [ ] `(unit)` the notice's text for each `UpdateState` variant is produced by
+- [x] `(unit)` the notice's text for each `UpdateState` variant is produced by
       a pure `notice_text(&UpdateState) -> NoticeText { line, link_shown,
       button: Option<(&str, bool)> }` helper whose eight arms match the
       wireframe table, one test per arm
@@ -149,7 +149,7 @@ action button on purpose.
 - [ ] `(manual)` with both a failed save and an available update, the strip
       sits first and the notice directly beneath it; dismissing the notice while
       `Ready` hides it and quitting still applies the update
-- [ ] `(integration)` `make verify` passes, including `windows-check`
+- [x] `(integration)` `make verify` passes, including `windows-check`
 
 ## References
 

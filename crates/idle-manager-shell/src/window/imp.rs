@@ -16,10 +16,12 @@ use gtk::subclass::prelude::*;
 use gtk4 as gtk;
 
 use idle_manager_core::{
-    DEFAULT_MOBILE_VIEWPORT, Frame, Layout, Liveness, MoveOutcome, PhoneLink, PhoneStatus, Preset,
-    PresetCatalogue, ProfileLocator, ProfileRemoval, RemoteIntent, RemoteState, Session, SessionId,
-    SlotId, Switch, Viewport, WorkspaceBook, WorkspaceId, WorkspaceList, WorkspaceReadError,
-    ZoomLevel, ZoomMemory, account_name, scroll_script, tap_script, workspace_name,
+    DEFAULT_MOBILE_VIEWPORT, Effect, Frame, Layout, Liveness, MoveOutcome, PhoneLink, PhoneStatus,
+    Preset, PresetCatalogue, ProfileLocator, ProfileRemoval, RemoteIntent, RemoteState, Session,
+    SessionId, SlotId, Switch, UpdateChannel, UpdateCheck, UpdateError, UpdateEvent, UpdateInfo,
+    UpdatePolicy, UpdateSchedule, UpdateState, VerifiedPackage, Version, Viewport, WorkspaceBook,
+    WorkspaceId, WorkspaceList, WorkspaceReadError, ZoomLevel, ZoomMemory, account_name,
+    scroll_script, tap_script, workspace_name,
 };
 
 use super::shortcut::{Shortcut, repeats_while_held, shortcut_for};
@@ -33,8 +35,15 @@ use crate::save_on_change::Saver;
 use crate::session_grid::SessionGrid;
 use crate::session_sidebar::{MoveTarget, SessionSidebar};
 use crate::start_queue::StartQueue;
+use crate::update_notice::UpdateNotice;
 use crate::web_engine::{CapturedFrame, EngineCaptureError, EngineView};
 use crate::web_view::{AccountSettings, SessionView, background_for};
+
+/// How often the window checks whether the daily update check is due
+/// (`UpdateSchedule::next_check_due`) — often enough that a run left open for
+/// days never misses the day it falls due, cheap enough that it costs
+/// nothing to tick (roadmap item 16 task 07).
+const UPDATE_SCHEDULE_TICK_SECS: u64 = 60;
 
 /// What a workspace name window is for — [`Window::present_workspace_name_dialog`]
 /// covers both, since only the title, confirm label, starting text and what
@@ -204,6 +213,42 @@ pub struct Window {
     /// yanking the keyboard back from a widget the user deliberately clicked
     /// (`FR.27.1`).
     last_focus_grab: RefCell<Option<SessionId>>,
+
+    /// The bar under the header bar where an update is learned about,
+    /// fetched and offered to install (roadmap item 16 task 07, design rule
+    /// 29). Hidden until the launch-time or a later check finds something
+    /// worth showing.
+    update_notice: UpdateNotice,
+    /// Checks GitHub, downloads and stages an update. `None` until the ports
+    /// are attached.
+    update_channel: RefCell<Option<Arc<dyn UpdateChannel>>>,
+    /// The state [`Window::drive_update`] last answered — the single source
+    /// [`UpdateNotice::render`] draws from.
+    update_state: RefCell<UpdateState>,
+    /// The pure policy deciding what an update event means; carries only the
+    /// version a user last dismissed across calls (architecture rule 9).
+    update_policy: RefCell<UpdatePolicy>,
+    /// When the last check completed, for [`UpdateSchedule::next_check_due`].
+    /// `None` until the first check this run finishes.
+    last_update_check_millis: Cell<Option<u64>>,
+    /// The version and `What's new` address the last successful check found,
+    /// kept so a later `FetchRequested` — reached from `Available` or a named
+    /// `Failed` — has something to download; `UpdateState` itself drops
+    /// `notes_url` once the state moves past `Available`.
+    update_info: RefCell<Option<UpdateInfo>>,
+    /// A downloaded package that passed its checks, staged to install once
+    /// this process exits. Read by the close handler regardless of whether
+    /// the notice is still showing — a dismissed `Ready` still installs
+    /// (design's `**States**` bullet).
+    verified_package: RefCell<Option<VerifiedPackage>>,
+    /// Whether `apply_on_exit` should relaunch the application once this
+    /// process exits — set only by `Restart now`; an ordinary quit while
+    /// `Ready` applies the update without relaunching.
+    relaunch_after_update: Cell<bool>,
+    /// The version this build is running, read once when the update channel
+    /// is attached — the main menu's own insensitive `Idle Manager <version>`
+    /// item names it on every redraw without asking the channel again.
+    running_version: Cell<Option<Version>>,
 }
 
 impl std::fmt::Debug for Window {
@@ -234,6 +279,7 @@ impl ObjectImpl for Window {
         // The strip spans the sidebar and the grid, directly under the header
         // bar (design rule 9).
         self.root_box.prepend(&self.message_strip);
+        self.install_update_notice();
 
         self.grid.set_hexpand(true);
         self.grid.set_vexpand(true);
@@ -380,15 +426,15 @@ impl ObjectImpl for Window {
 
         self.wire_pager();
 
-        // The one place a save is allowed to be waited on: a change made a
-        // moment before quitting has nothing else to trigger its write, so
-        // closing finishes any pending one first (task 06).
+        // The one place a save, and now a staged update, are allowed to be
+        // waited on: a change made a moment before quitting has nothing else
+        // to trigger its write, and `Restart now` needs the swap to have
+        // actually happened before the relaunch it asked for (task 06;
+        // roadmap item 16 task 07).
         let window = self.obj().downgrade();
         self.obj().connect_close_request(move |_| {
-            if let Some(window) = window.upgrade()
-                && let Some(saver) = window.imp().saver.borrow().as_ref()
-            {
-                saver.flush();
+            if let Some(window) = window.upgrade() {
+                window.imp().flush_and_apply_on_close();
             }
             glib::Propagation::Proceed
         });
@@ -450,6 +496,249 @@ impl Window {
         // A first run restores nothing and so redraws nothing; the phone
         // still deserves a truthful, if empty, first snapshot.
         self.publish_state();
+
+        // The running version, read once here rather than through
+        // `gio::spawn_blocking`: it is a local, in-memory read (the manager
+        // built at start-up already knows it), the same reason
+        // `store.read()` above happens synchronously before the window is
+        // shown rather than on a worker thread.
+        self.running_version
+            .set(Some(ports.update.current_version()));
+        // A read failure takes the strip over an apply failure: a workspace
+        // that would not load is the more urgent of the two, and the strip
+        // holds only one line at a time (design rule 9).
+        if !self.message_strip.is_visible()
+            && let Some(reason) = ports.update.last_apply_failure()
+        {
+            self.message_strip.show(&as_shown_sentence(&reason));
+        }
+        self.update_channel.replace(Some(ports.update));
+        // The launch-time check (`**Entry**`): runs once here, now that the
+        // channel exists, rather than from `constructed` — the ports are not
+        // attached yet at that point (`saver` and `phone_link` wait the same
+        // way).
+        self.drive_update(UpdateEvent::CheckRequested { manual: false });
+    }
+
+    /// Flushes any pending workspace save and, if an update passed its
+    /// checks while the window was open, arranges for it to install once
+    /// this process exits — the window's close handler, run whichever way
+    /// the window closes: `Restart now`'s own `close()` or an ordinary quit
+    /// (task 06; roadmap item 16 task 07). A failed swap is logged and the
+    /// close proceeds regardless (code standards rule 14) — the next launch
+    /// names it in the message strip instead (`last_apply_failure`).
+    fn flush_and_apply_on_close(&self) {
+        if let Some(saver) = self.saver.borrow().as_ref() {
+            saver.flush();
+        }
+        if let Some(package) = self.verified_package.borrow().as_ref()
+            && let Some(channel) = self.update_channel.borrow().as_ref()
+            && let Err(error) = channel.apply_on_exit(package, self.relaunch_after_update.get())
+        {
+            tracing::error!(%error, "the staged update could not be applied on exit");
+        }
+    }
+
+    /// Places the update notice directly beneath the message strip, so the
+    /// two stack in that order whenever both have something to say (design
+    /// rule 9's own strip first, this bar's new pattern beneath it), wires
+    /// its three presses, and arms the daily-check schedule.
+    fn install_update_notice(&self) {
+        self.root_box
+            .insert_child_after(&self.update_notice, Some(&self.message_strip));
+        self.wire_update_notice();
+        self.arm_update_schedule();
+    }
+
+    /// Wires the notice's three presses straight to [`Window::drive_update`]
+    /// (architecture rule 8): the window decides nothing about updates, only
+    /// forwards the press and redraws from whatever the policy answers.
+    fn wire_update_notice(&self) {
+        let window = self.obj().downgrade();
+        self.update_notice.connect_fetch_requested(move || {
+            if let Some(window) = window.upgrade() {
+                window.imp().drive_update(UpdateEvent::FetchRequested);
+            }
+        });
+
+        let window = self.obj().downgrade();
+        self.update_notice.connect_restart_requested(move || {
+            if let Some(window) = window.upgrade() {
+                // The normal close, so the arrangement is saved first
+                // (`connect_close_request`); the swap and the relaunch only
+                // happen once the process has actually exited.
+                window.imp().relaunch_after_update.set(true);
+                window.close();
+            }
+        });
+
+        let window = self.obj().downgrade();
+        self.update_notice.connect_dismissed(move || {
+            if let Some(window) = window.upgrade() {
+                window.imp().drive_update(UpdateEvent::Dismissed);
+            }
+        });
+    }
+
+    /// Ticks once a minute for the rest of the window's life, running a
+    /// fresh automatic check whenever [`UpdateSchedule::next_check_due`]
+    /// says the daily one is due. Harmless before the channel is attached —
+    /// [`Window::drive_update`] answers no effect without one.
+    fn arm_update_schedule(&self) {
+        let window = self.obj().downgrade();
+        glib::timeout_add_local(Duration::from_secs(UPDATE_SCHEDULE_TICK_SECS), move || {
+            let Some(window) = window.upgrade() else {
+                return glib::ControlFlow::Break;
+            };
+            let imp = window.imp();
+            if UpdateSchedule::next_check_due(imp.last_update_check_millis.get(), now_millis()) {
+                imp.drive_update(UpdateEvent::CheckRequested { manual: false });
+            }
+            glib::ControlFlow::Continue
+        });
+    }
+
+    /// Applies `event` to the update policy, redraws the notice from
+    /// whatever state comes back, and runs the one effect the policy
+    /// answers, if any — every network call and file check on a worker
+    /// thread, coming back to the GTK thread with a result (architecture
+    /// rule 10). The one place the shell decides anything about updates is
+    /// this dispatch; the policy decides what the event means.
+    fn drive_update(&self, event: UpdateEvent) {
+        let previous = self.update_state.borrow().clone();
+        let (next_state, effect) = self.update_policy.borrow_mut().apply(previous, event);
+
+        // `UpdateState` carries `notes_url` only on `Available` — kept here
+        // so a later download or a retry still has it once the state moves
+        // on (see `update_info`'s own doc comment).
+        if let UpdateState::Available {
+            version,
+            ref notes_url,
+        } = next_state
+        {
+            self.update_info.replace(Some(UpdateInfo {
+                version,
+                notes_url: notes_url.clone(),
+            }));
+        }
+
+        self.update_state.replace(next_state.clone());
+        self.update_notice.render(&next_state);
+
+        let Some(channel) = self.update_channel.borrow().clone() else {
+            return;
+        };
+        match effect {
+            Some(Effect::RunCheck) => self.run_update_check(channel),
+            Some(Effect::Download) => self.start_update_download(channel),
+            None => {}
+        }
+    }
+
+    /// Runs [`UpdateChannel::check`] on a worker thread and turns its answer
+    /// into the matching [`UpdateEvent`] back on the GTK thread. An
+    /// automatic failure is logged, never shown (`**States**`'s "one warning
+    /// line in the log"); a manual one always answers on screen because
+    /// [`UpdatePolicy::apply`] carries `manual` through to `CheckFailed`.
+    fn run_update_check(&self, channel: Arc<dyn UpdateChannel>) {
+        let window = self.obj().downgrade();
+        glib::spawn_future_local(async move {
+            let result = gio::spawn_blocking(move || channel.check()).await;
+            let Some(window) = window.upgrade() else {
+                return;
+            };
+            let imp = window.imp();
+            imp.last_update_check_millis.set(Some(now_millis()));
+            match result {
+                Ok(Ok(UpdateCheck::Available(info))) => {
+                    imp.drive_update(UpdateEvent::Found {
+                        version: info.version,
+                        notes_url: info.notes_url,
+                    });
+                }
+                Ok(Ok(UpdateCheck::UpToDate)) => {
+                    let current = imp.running_version.get().unwrap_or(Version::new(0, 0, 0));
+                    imp.drive_update(UpdateEvent::NothingNewer { current });
+                }
+                Ok(Err(error)) => {
+                    tracing::warn!(%error, "the update check failed");
+                    imp.drive_update(UpdateEvent::CheckFailed {
+                        reason: describe_check_error(&error),
+                    });
+                }
+                Err(_) => {
+                    tracing::error!("the update check task panicked");
+                    imp.drive_update(UpdateEvent::CheckFailed {
+                        reason: describe_check_error(&UpdateError::Offline {
+                            reason: "the check task panicked".to_string(),
+                        }),
+                    });
+                }
+            }
+        });
+    }
+
+    /// Downloads the cached [`Window::update_info`] on a worker thread,
+    /// forwarding every percentage back to the GTK thread as it arrives
+    /// (architecture rule 10), then turns the final answer into `Verified`
+    /// or `Rejected`. A no-op, logging an error, if nothing is cached — not
+    /// expected, since the policy only answers [`Effect::Download`] from
+    /// `Available` or a named `Failed`, both of which cache it first.
+    fn start_update_download(&self, channel: Arc<dyn UpdateChannel>) {
+        let Some(info) = self.update_info.borrow().clone() else {
+            tracing::error!("a download was requested with no update info cached");
+            return;
+        };
+
+        let (progress_tx, progress_rx) = async_channel::unbounded::<u8>();
+
+        let window = self.obj().downgrade();
+        glib::spawn_future_local(async move {
+            while let Ok(percent) = progress_rx.recv().await {
+                let Some(window) = window.upgrade() else {
+                    break;
+                };
+                window.imp().drive_update(UpdateEvent::Progress(percent));
+            }
+        });
+
+        let window = self.obj().downgrade();
+        glib::spawn_future_local(async move {
+            let result = gio::spawn_blocking(move || {
+                let progress = move |percent: u8| {
+                    // The receiving end closes once this whole closure
+                    // returns; a send past that point is simply the last,
+                    // unread percentage and not an error.
+                    let _ = progress_tx.send_blocking(percent);
+                };
+                channel.download(&info, &progress)
+            })
+            .await;
+
+            let Some(window) = window.upgrade() else {
+                return;
+            };
+            let imp = window.imp();
+            match result {
+                Ok(Ok(package)) => {
+                    imp.verified_package.replace(Some(package));
+                    imp.drive_update(UpdateEvent::Verified);
+                }
+                Ok(Err(error)) => {
+                    imp.drive_update(UpdateEvent::Rejected {
+                        reason: describe_download_error(&error),
+                    });
+                }
+                Err(_) => {
+                    tracing::error!("the update download task panicked");
+                    imp.drive_update(UpdateEvent::Rejected {
+                        reason: describe_download_error(&UpdateError::Io {
+                            reason: "the download task panicked".to_string(),
+                        }),
+                    });
+                }
+            }
+        });
     }
 
     /// Loops over the phone's intents on the GTK main context, one
@@ -2415,8 +2704,10 @@ impl Window {
             let percent = (session.zoom_for(book.active().layout()).multiplier() * 100.0).round();
             format!("Zoom — {} · {percent:.0}%", session.display_name())
         });
-        self.main_menu
-            .set_menu_model(Some(&build_main_menu(zoom_label.as_deref())));
+        self.main_menu.set_menu_model(Some(&build_main_menu(
+            zoom_label.as_deref(),
+            self.running_version.get(),
+        )));
         for action in [
             &self.zoom_in_action,
             &self.zoom_out_action,
@@ -2532,10 +2823,13 @@ impl Window {
         }
     }
 
-    /// Registers the main menu's actions: `Phone…` (task 07) and the zoom
-    /// section's three steps (design rule 10). `show-phone` starts disabled —
-    /// nothing can be opened until a link is attached; the zoom actions start
-    /// disabled too, since nothing is focused before the first restore.
+    /// Registers the main menu's actions: `Phone…` (item 13 task 07), the
+    /// zoom section's three steps (design rule 10), and `Check for updates`
+    /// (roadmap item 16 task 07). `show-phone` starts disabled — nothing can
+    /// be opened until a link is attached; the zoom actions start disabled
+    /// too, since nothing is focused before the first restore.
+    /// `check-for-updates` starts enabled and stays that way: it always
+    /// answers on screen, even offline (`**Entry**`).
     fn register_menu_actions(&self) {
         let show_phone = gio::SimpleAction::new("show-phone", None);
         show_phone.set_enabled(false);
@@ -2553,6 +2847,17 @@ impl Window {
         self.register_zoom_action("zoom-in", ZoomStep::In);
         self.register_zoom_action("zoom-out", ZoomStep::Out);
         self.register_zoom_action("zoom-reset", ZoomStep::Reset);
+
+        let check_for_updates = gio::SimpleAction::new("check-for-updates", None);
+        let window = self.obj().downgrade();
+        check_for_updates.connect_activate(move |_, _| {
+            if let Some(window) = window.upgrade() {
+                window
+                    .imp()
+                    .drive_update(UpdateEvent::CheckRequested { manual: true });
+            }
+        });
+        self.obj().add_action(&check_for_updates);
     }
 
     /// Registers one of the main menu's zoom actions under `name`, applying
@@ -2653,11 +2958,13 @@ fn install_styles() {
 /// Builds the main menu's model from scratch: the zoom section — its label
 /// naming the focused account and its zoom, left out of the menu entirely
 /// when `zoom_label` is `None` rather than shown greyed (design rule 18's
-/// reasoning) — then `Phone…` and `Keyboard Shortcuts`. Rebuilt on every
-/// redraw, like a sidebar row's own menu, since the zoom section's label
-/// changes with the focused account (design rule 1's re-derive-on-bind
-/// pattern).
-fn build_main_menu(zoom_label: Option<&str>) -> gio::Menu {
+/// reasoning) — then `Phone…`, the running version beside `Check for
+/// updates`, and `Keyboard Shortcuts`. Rebuilt on every redraw, like a
+/// sidebar row's own menu, since the zoom section's label changes with the
+/// focused account (design rule 1's re-derive-on-bind pattern).
+/// `running_version` is `None` only for the redraw before the update channel
+/// is attached, and names the item `Idle Manager` alone until then.
+fn build_main_menu(zoom_label: Option<&str>, running_version: Option<Version>) -> gio::Menu {
     let menu = gio::Menu::new();
 
     if let Some(label) = zoom_label {
@@ -2683,6 +2990,18 @@ fn build_main_menu(zoom_label: Option<&str>) -> gio::Menu {
     let phone = gio::Menu::new();
     phone.append(Some("Phone…"), Some("win.show-phone"));
     menu.append_section(None, &phone);
+
+    // The version item is bound to no action, so `GtkPopoverMenu` draws it
+    // insensitive on its own (design rule 23's same reasoning for `Move to
+    // ▸`'s own containing-workspace row).
+    let updates = gio::Menu::new();
+    let version_label = match running_version {
+        Some(version) => format!("Idle Manager {version}"),
+        None => "Idle Manager".to_string(),
+    };
+    updates.append_item(&gio::MenuItem::new(Some(&version_label), None));
+    updates.append(Some("Check for updates"), Some("win.check-for-updates"));
+    menu.append_section(None, &updates);
 
     let shortcuts = gio::Menu::new();
     shortcuts.append_item(&accelerated_menu_item(
@@ -2877,6 +3196,52 @@ fn describe_read_error(error: &WorkspaceReadError) -> String {
             )
         }
     }
+}
+
+/// The notice's line for a check that failed — manual, since an automatic
+/// one is only ever logged (`run_update_check`). `error`'s own `Display` is a
+/// lowercase fragment ready to embed, exactly like [`describe_read_error`]'s
+/// own `reason` fields.
+fn describe_check_error(error: &UpdateError) -> String {
+    format!("Could not check for updates: {error}.")
+}
+
+/// The notice's line for a download or a verification that failed. A
+/// rejected package names no reason of its own — the wireframe's own fixed
+/// sentence, never "the update could not be verified: <detail>", since the
+/// detail is a checksum or a signature mismatch the user cannot act on;
+/// every other failure names `error`.
+fn describe_download_error(error: &UpdateError) -> String {
+    match error {
+        UpdateError::Rejected { .. } => {
+            "The update could not be verified and was discarded.".to_string()
+        }
+        other => format!("The download failed: {other}."),
+    }
+}
+
+/// Turns `reason` — a lowercase, unpunctuated fragment, exactly like
+/// [`UpdateChannel::last_apply_failure`]'s own contract — into the sentence
+/// the message strip shows.
+fn as_shown_sentence(reason: &str) -> String {
+    let mut sentence = String::with_capacity(reason.len() + 1);
+    let mut chars = reason.chars();
+    if let Some(first) = chars.next() {
+        sentence.extend(first.to_uppercase());
+    }
+    sentence.push_str(chars.as_str());
+    if !sentence.ends_with('.') {
+        sentence.push('.');
+    }
+    sentence
+}
+
+/// The current time in milliseconds since the Unix epoch, for
+/// [`UpdateSchedule::next_check_due`] — from `glib::real_time`'s
+/// microseconds rather than [`std::time::SystemTime`], since the window
+/// already runs on a `glib` main loop and this keeps the one clock source.
+fn now_millis() -> u64 {
+    u64::try_from(glib::real_time()).unwrap_or(0) / 1_000
 }
 
 /// Setting this in the environment to a number of seconds makes the window
