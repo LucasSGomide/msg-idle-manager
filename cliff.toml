@@ -1,0 +1,51 @@
+# git-cliff configuration.
+#
+# Turns the commit history into the next version number and the release
+# notes, per docs/tasks/16-release-pipeline-and-in-app-update/02-the-version-
+# and-the-notes-from-the-commits.md. `make release-version`, `make
+# release-notes` and `scripts/release-prepare.sh` are the only callers; see
+# docs/code-standards.md rule 16 for why the derivation lives there instead of
+# a typed-in number.
+
+[changelog]
+header = """
+# Changelog
+
+All notable changes to Idle Manager are documented in this file. Unreleased
+work lands at the top when `make release-prepare` runs.
+
+"""
+body = """
+{% if version %}\
+    ## [{{ version | trim_start_matches(pat="v") }}] - {{ timestamp | date(format="%Y-%m-%d") }}
+{% else %}\
+    ## [unreleased]
+{% endif %}\
+{% for entry in commits | commit_groups(groups=commit_parsers_groups) %}
+    ### {{ entry.group }}
+    {% for commit in entry.commits %}
+        - {{ commit.message | upper_first }}
+    {% endfor %}
+{% endfor %}
+"""
+trim = true
+
+[git]
+conventional_commits = true
+filter_unconventional = true
+tag_pattern = "v[0-9]*"
+
+commit_parsers = [
+  { message = "^feat", group = "New" },
+  { message = "^fix", group = "Fixed" },
+  { message = "^perf", group = "Faster" },
+  { message = "^(docs|chore|test|refactor|ci|style|build)", skip = true },
+]
+
+[bump]
+features_always_bump_minor = true
+breaking_always_bump_major = false
+# Without this, git-cliff's own default initial tag ("0.1.0", no "v") fails
+# `tag_pattern` above the moment this repository is asked for a version
+# before its first release ever tagged one.
+initial_tag = "v0.1.0"

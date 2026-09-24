@@ -1,6 +1,6 @@
 # 16 — Releasing from GitHub, and updating from inside the app
 
-**Depends on:** 07, 12 · **Status:** not-started · **Estimate:** 13
+**Depends on:** 07, 12 · **Status:** in-progress · **Estimate:** 13
 
 ## Context
 

@@ -41,7 +41,7 @@ WINDOWS_CRT_DIR := target/windows-sdk/crt
 
 .PHONY: help bootstrap system-check dev run watch build release check fmt fmt-check lint \
         test doc audit arch-check windows-check windows-build windows-package verify clean \
-        memory-report
+        memory-report release-version release-notes release-prepare release-tools-test
 
 help:  ## list every target
 	@grep -hE '^[a-zA-Z0-9_-]+:.*##' $(MAKEFILE_LIST) | sort | awk 'BEGIN { FS = ":.*## " } { printf "  \033[36m%-14s\033[0m %s\n", $$1, $$2 }'
@@ -52,7 +52,7 @@ bootstrap:  ## install the pinned toolchain and the cargo tools, then check the 
 	@command -v rustup >/dev/null || { echo "install rustup first: https://rustup.rs"; exit 1; }
 	rustup show active-toolchain
 	rustup target add $(WINDOWS_TARGET)
-	$(CARGO) install --locked cargo-nextest cargo-deny cargo-watch cargo-xwin
+	$(CARGO) install --locked cargo-nextest cargo-deny cargo-watch cargo-xwin git-cliff
 	$(CARGO) fetch
 	@./scripts/system-check.sh
 	GVSBUILD_VERSION=$(GVSBUILD_VERSION) WINDOWS_SDK_DIR=$(WINDOWS_SDK_DIR) ./scripts/windows-sdk-fetch.sh
@@ -102,12 +102,36 @@ lint: system-check  ## clippy over the workspace, warnings are errors
 test: system-check  ## run the test suite, doc tests included
 	$(CARGO) nextest run --workspace --no-tests=warn
 	$(CARGO) test --workspace --doc
+	$(MAKE) release-tools-test
 
 audit:  ## check dependencies for advisories, licences and duplicate versions
 	$(CARGO) deny check
 
 arch-check:  ## fail if a crate depends on a layer it must not
 	./scripts/arch-check.sh
+
+# --- releasing ----------------------------------------------------------
+
+# The version is never typed in by hand: every commit already says what kind
+# of change it carries (`feat`, `fix`, or one that moves nothing), so asking a
+# person to also pick the number is asking them to agree with history that has
+# already answered (docs/code-standards.md rule 16). `cliff.toml` is the one
+# place the mapping from commit type to version bump is written down, and
+# these three targets are the only things allowed to read it.
+
+release-version:  ## print the version the next release would ship, or nothing if there is nothing to release
+	@bumped=$$(git cliff --bumped-version 2>/dev/null | sed 's/^v//'); \
+	current=$$(git describe --tags --abbrev=0 --match 'v[0-9]*' 2>/dev/null | sed 's/^v//'); \
+	if [ -n "$$bumped" ] && [ "$$bumped" != "$$current" ]; then echo "$$bumped"; fi
+
+release-notes:  ## print the release notes for the commits since the last tag
+	@git cliff --unreleased --strip all
+
+release-prepare:  ## write the version into Cargo.toml/Cargo.lock and prepend CHANGELOG.md
+	./scripts/release-prepare.sh
+
+release-tools-test:  ## pin release-version/-notes/-prepare's behaviour against a throwaway clone
+	./scripts/tests/release-prepare-test.sh
 
 doc: system-check  ## build the API docs and open them
 	$(CARGO) doc --workspace --no-deps --open

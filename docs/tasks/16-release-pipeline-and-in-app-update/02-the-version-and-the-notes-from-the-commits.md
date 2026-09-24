@@ -75,25 +75,25 @@ release depends on it.
 
 ## Acceptance criteria
 
-- [ ] `(integration)` on a clone tagged `v0.1.0` followed by two `docs` and one
+- [x] `(integration)` on a clone tagged `v0.1.0` followed by two `docs` and one
       `chore` commit, `make release-version` prints nothing and
       `release-prepare` exits 1 with `nothing to release`, leaving every file
       unchanged
-- [ ] `(integration)` on the same clone plus one `fix` commit,
+- [x] `(integration)` on the same clone plus one `fix` commit,
       `make release-version` prints `0.1.1`; plus one `feat` commit, it prints
       `0.2.0`
-- [ ] `(integration)` `make release-notes` on that clone lists the `feat`
+- [x] `(integration)` `make release-notes` on that clone lists the `feat`
       subject under `New` and the `fix` subject under `Fixed`, and contains no
       `docs`, `chore` or `Merge` line
-- [ ] `(integration)` `make release-prepare` writes `0.2.0` into
+- [x] `(integration)` `make release-prepare` writes `0.2.0` into
       `[workspace.package] version`, `Cargo.lock` lists every workspace crate at
       `0.2.0`, and `CHANGELOG.md` starts with a `## [0.2.0]` section holding the
       same lines `release-notes` printed
-- [ ] `(integration)` running `release-prepare` a second time on the now-dirty
+- [x] `(integration)` running `release-prepare` a second time on the now-dirty
       clone exits 1 and changes nothing
-- [ ] `(integration)` a `feat!:` commit while the version is `0.x` yields
+- [x] `(integration)` a `feat!:` commit while the version is `0.x` yields
       `0.3.0`, not `1.0.0`
-- [ ] `(integration)` `make verify` passes, with `release-tools-test` part of
+- [x] `(integration)` `make verify` passes, with `release-tools-test` part of
       `make test`
 
 ## References
