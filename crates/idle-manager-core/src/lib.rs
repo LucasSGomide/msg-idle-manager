@@ -12,6 +12,7 @@ mod ports;
 mod preset;
 mod remote;
 mod session;
+mod update;
 mod workspace;
 mod workspace_book;
 
@@ -20,8 +21,9 @@ pub use memory::{BudgetVerdict, MemoryReading};
 pub use ports::{
     MemoryProbe, MemoryProbeError, PhoneLink, PhoneRecordError, PhoneRecordStore, PresetCatalogue,
     PresetCatalogueReading, PresetFailure, ProfileDirectories, ProfileError, ProfileLocator,
-    ProfileRemoval, ProfileRemovalError, WorkspaceReadError, WorkspaceStore, WorkspaceWriteError,
-    ZoomMemory, ZoomMemoryError,
+    ProfileRemoval, ProfileRemovalError, UpdateChannel, UpdateCheck, UpdateError, UpdateInfo,
+    VerifiedPackage, WorkspaceReadError, WorkspaceStore, WorkspaceWriteError, ZoomMemory,
+    ZoomMemoryError,
 };
 pub use preset::{InvalidZoom, Preset, PresetId, ZoomLevel};
 pub use remote::{
@@ -32,6 +34,9 @@ pub use remote::{
 pub use session::{
     Liveness, RememberedZoom, Session, SessionBook, SessionId, Visibility, WorkspaceId,
     account_name, workspace_name,
+};
+pub use update::{
+    Effect, ParseVersionError, UpdateEvent, UpdatePolicy, UpdateSchedule, UpdateState, Version,
 };
 pub use workspace::{Account, SavedLiveness, Workspace, WorkspaceList};
 pub use workspace_book::{

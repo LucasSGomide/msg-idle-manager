@@ -7,6 +7,7 @@ use crate::memory::MemoryReading;
 use crate::preset::Preset;
 use crate::remote::{EnrolledPhone, EnrolmentOffer, Frame, PhoneStatus, RemoteState};
 use crate::session::{RememberedZoom, SessionId};
+use crate::update::Version;
 use crate::workspace::WorkspaceList;
 
 /// A memory sample could not be taken.
@@ -416,6 +417,132 @@ pub trait PhoneRecordStore: std::fmt::Debug + Send + Sync {
     /// [`PhoneRecordError::Inaccessible`] if the record exists and could not
     /// be removed.
     fn clear(&self) -> Result<(), PhoneRecordError>;
+}
+
+/// The version on offer, and where to read what changed.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct UpdateInfo {
+    /// The version on offer.
+    pub version: Version,
+    /// Where "What's new" opens.
+    pub notes_url: String,
+}
+
+/// What [`UpdateChannel::check`] found.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum UpdateCheck {
+    /// Nothing newer than the version already running.
+    UpToDate,
+    /// A newer version is on offer.
+    Available(UpdateInfo),
+}
+
+/// A downloaded package that has passed its checksum and signature checks,
+/// staged where [`UpdateChannel::apply_on_exit`] expects to find it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct VerifiedPackage {
+    /// The version this package installs.
+    pub version: Version,
+    /// Where the verified package sits on disk.
+    pub path: PathBuf,
+}
+
+/// A step of learning about, fetching or applying an update did not
+/// succeed.
+///
+/// Five cases a caller must tell apart (code standards rule 12): the two
+/// that mean "try again later without saying much" ([`Offline`],
+/// [`RateLimited`]), the one that means the feed answered with something
+/// this build does not understand ([`Malformed`]), the one that means a
+/// downloaded package must never be installed ([`Rejected`]), and a plain
+/// I/O failure that fits none of the others.
+///
+/// [`Offline`]: UpdateError::Offline
+/// [`RateLimited`]: UpdateError::RateLimited
+/// [`Malformed`]: UpdateError::Malformed
+/// [`Rejected`]: UpdateError::Rejected
+#[derive(Debug, thiserror::Error)]
+pub enum UpdateError {
+    /// The update feed could not be reached at all.
+    #[error("could not reach the update feed: {reason}")]
+    Offline {
+        /// One line describing what was wrong, ready to show as-is.
+        reason: String,
+    },
+    /// The update feed refused the request for having asked too often.
+    #[error("the update feed is rate limited; try again later")]
+    RateLimited,
+    /// The feed answered, but not with something this build understands.
+    #[error("the update feed could not be read: {reason}")]
+    Malformed {
+        /// One line describing what was wrong, ready to show as-is.
+        reason: String,
+    },
+    /// A downloaded package failed its checksum or its signature check, and
+    /// has been deleted.
+    #[error("the update could not be verified and was discarded: {reason}")]
+    Rejected {
+        /// One line describing what was wrong, ready to show as-is.
+        reason: String,
+    },
+    /// A local file operation failed — writing, renaming or removing a
+    /// package.
+    #[error("the update could not be completed: {reason}")]
+    Io {
+        /// One line describing what was wrong, ready to show as-is.
+        reason: String,
+    },
+}
+
+/// Everything the domain needs from Velopack, without knowing Velopack
+/// exists (naming rule 10): the core asks for an `UpdateChannel` and
+/// `idle-manager-update` supplies a `VelopackChannel` built over Velopack's
+/// own `UpdateManager` (architecture rules 5, 6, 9).
+///
+/// Every method is blocking and meant to run on a worker thread — the shell
+/// is the one that keeps the GTK main context free while it does
+/// (architecture rule 10). `Send + Sync` for the same reason.
+pub trait UpdateChannel: std::fmt::Debug + Send + Sync {
+    /// Asks whether a newer version than the one running now exists.
+    ///
+    /// # Errors
+    ///
+    /// [`UpdateError::Offline`] or [`UpdateError::RateLimited`] if the feed
+    /// could not be reached or refused the request; [`UpdateError::Malformed`]
+    /// if it answered with something this build cannot read.
+    fn check(&self) -> Result<UpdateCheck, UpdateError>;
+
+    /// Downloads the package `info` names, reporting `0..=100` to `progress`
+    /// as it arrives, then checks its checksum and its signature before
+    /// returning it. A package that fails either check is deleted before
+    /// this returns.
+    ///
+    /// # Errors
+    ///
+    /// [`UpdateError::Offline`] if the download could not complete;
+    /// [`UpdateError::Rejected`] if the package failed its checksum or its
+    /// signature; [`UpdateError::Io`] if the file could not be written.
+    fn download(
+        &self,
+        info: &UpdateInfo,
+        progress: &(dyn Fn(u8) + Send),
+    ) -> Result<VerifiedPackage, UpdateError>;
+
+    /// Arranges for `package` to be installed once this process exits, and
+    /// to relaunch the application afterwards when `relaunch` is true.
+    ///
+    /// # Errors
+    ///
+    /// [`UpdateError::Io`] if the install could not be arranged.
+    fn apply_on_exit(&self, package: &VerifiedPackage, relaunch: bool) -> Result<(), UpdateError>;
+
+    /// The version currently running.
+    fn current_version(&self) -> Version;
+
+    /// The reason a previously staged swap did not apply, read once at
+    /// launch. `None` when the last swap applied cleanly or none was
+    /// pending.
+    fn last_apply_failure(&self) -> Option<String>;
 }
 
 #[cfg(test)]

@@ -70,6 +70,11 @@ velopack = "1.2"
 # (`release/minisign.pub`) before the update channel applies it (roadmap item
 # 16 task 04). `idle-manager-update` only.
 minisign-verify = "0.2"
+# Fetches a release's `.minisig` file directly, since Velopack's own sources
+# resolve an asset's download URL themselves rather than handing it back
+# (roadmap item 16 task 06). Pinned to the version Velopack itself pulls in,
+# so the workspace never carries two `ureq`s. `idle-manager-update` only.
+ureq = "3.4"
 
 [workspace.lints.rust]
 missing_debug_implementations = "warn"

@@ -8,6 +8,7 @@
 //! contract, called as the very first statement of `main` before anything
 //! else touches the filesystem or the display server.
 
+mod channel;
 mod signature;
 
 use velopack::VelopackApp;
@@ -18,6 +19,7 @@ use velopack::VelopackApp;
 // `pub(crate)` item is invisible to it whatever the module's own visibility —
 // the same reason `idle-manager-metrics` re-exports `ProcPssProbe` the same
 // way for its own `tests/`.
+pub use channel::{ChannelSetup, VelopackChannel};
 pub use signature::{SignatureError, verify_package};
 
 /// Runs Velopack's install/update/uninstall hooks and exits the process at

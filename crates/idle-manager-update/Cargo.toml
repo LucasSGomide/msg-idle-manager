@@ -8,8 +8,10 @@ publish.workspace = true
 [dependencies]
 idle-manager-core.workspace = true
 minisign-verify.workspace = true
+sha2.workspace = true
 thiserror.workspace = true
 tracing.workspace = true
+ureq.workspace = true
 velopack.workspace = true
 
 [lints]

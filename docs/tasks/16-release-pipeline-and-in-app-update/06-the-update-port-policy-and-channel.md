@@ -92,32 +92,32 @@ meant to run on a worker thread; the window does that in the next slice.
 
 ## Acceptance criteria
 
-- [ ] `(unit)` `Version::from_str` parses `0.2.0` and `v0.2.0`, rejects `0.2`
+- [x] `(unit)` `Version::from_str` parses `0.2.0` and `v0.2.0`, rejects `0.2`
       and `0.2.0-beta`, and `Version(0,3,0) > Version(0,2,9)`
-- [ ] `(unit)` from `Idle`, `CheckRequested { manual: false }` yields
+- [x] `(unit)` from `Idle`, `CheckRequested { manual: false }` yields
       `Checking` with `Effect::RunCheck`; then `NothingNewer` yields `Idle` with
       no effect, and `CheckFailed` yields `Idle`; the same two events after a
       manual request yield `UpToDate` and `Failed { version: None }`
-- [ ] `(unit)` `Found(0.3.0)` yields `Available`; `Dismissed` then hides and
+- [x] `(unit)` `Found(0.3.0)` yields `Available`; `Dismissed` then hides and
       records `0.3.0`; a later automatic `Found(0.3.0)` stays `Idle` while
       `Found(0.4.0)` yields `Available` again and a manual `Found(0.3.0)` yields
       `Available`
-- [ ] `(unit)` `FetchRequested` from `Available` yields `Downloading { percent:
+- [x] `(unit)` `FetchRequested` from `Available` yields `Downloading { percent:
       0 }` with `Effect::Download`; `Progress(42)` yields `Downloading {
       percent: 42 }`; `Verified` yields `Ready`; `Rejected` yields `Failed {
       version: Some }`, from which `FetchRequested` is accepted again
-- [ ] `(unit)` `Dismissed` on `Ready` leaves the state `Ready`, and
+- [x] `(unit)` `Dismissed` on `Ready` leaves the state `Ready`, and
       `FetchRequested` from `Idle`, `Checking` or `Ready` changes nothing
-- [ ] `(unit)` `next_check_due(None, t)` is true; `next_check_due(Some(t), t +
+- [x] `(unit)` `next_check_due(None, t)` is true; `next_check_due(Some(t), t +
       86_399_000)` is false; `next_check_due(Some(t), t + 86_400_000)` is true
-- [ ] `(integration)` `VelopackChannel::new` accepts
+- [x] `(integration)` `VelopackChannel::new` accepts
       `https://github.com/<owner>/<repo>` and rejects a non-GitHub URL with
       `ChannelSetup`
-- [ ] `(integration)` `download` against a local fixture (a release directory
+- [x] `(integration)` `download` against a local fixture (a release directory
       served by a test HTTP server on `127.0.0.1` with a `.nupkg` and a
       `.minisig` from a different key) returns `UpdateError::Rejected` and the
       downloaded file is gone
-- [ ] `(integration)` `make arch-check` passes and `make verify` passes
+- [x] `(integration)` `make arch-check` passes and `make verify` passes
 
 ## References
 

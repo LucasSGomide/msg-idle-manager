@@ -77,13 +77,15 @@ probe.
 | `tracing` + `tracing-subscriber` | 0.1 / 0.3 | Structured logs, filtered by `RUST_LOG` |
 | `serde_json` | 1.0 | The phone's wire messages, in `remote` only (roadmap item 13) |
 | `sha1` + `base64` | 0.11 / 0.23 | The one hash and one encoding the RFC 6455 WebSocket handshake needs |
-| `hmac` + `sha2` | 0.13 / 0.11 | The enrolment proof both sides compute over a shared secret, verified in constant time |
+| `hmac` + `sha2` | 0.13 / 0.11 | The enrolment proof both sides compute over a shared secret, verified in constant time; `sha2` alone also recomputes a downloaded package's checksum in `idle-manager-update` (roadmap item 16 task 06), independently of the check Velopack's own manager already performs |
 | `rand` | 0.10 | Enrolment codes, device ids, secrets and challenges |
 | `jpeg-encoder` | 0.7 | Frames from raw pixels, single-digit milliseconds at 412 × 915; carries the IJG licence, allowed in `deny.toml` for it |
 | `if-addrs` | 0.15 | Finds the mesh address in `100.64.0.0/10` to listen on |
 | `async-channel` | 2.5 | The intent channel from the server's threads to the GTK main context; no runtime, so no `tokio` |
 | `qrcode` | 0.14 | The enrolment address as a code the phone's camera reads, in `shell` only |
 | `velopack` | 1.2 | `run_hooks`'s `VelopackApp::build().run()`, in `idle-manager-update` only (roadmap item 16 task 03) — the one crate allowed to depend on it (architecture rules 2, 3, 4) |
+| `minisign-verify` | 0.2 | Verifies a downloaded package against the compiled-in public key (`release/minisign.pub`), in `idle-manager-update` only (roadmap item 16 task 04) |
+| `ureq` | 3.4, pinned to the version `velopack` itself pulls in | Fetches a release's `.minisig` directly: `sources::UpdateSource` resolves and downloads the package itself but never hands the URL it used back, so `VelopackChannel` builds the signature's URL itself and fetches it with the same HTTP client Velopack already depends on, in `idle-manager-update` only (roadmap item 16 task 06) |
 
 ## Development tooling
 

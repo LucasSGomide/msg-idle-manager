@@ -13,4 +13,4 @@ item's header carries `Landed:` or `Merged:`. Items 01–07 and 09–15 are `don
 | # | Roadmap item | Tasks | Progress | Status |
 |---|---|---|---|---|
 | [13](13-phone-operation/) | Operating an account from a phone | 8 | 8/8 | done |
-| [16](16-release-pipeline-and-in-app-update/) | Releasing from GitHub, and updating from inside the app | 8 | 2/8 | in-progress |
+| [16](16-release-pipeline-and-in-app-update/) | Releasing from GitHub, and updating from inside the app | 8 | 3/8 | in-progress |
