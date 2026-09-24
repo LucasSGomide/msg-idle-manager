@@ -49,9 +49,18 @@ window and a fixed sequence, since a measurement showed the web engine never
 releases a deleted account's files, so deletion removes the folder without
 waiting for them.
 
-**Next up: 13, then 08.** Item 12 shipped: the application runs natively on
-Windows, with every web-engine call behind one shell-internal seam. Item 13
-puts a running account on the owner's phone — one game filling a six-inch
+**Next up: 16, then 08.** Items 13, 14 and 15 shipped. Item 16 gives the
+project its first release: every push to `main` is verified on GitHub, a
+releasable push bumps the version and writes the notes from the commit
+subjects, one Linux runner builds and publishes both systems, and a running
+copy offers the new version from a notice under the header bar and installs it
+when the user quits — never on its own. It goes before 08 because nothing built
+so far reaches anyone who does not compile it, and every later fix is worth
+less until it does. Item 08 adds recovery from a crash nobody was awake to
+see, building on the durable workspace 07 landed.
+
+Before that, item 12 shipped: the application runs natively on Windows, with every web-engine call behind one shell-internal seam. Item 13 then
+put a running account on the owner's phone — one game filling a six-inch
 screen, streamed from the always-on desktop and tapped from the phone — because
 that is the daily pain today's general remote desktop leaves unsolved. It goes
 first because it builds on 12's seam directly: a frame capture and a script
@@ -92,6 +101,7 @@ failure are shown inside a chooser without a modal of their own.
 
 | # | Item | Est | Depends on | Status |
 |---|---|---|---|---|
+| [16](16-release-pipeline-and-in-app-update/README.md) | Releasing from GitHub, and updating from inside the app | 13 | 07, 12 | not-started |
 | [08](08-crash-recovery/README.md) | Surviving a crashed game | 5 | 03 | not-started |
 
 ## Blocked
