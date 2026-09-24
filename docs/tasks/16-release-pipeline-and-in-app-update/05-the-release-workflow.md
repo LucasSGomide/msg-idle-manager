@@ -70,27 +70,11 @@ first that a running copy can install by itself.
 
 ## Acceptance criteria
 
-- [ ] `(e2e)` a push to `main` with only `docs` commits since the last tag runs
-      `release.yml` to the version step and skips every later step, with no
-      commit, tag or release created
-- [ ] `(e2e)` a push to `main` carrying a `feat` commit produces, in one run: a
-      `chore(release): vX.Y.Z [skip ci]` commit on `main` changing only
-      `Cargo.toml`, `Cargo.lock` and `CHANGELOG.md`; a tag `vX.Y.Z`; and a
-      published release whose assets are `IdleManager-win-Portable.zip`,
-      `IdleManager.AppImage`, both `.nupkg` files, both `releases.*.json`
-      feeds, one `.minisig` per package and `SHA256SUMS`
-- [ ] `(e2e)` the release body equals the new `CHANGELOG.md` section, and no
-      second `release.yml` run starts from the release commit
-- [ ] `(e2e)` `gh attestation verify IdleManager.AppImage --repo <owner>/<repo>`
-      passes for a downloaded asset, and `minisign -V -p release/minisign.pub
-      -m <asset>` passes with the matching `.minisig`
-- [ ] `(e2e)` a run made to fail at `make release-sign` (a deliberately missing
-      secret on a throwaway branch set as the workflow's target) leaves `main`,
-      the tag list and the Releases page unchanged
-- [ ] `(e2e)` a `workflow_dispatch` run with `tag: vX.Y.Z` for a tag whose
-      release was deleted rebuilds and republishes the same assets without a
-      new commit or a new tag
 - [x] `(integration)` `make verify` passes
+
+The criteria that need a real run on GitHub or an installed release moved
+to [09](09-proving-the-pipeline-on-github.md) on 2026-09-24, so this slice is
+accepted on what it built and 09 proves it once the branch lands.
 
 ## References
 

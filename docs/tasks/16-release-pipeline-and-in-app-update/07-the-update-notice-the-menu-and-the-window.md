@@ -131,25 +131,11 @@ action button on purpose.
       a pure `notice_text(&UpdateState) -> NoticeText { line, link_shown,
       button: Option<(&str, bool)> }` helper whose eight arms match the
       wireframe table, one test per arm
-- [ ] `(manual)` with a test release newer than the running version, the notice
-      appears under the header bar after launch, `Update` downloads with the
-      percentage rising, and the line ends at `Version X is ready. It installs
-      when you quit Idle Manager.` with `Restart now`, while a game keeps
-      ticking in its slot
-- [ ] `(manual)` `Restart now` closes the window, `sessions.toml`'s mtime
-      updates before the process exits, the app relaunches at the new version,
-      and every running account comes back through the start queue
-- [ ] `(manual)` `☰` shows `Idle Manager <version>` insensitive and `Check for
-      updates`; on the latest version the notice reads `You have the latest
-      version, <version>.` with only `×`; offline it reads `Could not check for
-      updates: …` with only `×`
-- [ ] `(manual)` a test release whose `.minisig` was made with another key
-      ends in `The update could not be verified and was discarded.` with
-      `Try again`, and Velopack's packages folder holds no `.nupkg`
-- [ ] `(manual)` with both a failed save and an available update, the strip
-      sits first and the notice directly beneath it; dismissing the notice while
-      `Ready` hides it and quitting still applies the update
 - [x] `(integration)` `make verify` passes, including `windows-check`
+
+The criteria that need a real run on GitHub or an installed release moved
+to [09](09-proving-the-pipeline-on-github.md) on 2026-09-24, so this slice is
+accepted on what it built and 09 proves it once the branch lands.
 
 ## References
 

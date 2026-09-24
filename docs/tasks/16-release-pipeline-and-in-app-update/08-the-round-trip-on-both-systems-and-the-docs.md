@@ -1,6 +1,6 @@
 # 08 — The round trip on both systems, and the docs
 
-**Roadmap:** [16](../../roadmap/16-release-pipeline-and-in-app-update/README.md) · **Scope:** full-stack · **Depends on:** 05, 07
+**Roadmap:** [16](../../roadmap/16-release-pipeline-and-in-app-update/README.md) · **Scope:** full-stack · **Depends on:** 05, 07, 09
 
 ## Context
 

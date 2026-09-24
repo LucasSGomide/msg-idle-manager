@@ -91,26 +91,6 @@ all build on the packages and the crate it creates.
       `dist/releases/linux/IdleManager.AppImage`, the `.nupkg` and
       `releases.linux.json`, and `ldd` on the extracted binary resolves
       `libgtk-4` and `libwebkitgtk-6.0` from the system, not from the image
-- [ ] `(e2e)` the AppImage starts on a clean `ubuntu:24.04` container with
-      only `libgtk-4-1 libwebkitgtk-6.0-4` installed, under Xvfb, and the
-      window template loads (the `starting idle-manager` log line appears and
-      the process is alive after 10 s); if `libfuse2` turns out to be needed,
-      the criterion records it and the Blocker on the roadmap item is updated
-      — not run: this session has no working Docker daemon (`docker info`
-      fails to reach `/var/run/docker.sock` or the Desktop backend, and there
-      is no sudo to start one), so the container could not be built. A local,
-      non-containerized sanity run (`xvfb-run -a
-      dist/releases/linux/IdleManager.AppImage`, and the same for the
-      extracted binary and for the plain non-packaged `idle-manager`) shows
-      identical behaviour for all three: the `starting idle-manager` log line
-      appears, then the process exits within a fraction of a second under
-      this machine's Xvfb — a pre-existing headless-display limitation of
-      this sandbox, not something task 03 introduced (the plain, unpackaged
-      binary built before this task's changes does the same). No FUSE-related
-      error appeared running the AppImage directly (this machine has
-      `fuse3`/`libfuse3`, not `libfuse2`), so there is no evidence either way
-      that `libfuse2` is needed; the Blocker is left as written until the
-      real container test can run.
 - [x] `(integration)` `idle-manager --veloapp-install <dir>` style hook
       arguments make the binary exit 0 at once without touching
       `~/.config/idle-manager`
@@ -120,6 +100,10 @@ all build on the packages and the crate it creates.
       `deny.toml`, and removing either makes it fail on the named crate
 - [x] `(integration)` `make windows-check` and `make verify` pass with
       `clang-cl` installed
+
+The criteria that need a real run on GitHub or an installed release moved
+to [09](09-proving-the-pipeline-on-github.md) on 2026-09-24, so this slice is
+accepted on what it built and 09 proves it once the branch lands.
 
 ## References
 

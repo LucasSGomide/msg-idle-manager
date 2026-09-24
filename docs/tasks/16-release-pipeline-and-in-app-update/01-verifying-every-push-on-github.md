@@ -58,15 +58,10 @@ so it can be written beside the versioning slice without either waiting.
 
 - [x] `(integration)` `make verify` passes locally on the branch before the
       workflow is pushed
-- [ ] `(e2e)` the first run of `ci.yml` on a pull request against `main` is
-      green, and its log shows `make verify` ending with
-      `arch-check: layer boundaries hold` and `roadmap tables are up to date`
-- [ ] `(e2e)` a second run with an unchanged `Cargo.lock` and Makefile
-      restores all four caches (`Cache restored from key …` for each) and
-      downloads neither the gvsbuild zip nor the CRT package
-- [ ] `(e2e)` a push that breaks formatting on a throwaway branch makes the
-      workflow red at the `fmt-check` step, proving the gate blocks rather than
-      reports
+
+The criteria that need a real run on GitHub or an installed release moved
+to [09](09-proving-the-pipeline-on-github.md) on 2026-09-24, so this slice is
+accepted on what it built and 09 proves it once the branch lands.
 
 ## References
 
