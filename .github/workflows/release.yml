@@ -158,7 +158,10 @@ jobs:
       # The one irreversible act, and the last thing this workflow does
       # before publishing: every package already exists, is signed and is
       # checksummed, so a failure past this point is recovered by dispatching
-      # this workflow with the tag rather than by bumping again.
+      # this workflow with the tag rather than by bumping again. The tag is
+      # named in the push, not left to `--follow-tags`, which skips a
+      # lightweight tag (v0.1.0's first run pushed the commit without it);
+      # `--atomic` lands the commit and the tag together or neither.
       - name: Commit the version bump and tag it
         if: steps.version.outputs.version != '' && github.event_name != 'workflow_dispatch'
         run: |
@@ -166,7 +169,7 @@ jobs:
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git commit -am "chore(release): v${{ steps.version.outputs.version }} [skip ci]"
           git tag "v${{ steps.version.outputs.version }}"
-          git push --follow-tags origin HEAD:main
+          git push --atomic origin HEAD:main "refs/tags/v${{ steps.version.outputs.version }}"
 
       # Draft first, flipped visible only once every asset has uploaded, so a
       # running copy's update check can never observe a release that is
