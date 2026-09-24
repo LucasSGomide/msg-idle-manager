@@ -141,9 +141,11 @@ Naming is in [`naming.md`](naming.md); crate boundaries are in
 
 30. **Name a `feat`, `fix` or `perf` subject after what changed for the person
     playing the games, never for the developer.** `git-cliff` publishes it
-    verbatim as a release note, and nobody rewrites it before it goes out —
-    before: `feat(shell): wire the pager's arrows into the window`; after:
-    `feat(shell): turn pages of a workspace with the header-bar arrows`.
+    verbatim as a release note, and `.github/workflows/release.yml` runs
+    unattended on every push to `main` — nobody proofreads or rewrites the
+    subject before it goes out — before: `feat(shell): wire the pager's arrows
+    into the window`; after: `feat(shell): turn pages of a workspace with the
+    header-bar arrows`.
 
 ## Review checklist
 

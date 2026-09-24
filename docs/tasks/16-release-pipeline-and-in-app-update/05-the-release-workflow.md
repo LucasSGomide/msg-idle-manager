@@ -90,7 +90,7 @@ first that a running copy can install by itself.
 - [ ] `(e2e)` a `workflow_dispatch` run with `tag: vX.Y.Z` for a tag whose
       release was deleted rebuilds and republishes the same assets without a
       new commit or a new tag
-- [ ] `(integration)` `make verify` passes
+- [x] `(integration)` `make verify` passes
 
 ## References
 

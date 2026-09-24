@@ -1,0 +1,210 @@
+# Everything up to the commit is reversible: a failed step here leaves `main`,
+# the tag list and the Releases page exactly as they were, and a re-run
+# recomputes the same version from the same commit history. The push is
+# therefore the last step before anything irreversible happens, and it only
+# happens after every package has been built, signed and checksummed — the
+# release itself is then created as a draft and flipped visible only once
+# every asset has actually uploaded, so a running copy checking for updates
+# can never see a release that is missing a file (code standards rule 16).
+#
+# Every real step below is a `make` target, the same rule `ci.yml` follows, so
+# this file can never drift into doing something the Makefile does not.
+name: Release
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Tag to rebuild and republish, e.g. v1.2.3 (recovery only — a failure after the push but before the release went visible)"
+        required: true
+        type: string
+
+permissions:
+  contents: write
+  id-token: write
+  attestations: write
+
+concurrency: release
+
+jobs:
+  release:
+    runs-on: ubuntu-24.04
+    # The commit this workflow itself pushes starts with `chore(release):`,
+    # so a normal push never sees its own release commit come back around —
+    # belt and braces, since GitHub does not start a workflow for a push made
+    # with a workflow's own `GITHUB_TOKEN` anyway (docs/architecture.md
+    # Technical References).
+    if: github.event_name == 'workflow_dispatch' || !startsWith(github.event.head_commit.message, 'chore(release):')
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || '' }}
+
+      - name: Install system packages
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential pkg-config libgtk-4-dev libwebkitgtk-6.0-dev clang lld llvm jq zip unzip curl minisign
+
+      # Same three tool versions ci.yml keys its caches on, read the same way.
+      - name: Read the versions the caches are keyed on
+        id: versions
+        run: |
+          echo "gvsbuild=$(grep -oP '^GVSBUILD_VERSION := \K.*' Makefile)" >> "$GITHUB_OUTPUT"
+          echo "crt=$(grep -oP '^WINDOWS_CRT_PACKAGE := \K.*' Makefile)" >> "$GITHUB_OUTPUT"
+          echo "xwin=$(curl -fsSL https://crates.io/api/v1/crates/cargo-xwin | jq -r .crate.newest_version)" >> "$GITHUB_OUTPUT"
+
+      - name: Cache the Windows GTK SDK
+        uses: actions/cache@v4
+        with:
+          path: target/windows-sdk/gtk
+          key: windows-sdk-gtk-${{ steps.versions.outputs.gvsbuild }}
+
+      - name: Cache the Windows CRT redistributable
+        uses: actions/cache@v4
+        with:
+          path: target/windows-sdk/crt
+          key: windows-sdk-crt-${{ steps.versions.outputs.crt }}
+
+      - name: Cache cargo-xwin's own download cache
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/cargo-xwin
+          key: cargo-xwin-${{ steps.versions.outputs.xwin }}
+
+      - name: Cache the cargo registry
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+          key: cargo-registry-${{ hashFiles('Cargo.lock') }}
+
+      - name: Bootstrap the pinned toolchain and cargo tools
+        run: make bootstrap
+
+      # `vpk` is a .NET global tool make bootstrap does not install (it is
+      # needed only here and in a developer's own packaging runs, never by
+      # `make verify`); the Ubuntu 24.04 runner ships the .NET SDK already
+      # (docs/stack.md "Cross-compiling"), so no separate SDK install step.
+      - name: Install vpk
+        run: dotnet tool install -g vpk
+
+      - name: Run the whole quality gate
+        run: make verify
+
+      # The version is never typed in: on a push it comes from the commit
+      # history (docs/code-standards.md rule 16); on a dispatch it comes from
+      # the tag being rebuilt, which already carries the version in its name.
+      # Nothing after this point runs when there is nothing to release.
+      - name: Determine the version to release
+        id: version
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            version="${{ inputs.tag }}"
+            version="${version#v}"
+          else
+            version=$(make -s release-version)
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+      - name: Write the version and the changelog
+        if: steps.version.outputs.version != '' && github.event_name != 'workflow_dispatch'
+        run: make release-prepare
+
+      - name: Package Linux
+        if: steps.version.outputs.version != ''
+        run: make linux-package
+
+      - name: Package Windows
+        if: steps.version.outputs.version != ''
+        run: make windows-package
+
+      # The secret key never touches the repository or a log: it is written
+      # from the Actions secret to a file only `release-sign` reads, and the
+      # file is deleted the moment that target has run.
+      - name: Sign the packaged assets
+        if: steps.version.outputs.version != ''
+        env:
+          MINISIGN_SECRET_KEY: ${{ secrets.MINISIGN_SECRET_KEY }}
+        run: |
+          key_file=$(mktemp)
+          chmod 600 "$key_file"
+          printf '%s' "$MINISIGN_SECRET_KEY" > "$key_file"
+          MINISIGN_SECRET_KEY_FILE="$key_file" make release-sign
+          rm -f "$key_file"
+
+      - name: Write the checksums
+        if: steps.version.outputs.version != ''
+        run: make release-checksums
+
+      # Captured before the tag exists: `git cliff --unreleased` (what
+      # `release-notes` prints) reads the commits that are not yet under a
+      # tag, so this has to run before `git tag` below turns them into one.
+      # On a dispatch recovery there already is a tag, checked out above, so
+      # the notes for that one release come from `--current` instead.
+      - name: Write the release notes
+        if: steps.version.outputs.version != ''
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            git cliff --current --strip all > notes.md
+          else
+            make -s release-notes > notes.md
+          fi
+
+      # The one irreversible act, and the last thing this workflow does
+      # before publishing: every package already exists, is signed and is
+      # checksummed, so a failure past this point is recovered by dispatching
+      # this workflow with the tag rather than by bumping again.
+      - name: Commit the version bump and tag it
+        if: steps.version.outputs.version != '' && github.event_name != 'workflow_dispatch'
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git commit -am "chore(release): v${{ steps.version.outputs.version }} [skip ci]"
+          git tag "v${{ steps.version.outputs.version }}"
+          git push --follow-tags origin HEAD:main
+
+      # Draft first, flipped visible only once every asset has uploaded, so a
+      # running copy's update check can never observe a release that is
+      # missing a file. On a dispatch recovery the release may already exist
+      # as a draft (a failure after the push but before it went visible) or
+      # not at all (the release was deleted); either is handled without a new
+      # commit or a new tag. A dispatch onto an already-published release
+      # means there is nothing to recover, so the job stops with a notice.
+      - name: Publish the release
+        id: publish
+        if: steps.version.outputs.version != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          tag="v${{ steps.version.outputs.version }}"
+          assets=(dist/releases/*/* dist/releases/SHA256SUMS)
+
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            if is_draft=$(gh release view "$tag" --json isDraft --jq .isDraft 2>/dev/null); then
+              if [ "$is_draft" = "true" ]; then
+                gh release upload "$tag" --clobber "${assets[@]}"
+                gh release edit "$tag" --draft=false
+              else
+                echo "::notice::$tag is already published; nothing to recover"
+                echo "skip=true" >> "$GITHUB_OUTPUT"
+                exit 0
+              fi
+            else
+              gh release create "$tag" --draft --title "$tag" --notes-file notes.md "${assets[@]}"
+              gh release edit "$tag" --draft=false
+            fi
+          else
+            gh release create "$tag" --draft --title "$tag" --notes-file notes.md "${assets[@]}"
+            gh release edit "$tag" --draft=false
+          fi
+
+      - name: Attest build provenance
+        if: steps.version.outputs.version != '' && steps.publish.outputs.skip != 'true'
+        uses: actions/attest-build-provenance@v2
+        with:
+          subject-path: dist/releases/**

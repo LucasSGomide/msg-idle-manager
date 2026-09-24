@@ -73,6 +73,10 @@ vpk "[linux]" pack \
   --delta None \
   --outputDir "$output_dir"
 rm -rf "dist/.staging"
+# Only the feed the updater reads ships: `RELEASES-linux` is the legacy format
+# and `assets.linux.json` is `vpk upload`'s bookkeeping, and the release
+# publishes every file left in this folder.
+rm -f "$output_dir/RELEASES-linux" "$output_dir/assets.linux.json"
 
 appimage="$output_dir/$pack_id.AppImage"
 nupkg="$output_dir/$pack_id-$version-linux-full.nupkg"

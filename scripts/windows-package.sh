@@ -162,6 +162,10 @@ rm -rf "dist/.staging"
 # promise); deleting it here is cheaper than teaching `vpk` a flag that would
 # also need to survive whatever the CLI calls it next release.
 rm -f "$output_dir/$pack_id-win-Setup.exe"
+# `RELEASES` is the feed format of Velopack's predecessor and
+# `assets.win.json` is `vpk upload`'s own bookkeeping; the updater reads only
+# `releases.win.json`, and the release publishes every file left here.
+rm -f "$output_dir/RELEASES" "$output_dir/assets.win.json"
 
 portable="$output_dir/$pack_id-win-Portable.zip"
 nupkg="$output_dir/$pack_id-$version-full.nupkg"

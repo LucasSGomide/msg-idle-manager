@@ -214,6 +214,13 @@ plus `clang lld llvm jq zip unzip curl`, then `make bootstrap` and
 download cache, and the cargo registry) keep a routine run from re-fetching
 the ~1.4 GB a cold `make bootstrap` would otherwise download every time.
 
+`.github/workflows/release.yml` is what publishes: the same job, run after
+every push to `main` that is not its own release commit, works out whether
+the pushed commits carry a `feat`, `fix` or `perf`, and if they do, packages,
+signs and checksums both systems before committing the version bump, tagging
+it and publishing the GitHub Release — `workflow_dispatch` with a `tag`
+input re-runs the packaging and publishing steps alone, for recovery.
+
 The Windows loop, once a change needs trying on the Windows 11 VM: `make
 windows-package` (roadmap item 12 task 08) writes
 `dist/idle-manager-<version>-windows-x64.zip`, then run it in the VM per
