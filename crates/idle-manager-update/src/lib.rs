@@ -8,7 +8,17 @@
 //! contract, called as the very first statement of `main` before anything
 //! else touches the filesystem or the display server.
 
+mod signature;
+
 use velopack::VelopackApp;
+
+// `signature`'s tested surface is declared `pub` inside its own module and
+// re-exported here rather than kept `pub(crate)`: a `tests/*.rs` integration
+// file is its own crate linked against this one from the outside, so a
+// `pub(crate)` item is invisible to it whatever the module's own visibility —
+// the same reason `idle-manager-metrics` re-exports `ProcPssProbe` the same
+// way for its own `tests/`.
+pub use signature::{SignatureError, verify_package};
 
 /// Runs Velopack's install/update/uninstall hooks and exits the process at
 /// once if the current invocation was one of them.

@@ -27,6 +27,9 @@
 #                        (`make windows-check`, `make windows-build`)
 #   vpk                  Velopack's own CLI, the packer both `windows-package`
 #                        and `linux-package` hand the staged folder to
+#   minisign             signs every release asset and verifies the compiled-in
+#                        public key against it (`make release-sign`, roadmap
+#                        item 16 task 04)
 #
 # `./scripts/system-check.sh clang-cl lld-link vpk` names exactly the tools a
 # caller needs; the Makefile passes the ones each target actually uses.
@@ -43,6 +46,7 @@ tool_install_line() {
   case "$1" in
     clang-cl | lld-link) echo "apt install clang lld llvm && export PATH=\"\$(echo /usr/lib/llvm-*/bin):\$PATH\"" ;;
     vpk) echo "dotnet tool install -g vpk" ;;
+    minisign) echo "apt install minisign" ;;
     *) echo "install $1" ;;
   esac
 }

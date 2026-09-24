@@ -62,24 +62,24 @@ and the publish workflow both need them finished first.
 
 ## Acceptance criteria
 
-- [ ] `(integration)` `verify_package` returns `Ok(())` for the fixture package
+- [x] `(integration)` `verify_package` returns `Ok(())` for the fixture package
       and its valid signature, and the file is still there afterwards
-- [ ] `(integration)` `verify_package` returns `SignatureError::Rejected` for a
+- [x] `(integration)` `verify_package` returns `SignatureError::Rejected` for a
       signature made with a different key, and the package file has been
       deleted
-- [ ] `(integration)` `verify_package` returns `SignatureError::Rejected` for
+- [x] `(integration)` `verify_package` returns `SignatureError::Rejected` for
       the tampered package with the original signature, and the file has been
       deleted
-- [ ] `(integration)` `verify_package` returns `SignatureError::Unreadable`
+- [x] `(integration)` `verify_package` returns `SignatureError::Unreadable`
       naming the path when the signature file is missing
-- [ ] `(integration)` after `make windows-package` and `make linux-package`,
+- [x] `(integration)` after `make windows-package` and `make linux-package`,
       `MINISIGN_SECRET_KEY_FILE=<test key> make release-sign` writes one
       `.minisig` beside every file under `dist/releases/*/`, and `minisign -V
       -p release/minisign.pub -m <file>` passes for each when signed with the
       committed key's pair
-- [ ] `(integration)` `make release-checksums` writes `dist/releases/SHA256SUMS`
+- [x] `(integration)` `make release-checksums` writes `dist/releases/SHA256SUMS`
       with one line per asset and `sha256sum -c SHA256SUMS` passes
-- [ ] `(integration)` `make verify` passes
+- [x] `(integration)` `make verify` passes
 
 ## References
 

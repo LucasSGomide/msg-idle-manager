@@ -49,7 +49,8 @@ WINDOWS_CRT_DIR := target/windows-sdk/crt
 
 .PHONY: help bootstrap system-check dev run watch build release check fmt fmt-check lint \
         test doc audit arch-check windows-check windows-build windows-package linux-package verify clean \
-        memory-report release-version release-notes release-prepare release-tools-test
+        memory-report release-version release-notes release-prepare release-tools-test \
+        release-sign release-checksums
 
 help:  ## list every target
 	@grep -hE '^[a-zA-Z0-9_-]+:.*##' $(MAKEFILE_LIST) | sort | awk 'BEGIN { FS = ":.*## " } { printf "  \033[36m%-14s\033[0m %s\n", $$1, $$2 }'
@@ -140,6 +141,28 @@ release-prepare:  ## write the version into Cargo.toml/Cargo.lock and prepend CH
 
 release-tools-test:  ## pin release-version/-notes/-prepare's behaviour against a throwaway clone
 	./scripts/tests/release-prepare-test.sh
+
+# Roadmap item 16 task 04: the owner's private key never touches the
+# repository or a log — the workflow writes the `MINISIGN_SECRET_KEY` Actions
+# secret to a file named by `MINISIGN_SECRET_KEY_FILE` and deletes it once
+# this target has run. A missing variable fails loudly rather than silently
+# skipping every package.
+release-sign:  ## sign every file under dist/releases/*/ with minisign, skipping ones already signed
+	@./scripts/system-check.sh minisign
+	@[ -n "$$MINISIGN_SECRET_KEY_FILE" ] || { echo "release-sign: set MINISIGN_SECRET_KEY_FILE to the secret key's path" >&2; exit 1; }
+	for f in dist/releases/*/*; do \
+		case "$$f" in \
+			*.minisig) continue ;; \
+		esac; \
+		if [ -f "$$f.minisig" ]; then \
+			echo "release-sign: $$f is already signed"; \
+			continue; \
+		fi; \
+		minisign -S -s "$$MINISIGN_SECRET_KEY_FILE" -m "$$f"; \
+	done
+
+release-checksums:  ## write dist/releases/SHA256SUMS over every packaged asset
+	cd dist/releases && sha256sum */* > SHA256SUMS
 
 doc: system-check  ## build the API docs and open them
 	$(CARGO) doc --workspace --no-deps --open

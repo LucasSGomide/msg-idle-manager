@@ -66,6 +66,10 @@ rstest = "0.26"
 # reads the same release feed. Only `idle-manager-update` may depend on it
 # (architecture rules 2, 3, 4).
 velopack = "1.2"
+# Verifies a downloaded package against the compiled-in public key
+# (`release/minisign.pub`) before the update channel applies it (roadmap item
+# 16 task 04). `idle-manager-update` only.
+minisign-verify = "0.2"
 
 [workspace.lints.rust]
 missing_debug_implementations = "warn"
