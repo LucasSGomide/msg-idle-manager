@@ -4,10 +4,12 @@
 
 - [x] `make bootstrap` on a machine that already has the SDK downloads → `Summary Successfully installed cargo-deny, cargo-watch, cargo-xwin, cargo-nextest!`, `system-check: GTK 4 and WebKitGTK development files present`, both `windows-sdk-fetch` and `windows-crt-fetch` report `already present; skipping the download`
 - [x] `make verify` on a clean working tree → exits 0, ending with `arch-check: layer boundaries hold` then `roadmap tables are up to date`
+- [ ] Two real releases against the production repository, `v0.1.0` then a later `v0.1.1` (or whichever versions the real commit history gives), each published by pushing a releasable commit to `main` and letting `.github/workflows/release.yml` run for real — `VelopackChannel::new` in `crates/idle-manager/src/main.rs` takes `RELEASE_REPOSITORY` (`https://github.com/LucasSGomide/msg-idle-manager`) as a compile-time constant with no environment or runtime override, so the `test/16-…` branch and temporary `RELEASE_REPOSITORY` override this task file itself suggests is not something the shipped code supports without a throwaway rebuild pointed at a second repository; the straightforward path is two ordinary releases on the real repository (not run: this session must not push, tag, publish a release, or otherwise touch GitHub)
 
 ## Teardown
 
 - [ ] Delete any throwaway branch pushed to `origin` only to prove a red CI run or a cache miss
+- [ ] If task 08's round trip published throwaway assets to a scratch repository rather than two ordinary production releases, delete those releases and their tags (not applicable if the round trip instead used two real, keepable releases on the production repository)
 
 ## 01 — Verifying every push on GitHub
 
@@ -88,3 +90,124 @@
 - [ ] With both a failed save and an available update, the strip sitting first and the notice directly beneath it; dismissing the notice while `Ready` hiding it and quitting still applying the update — not run: needs a real available update to reach `Ready`, and the stacking itself is a visual check (`root_box.insert_child_after` places the notice right after the strip, read in the diff, not run on screen)
 - [x] `cargo fmt --check` → no diff; `cargo clippy --workspace --all-targets -- --deny warnings` → `Finished` with zero warnings
 - [x] `make verify` (`LLVM_BIN=~/.local/llvm21/usr/lib/llvm-21/bin`, `DOTNET_ROOT=~/.local/dotnet` on `PATH`) → exits 0, `Summary [...] 589 tests run: 589 passed, 1 skipped`, `cargo xwin clippy --workspace --all-targets --target x86_64-pc-windows-msvc -- --deny warnings` finishes with no warnings, ending `arch-check: layer boundaries hold` then `roadmap tables are up to date` (reuses the Setup step above)
+
+## 08 — The round trip on both systems, and the docs
+
+No GitHub release exists yet at the time this section was written: nothing has
+been pushed to `main`, `.github/workflows/release.yml` has never run for
+real, and the Releases page is empty. Every step below that needs a real
+release therefore stayed unrun, and every `(manual)` box this task's own
+acceptance criteria name stays unticked. What follows is the exact, hand-run
+walk the owner runs once two real releases exist, plus what this session
+could and did check without one.
+
+### Windows — in the project's Windows 11 VM (`docs/windows-vm.md`)
+
+- [ ] Publish the first real release (`v0.1.0`), unzip
+      `IdleManager-win-Portable.zip` into `C:\idle-manager`
+      (`docs/windows-vm.md`'s updated hand-out step), and run
+      `current\idle-manager.exe` for the first time on this clean VM copy →
+      Windows shows `Windows protected your PC`; click `More info`, then
+      `Run anyway` — not run: needs the first real release
+- [ ] Add one account and log into it, then add three more and log into each,
+      so four accounts are live at once → all four show as running in the
+      sidebar — not run: needs the release above
+- [ ] `dir /s %APPDATA%\idle-manager > before.txt` → captures every file's
+      name, size and timestamp before the update — not run
+- [ ] Publish the second real release (`v0.1.1` or whatever version the real
+      commit history gives, so long as it is newer than the first), then in
+      the running app either wait for the daily check or use `☰` →
+      `Check for updates` → the notice reads `Version <n> is available.` with
+      a `What's new` link and an `Update` button — not run: needs the second
+      real release
+- [ ] Press `Update` → the line reads `Downloading version <n>… <percent>%`
+      with every one of the four accounts still visibly running, ending
+      `Version <n> is ready. It installs when you quit Idle Manager.` with a
+      `Restart now` button — not run
+- [ ] Start a stopwatch, press `Restart now` → the window closes; stop the
+      stopwatch the moment the process is gone from Task Manager, and record
+      the interval against the 60 s `Update.exe` kills at — not run: this is
+      the roadmap item's own open Blocker ("`Update.exe` kills the app 60 s
+      after asking it to exit"), never timed with four live accounts before
+      this task
+- [ ] The app relaunches → `☰` reads `Idle Manager <n>` (the newer version,
+      insensitive) and every one of the four accounts comes back logged in
+      through the start queue, one at a time — not run
+- [ ] `dir /s %APPDATA%\idle-manager > after.txt`, `fc before.txt after.txt`
+      → the only difference is `sessions.toml`'s own size or timestamp line;
+      every account's own folder, cookies and login are otherwise identical
+      — not run
+- [ ] With Smart App Control off (the VM's own default, per
+      `docs/windows-vm.md` "What the VM can and cannot prove"), confirm
+      `Update.exe` itself was not blocked during the swap above (no
+      SmartScreen prompt on the helper, only on the first unzip-and-run) —
+      not run; Smart App Control's own refusal (the roadmap item's other open
+      Blocker) cannot be shown in this VM at all, on or off, without turning
+      it on and accepting the VM stops proving anything else in the same run
+
+### Linux — a clean `ubuntu:24.04` container
+
+- [ ] `docker run --rm -it ubuntu:24.04`, `apt update && apt install -y
+      libgtk-4-1 libwebkitgtk-6.0-4 xvfb`, copy in the first real release's
+      `IdleManager.AppImage`, `chmod +x` it, then under `Xvfb :99 -screen 0
+      1280x800x24` with `RUST_LOG=idle_manager=debug` run it → the log shows
+      the window activating with no missing-library error — not run: no
+      working Docker daemon in this environment (no sudo, no Docker socket;
+      the same limitation task 03's own test-script entry above already
+      recorded for its own container check)
+- [ ] Add one account and log into it → the sidebar shows it running — not
+      run, same reason
+- [ ] `sha256sum IdleManager.AppImage` and `cp -a ~/.config/idle-manager
+      ~/.local/share/idle-manager /tmp/before` → captures the running
+      version's checksum and a copy of both data folders before the update —
+      not run
+- [ ] Publish the second real release, then drive `☰` → `Check for updates` →
+      `Update` → `Restart now` through the notice with the same
+      dlopen-`XTest` synthetic-input helper earlier items' runbooks used
+      under `Xvfb` (`docs/ui-redesign-runbook.md`'s driver) → the notice
+      reaches `Ready` then the process exits and a new one starts — not run
+- [ ] `sha256sum IdleManager.AppImage` again → differs from the checksum
+      captured above and matches the second release's published checksum in
+      `SHA256SUMS` — not run
+- [ ] `diff -rq ~/.config/idle-manager /tmp/before/idle-manager` and the
+      same for `~/.local/share/idle-manager` → no difference reported apart
+      from `sessions.toml` — not run
+
+### What this session did check without a release
+
+- [x] Whether the AppImage needs `libfuse2` to run at all, independent of the
+      still-open container check above: `file dist/releases/linux/IdleManager.AppImage`
+      → `ELF 64-bit LSB pie executable, x86-64, version 1 (SYSV), static-pie
+      linked, BuildID[...]`; `ldd dist/releases/linux/IdleManager.AppImage` →
+      `not a dynamic executable`; on this development machine, which has
+      `libfuse3` installed but no `libfuse2` package and no `libfuse.so.2` at
+      all (`dpkg -l | grep libfuse2` and `ldconfig -p | grep libfuse.so.2`
+      both print nothing), running the freshly-built AppImage under a fresh
+      `xvfb-run` and throwaway `XDG_CONFIG_HOME`/`XDG_DATA_HOME` still worked:
+      the process started, mounted its own bundled `squashfuse`
+      (`vpk`'s own packaging log names the runtime
+      `appimagekit-runtime-x86_64`), and wrote its usual
+      `<config>/idle-manager/presets/*.toml` files — `libfuse2` is not
+      needed; the roadmap item's Blocker was updated in place with this
+      finding
+- [x] `make linux-package` (`DOTNET_ROOT=~/.local/dotnet` on `PATH`) rerun
+      fresh in this session → same shape task 03/04 already recorded:
+      `[16:50:24 INF] Velopack CLI 1.2.158`, `Creating AppImage with
+      appimagekit-runtime-x86_64 runtime`, ending `linux-package: wrote
+      dist/releases/linux/IdleManager.AppImage,
+      dist/releases/linux/IdleManager-0.1.0-linux-full.nupkg and
+      dist/releases/linux/releases.linux.json (7.4M); idle-manager links GTK
+      and WebKitGTK from the system`
+- [x] `test -f release/README.md && test -f release/minisign.pub` (the two
+      files the new root `README.md`'s `## Download` section links to and
+      names) → both exist, confirming the links resolve
+- [x] `make LLVM_BIN=~/.local/llvm21/usr/lib/llvm-21/bin verify`
+      (`DOTNET_ROOT=~/.local/dotnet` on `PATH`) → exits 0, `Summary [...]
+      589 tests run: 589 passed, 1 skipped`, ending `arch-check: layer
+      boundaries hold` then `roadmap tables are up to date` — no regression
+      from the documentation-only changes this section describes (reuses the
+      Setup step above)
+- [x] `make roadmap-check` after ticking this task's `(integration)`
+      criterion and running `make roadmap-sync` → `roadmap tables are up to
+      date`, confirming item 16's table reflects 1/6 criteria now met with
+      the other five still open

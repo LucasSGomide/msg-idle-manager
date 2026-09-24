@@ -224,8 +224,9 @@ it and publishing the GitHub Release — `workflow_dispatch` with a `tag`
 input re-runs the packaging and publishing steps alone, for recovery.
 
 The Windows loop, once a change needs trying on the Windows 11 VM: `make
-windows-package` (roadmap item 12 task 08) writes
-`dist/idle-manager-<version>-windows-x64.zip`, then run it in the VM per
+windows-package` (roadmap item 12 task 08's build target, repackaged by
+roadmap item 16 task 03 onto Velopack) writes
+`dist/releases/win/IdleManager-win-Portable.zip`, then run it in the VM per
 [`docs/windows-vm.md`](windows-vm.md).
 
 ## Version policy

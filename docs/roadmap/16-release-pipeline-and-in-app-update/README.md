@@ -550,10 +550,21 @@ both systems.
   blocked (`docs/explorations/01-release-automation-and-auto-update.md`
   section 5). If it fails, `Platform Support` `FR.3.4` has to be superseded
   by a per-user installer, which is a requirements change, not a task.
-- **Whether the AppImage needs `libfuse2`** on a clean Ubuntu 24.04, which does
-  not install it by default, is not verified (exploration section 4). The
-  fallback is a plain tarball of the binary swapped with `self-replace`, which
-  the exploration found safe for a single Linux binary.
+- **Resolved in part (task 08, 2026-09-24): the AppImage does not need
+  `libfuse2`.** `vpk [linux] pack`'s own AppImage runtime is statically linked
+  (`file` reports `static-pie linked`, no `libfuse.so.2` in `ldd`'s output —
+  there is no dynamic output at all) and bundles its own `squashfuse`; it does
+  not `dlopen` the system's libfuse the way the classic AppImageKit runtime
+  does. Confirmed by running the built `IdleManager.AppImage` under a fresh
+  Xvfb and XDG_*_HOME on the development machine, which has `libfuse3` but no
+  `libfuse2` package and no `libfuse.so.2` anywhere on it (`dpkg -l` and
+  `ldconfig -p` both empty) — the AppImage still mounted its image and ran the
+  program, which wrote its usual `presets/` cache under the sandboxed config
+  directory. What this does not answer is whether a container's own
+  `/dev/fuse` access (not merely the library) is available on a clean
+  `ubuntu:24.04` with no `--device /dev/fuse` or `--cap-add SYS_ADMIN` — that
+  half needs the still-open container run below. The `self-replace` tarball
+  fallback is accordingly not needed.
 - **Resolved (task 03, 2026-09-24): `apt install clang lld llvm` alone does
   not put `clang-cl`/`lld-link`/`llvm-lib` on `PATH`.** Ubuntu's packages
   place only the *versioned* names (`clang-cl-21`, `lld-link-21`,

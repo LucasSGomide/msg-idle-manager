@@ -46,11 +46,14 @@ compose file is [`scripts/windows-vm/compose.yml`](../scripts/windows-vm/compose
 ## Daily loop
 
 1. On Linux, `make windows-package` writes
-   `dist/idle-manager-<version>-windows-x64.zip`. Task 02 of item 12 creates
-   the build target and task 08 the package target.
+   `dist/releases/win/IdleManager-win-Portable.zip` (roadmap item 16 task 03
+   replaced item 12 task 08's plain zip with this Velopack package, which
+   carries `Update.exe` beside a `current\` folder holding the program, so
+   the in-app updater can swap it after the app exits).
 2. In the VM, the zip is on drive `Z:`. Unzip it to a local folder such as
    `C:\idle-manager`; don't run it from `Z:`, because a network share is slow
-   and locks files. Run `idle-manager.exe`.
+   and locks files. Run `current\idle-manager.exe` — not the top-level
+   `Update.exe`, which is the updater's own helper, not the program.
 3. Logs: run from `cmd` with `set RUST_LOG=idle_manager=debug` for a debug
    build, whose console window stays open.
 
