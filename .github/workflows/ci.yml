@@ -1,0 +1,71 @@
+# Ubuntu 24.04 on purpose: it is the oldest Linux the application supports, so
+# a build that passes here runs everywhere the project promises. Every real
+# step below is a `make` target (checkout, apt and cache are the only
+# exceptions) so a developer can repeat any of it by hand and get the same
+# result, and this file can never drift into doing something the Makefile
+# does not.
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@v4
+
+      - name: Install system packages
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential pkg-config libgtk-4-dev libwebkitgtk-6.0-dev clang lld llvm jq zip unzip curl
+
+      # The Makefile pins the GTK SDK and CRT package versions; cargo-xwin
+      # itself is not pinned anywhere, so its own published version stands in
+      # for one. Reading all three here, before the caches below, is what
+      # lets each cache key track the exact thing `make bootstrap` will fetch.
+      - name: Read the versions the caches are keyed on
+        id: versions
+        run: |
+          echo "gvsbuild=$(grep -oP '^GVSBUILD_VERSION := \K.*' Makefile)" >> "$GITHUB_OUTPUT"
+          echo "crt=$(grep -oP '^WINDOWS_CRT_PACKAGE := \K.*' Makefile)" >> "$GITHUB_OUTPUT"
+          echo "xwin=$(curl -fsSL https://crates.io/api/v1/crates/cargo-xwin | jq -r .crate.newest_version)" >> "$GITHUB_OUTPUT"
+
+      - name: Cache the Windows GTK SDK
+        uses: actions/cache@v4
+        with:
+          path: target/windows-sdk/gtk
+          key: windows-sdk-gtk-${{ steps.versions.outputs.gvsbuild }}
+
+      - name: Cache the Windows CRT redistributable
+        uses: actions/cache@v4
+        with:
+          path: target/windows-sdk/crt
+          key: windows-sdk-crt-${{ steps.versions.outputs.crt }}
+
+      - name: Cache cargo-xwin's own download cache
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/cargo-xwin
+          key: cargo-xwin-${{ steps.versions.outputs.xwin }}
+
+      - name: Cache the cargo registry
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+          key: cargo-registry-${{ hashFiles('Cargo.lock') }}
+
+      - name: Bootstrap the pinned toolchain and cargo tools
+        run: make bootstrap
+
+      - name: Run the whole quality gate
+        run: make verify

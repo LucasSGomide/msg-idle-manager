@@ -97,6 +97,7 @@ probe.
 | `insta` | Snapshots of the on-disk file format | dev-dependency, `store` |
 | `cargo-xwin` | Supplies the MSVC CRT and Windows SDK import libraries for the cross build | `make windows-build` |
 | `jq`, `zip`, `unzip`, `curl` | Read the Visual Studio manifest and assemble the release zip | `make windows-package` |
+| `git-cliff` | Reads `cliff.toml` and the commit history to pick the next version and write the release notes | `make release-version`, `make release-notes`, `make release-prepare` |
 
 ## System packages
 
@@ -175,6 +176,14 @@ installed. It also adds the `x86_64-pc-windows-msvc` rustup target, installs
 `cargo-xwin`, and runs the gvsbuild download above — the first run downloads
 about 300 MiB, and every run after that is a no-op. `make verify` is the full
 gate and is what CI should run; it includes `windows-check`.
+
+`.github/workflows/ci.yml` is that CI: one job on `ubuntu-24.04` — the oldest
+Linux the application supports — running on every push to `main` and every
+pull request targeting it, installing the same system packages named above
+plus `clang lld llvm jq zip unzip curl`, then `make bootstrap` and
+`make verify`. Four caches (the GTK SDK, the CRT package, `cargo-xwin`'s own
+download cache, and the cargo registry) keep a routine run from re-fetching
+the ~1.4 GB a cold `make bootstrap` would otherwise download every time.
 
 The Windows loop, once a change needs trying on the Windows 11 VM: `make
 windows-package` (roadmap item 12 task 08) writes

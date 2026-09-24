@@ -56,7 +56,7 @@ so it can be written beside the versioning slice without either waiting.
 
 ## Acceptance criteria
 
-- [ ] `(integration)` `make verify` passes locally on the branch before the
+- [x] `(integration)` `make verify` passes locally on the branch before the
       workflow is pushed
 - [ ] `(e2e)` the first run of `ci.yml` on a pull request against `main` is
       green, and its log shows `make verify` ending with
