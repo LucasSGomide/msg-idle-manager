@@ -130,7 +130,7 @@ and Naming.
 | Doc | What it settles |
 | --- | --- |
 | `docs/stack.md` | What we build with, at which version, and why |
-| `docs/architecture.md` | The five crates, the dependency rule, where a change goes |
+| `docs/architecture.md` | The seven crates, the dependency rule, where a change goes |
 | `docs/code-standards.md` | How the code inside a crate is written |
 | `docs/naming.md` | How files, crates and identifiers are named |
 
