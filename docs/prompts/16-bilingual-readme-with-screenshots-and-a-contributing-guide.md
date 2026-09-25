@@ -3,7 +3,7 @@
 **Status:** executed on 2026-09-24 — the contributing guides and the
 `.claude/` publication were dropped on 2026-09-25 before anything was pushed;
 only the READMEs and the screenshots stayed, and a licence was added
-**Rating:** —
+**Rating:** 7
 
 ## Context
 
