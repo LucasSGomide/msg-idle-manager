@@ -17,6 +17,17 @@
 - [x] `make arch-check` → prints `arch-check: layer boundaries hold`
 - [ ] `make windows-check` → `cargo xwin clippy` finishes with no warnings (needs `clang-cl` and `lld-link`; not run on this machine)
 
+## 03 — The Muted menu item, the window handler and restore
+
+- [x] `cargo nextest run -p idle-manager-shell status_key_is_the_same_whether_or_not_the_account_is_muted` → `Summary [   0.011s] 1 test run: 1 passed, 162 skipped`
+- [x] `make lint && make test && make arch-check && make roadmap-check` → clippy ends `Finished \`dev\` profile [unoptimized + debuginfo] target(s)` with no warning; nextest `Summary [   1.885s] 612 tests run: 612 passed, 1 skipped` then `release-prepare-test: all assertions passed`; `arch-check: layer boundaries hold`; `roadmap tables are up to date`
+- [ ] Start the application with a live account whose game is playing sound; click that account's row ⋯ button → the menu's first section reads `Park`, `Keep running when hidden`, `Muted`, in that order, with no key chord drawn beside `Muted`
+- [ ] In that menu click `Muted` → the menu closes, the game's sound stops at once, the page does not reload (the game is where it was, nothing re-logs in), the row's coloured dot keeps its colour and no reloading mark appears; click ⋯ again → `Muted` shows ticked
+- [ ] Click ⋯ → `Muted` again to untick it → the game's sound returns at once with no reload; reopening the menu shows `Muted` unticked
+- [ ] On a parked account click ⋯ → `Muted` (it shows ticked on reopening), then click ⋯ → `Start` → the account starts and plays no sound; run `grep -n -B8 muted ~/.config/idle-manager/sessions.toml` → exactly the accounts you muted show `muted = true` in their `[[workspace.account]]` entry, and no other entry has a `muted` key
+- [ ] Quit the application (close the window) and start it again → every account muted before is still silent and shows `Muted` ticked in its ⋯ menu; every other account still sounds and shows it unticked
+- [ ] (needs a Windows machine) On Windows with a current WebView2 runtime, repeat the first three hand-run steps above (menu reads `Park`, `Keep running when hidden`, `Muted`; tick → silent at once, no reload, dot unchanged; untick → sound returns, no reload)
+
 ## Teardown
 
 - [ ] `git status --porcelain` → only the two untracked `docs/prompts/17-*` and `18-*` files plus this task's changes
