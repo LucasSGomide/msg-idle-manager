@@ -41,8 +41,9 @@ pub struct AccountSettings {
 /// the browser identity are permanent; the [`EngineView`] is present only while
 /// the account is running. Build one with [`SessionView::new`], read the
 /// current view with [`SessionView::view`], move between running and parked
-/// with [`SessionView::stop`] and [`SessionView::start`], and change
-/// keep-awake with [`SessionView::set_keep_awake`].
+/// with [`SessionView::stop`] and [`SessionView::start`], change keep-awake
+/// with [`SessionView::set_keep_awake`] and mute with
+/// [`SessionView::set_muted`].
 #[derive(Debug)]
 pub struct SessionView {
     id: SessionId,
@@ -52,6 +53,12 @@ pub struct SessionView {
     /// (`FR.6.1`). Remembered here, not just on the live view, so a view
     /// rebuilt by [`SessionView::start`] after a park carries it forward.
     keep_awake: bool,
+    /// Whether the account's page plays no sound (`FR.28.2`). Remembered
+    /// here, not just on the live view, so a view rebuilt by
+    /// [`SessionView::start`] after a park comes back muted, and so an
+    /// account restored from disk carries it before any page exists
+    /// (`FR.28.3`).
+    muted: bool,
     /// The zoom, identity and WebGL setting copied from the account's preset.
     /// Remembered here, not just on the live view, so a view rebuilt by
     /// [`SessionView::start`] after a park comes back with the same size,
@@ -72,19 +79,22 @@ impl SessionView {
     /// A restored account gets this and nothing more (item 07 task 04):
     /// building a view only to stop it would spend the process spike the
     /// one-at-a-time restore exists to spread out. The start queue calls
-    /// [`SessionView::start`] when the account's turn comes.
+    /// [`SessionView::start`] when the account's turn comes. `muted` is the
+    /// account's stored flag, so its first view is built already silent.
     #[must_use]
     pub fn dormant(
         id: &SessionId,
         directories: &ProfileDirectories,
         start_address: &str,
         settings: AccountSettings,
+        muted: bool,
     ) -> Self {
         Self {
             id: id.clone(),
             profile: EngineProfile::new(id, directories),
             start_address: start_address.to_owned(),
             keep_awake: false,
+            muted,
             settings,
             view: None,
             frame_dump: None,
@@ -96,7 +106,12 @@ impl SessionView {
     /// presenting `identity` when it is `Some`. The one path that builds a
     /// view for a brand-new account. `minimised` is the window's current
     /// state, so a view built while it is already minimised starts marked to
-    /// match (roadmap item 12 task 04, `FR.1.9`).
+    /// match (roadmap item 12 task 04, `FR.1.9`). `muted` is as for
+    /// [`SessionView::dormant`].
+    // Six plain inputs, each a different account fact from a different
+    // source (the book, the store, the window); bundling them into a struct
+    // for one call site would only rename the list, not shorten it.
+    #[allow(clippy::too_many_arguments)]
     #[must_use]
     pub fn new(
         id: &SessionId,
@@ -104,8 +119,9 @@ impl SessionView {
         start_address: &str,
         settings: AccountSettings,
         minimised: bool,
+        muted: bool,
     ) -> Self {
-        let mut holder = Self::dormant(id, directories, start_address, settings);
+        let mut holder = Self::dormant(id, directories, start_address, settings, muted);
         // A brand-new account is never the one a phone is looking at: the
         // phone's current account is chosen from those already in the book.
         holder.start(minimised, false);
@@ -168,6 +184,7 @@ impl SessionView {
             &self.start_address,
             &self.settings,
             self.keep_awake || watched,
+            self.muted,
         );
         view.set_background(background_for(minimised, self.keep_awake));
         self.frame_dump = frame_dump::arm(&view, &self.id);
@@ -190,6 +207,26 @@ impl SessionView {
         let view = self.view.as_ref()?;
         view.set_keep_awake(on, &self.id);
         view.set_background(background_for(minimised, on));
+        Some(view)
+    }
+
+    /// Mutes or unmutes this account's page (`FR.28.2`).
+    ///
+    /// Remembers `on` whether or not a view exists, so a parked, queued or
+    /// starting account builds its next view with the switch already
+    /// applied. When a view is live it is muted where it stands with **no
+    /// reload**, so the account never leaves `Live` and a watching phone is
+    /// undisturbed (`FR.28.3`). Unlike [`SessionView::set_keep_awake`] it
+    /// has nothing to do with the window being minimised, so it neither
+    /// takes nor touches the background state. Returns the live view, or
+    /// `None` while the account is parked.
+    // Unused until task 03 wires the account menu's `Muted` item, same
+    // reasoning as `set_watched`.
+    #[allow(dead_code)]
+    pub fn set_muted(&mut self, on: bool) -> Option<&EngineView> {
+        self.muted = on;
+        let view = self.view.as_ref()?;
+        view.set_muted(on, &self.id);
         Some(view)
     }
 

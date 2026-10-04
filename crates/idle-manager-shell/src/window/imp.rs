@@ -1173,6 +1173,8 @@ impl Window {
                     identity,
                     webgl_enabled,
                 },
+                // TODO(17): task 03 passes the account's stored flag.
+                false,
             );
             self.grid.add_dormant_session(&id, &name);
             self.holders.borrow_mut().insert(id, holder);
@@ -1739,6 +1741,8 @@ impl Window {
                 identity,
                 webgl_enabled,
             },
+            // TODO(17): task 03 passes the account's stored flag.
+            false,
         );
         self.grid.add_dormant_session(id, &name);
         self.holders.borrow_mut().insert(id.clone(), holder);
@@ -2045,6 +2049,8 @@ impl Window {
                 webgl_enabled,
             },
             self.minimised.get(),
+            // TODO(17): task 03 passes the account's stored flag.
+            false,
         );
         let Some(view) = holder.view() else {
             tracing::error!(session = %id, "the new account's view was not built");

@@ -40,6 +40,12 @@ pub(super) struct PendingView {
     /// on Linux, so there is no way to add the prelude to a view that already
     /// exists.
     pub(super) keep_awake: bool,
+    /// Whether the page starts muted (`FR.28.2`, `FR.28.3`). Applied right
+    /// after the view is built, not on the builder: `WebView2`'s mute lives
+    /// on the created `ICoreWebView2_8`, which `wry`'s builder never exposes.
+    /// Unlike the rest of this struct it can change before realize —
+    /// [`EngineHost::set_muted`] writes it here while no view exists yet.
+    pub(super) muted: bool,
 }
 
 impl EngineHost {
@@ -83,6 +89,13 @@ impl EngineHost {
     /// exists — `PendingView::zoom` still applies once it is built.
     pub(super) fn set_zoom(&self, zoom: f64) {
         self.imp().set_zoom(zoom);
+    }
+
+    /// Mutes or unmutes the hosted view's page in place, with no reload
+    /// (`FR.28.2`, `FR.28.3`). Before the view exists the choice is written
+    /// onto the pending view, so it still applies when the view is built.
+    pub(super) fn set_muted(&self, on: bool) {
+        self.imp().set_muted(on);
     }
 
     /// Grabs keyboard focus for the hosted native view. A no-op before the

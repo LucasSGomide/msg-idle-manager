@@ -271,16 +271,21 @@ impl EngineProfile {
     /// is on, the prelude that arms it — already in its script set, because
     /// the manager is a construct-only property of the view (`webkit6`
     /// 0.6.1) and cannot gain a document-start script afterwards (`FR.6.3`).
+    /// `muted` is set on the builder, not after, so a muted account's page
+    /// never plays a first sound before the switch lands (`FR.28.2`,
+    /// `FR.28.3`).
     #[must_use]
     pub(crate) fn build_view(
         &self,
         start_address: &str,
         settings: &AccountSettings,
         keep_awake: bool,
+        muted: bool,
     ) -> EngineView {
         let mut builder = WebView::builder()
             .network_session(&self.network_session)
-            .user_content_manager(&build_content_manager(keep_awake));
+            .user_content_manager(&build_content_manager(keep_awake))
+            .is_muted(muted);
         // Built against the shared context carrying the memory-pressure
         // settings (`FR.19.4`); a missing context means
         // `EngineShared::configure` has not run, and the engine's default is
@@ -388,6 +393,16 @@ impl EngineView {
     /// takes effect on the running page (`FR.11.5`, `FR.12.7`).
     pub(crate) fn set_zoom(&self, zoom: ZoomLevel) {
         self.view.set_zoom_level(zoom.multiplier());
+    }
+
+    /// Mutes or unmutes everything this view's page plays — media elements
+    /// and Web Audio alike — through the view's own `is-muted` property, in
+    /// place, with no reload, so the account's liveness is untouched
+    /// (`FR.28.2`, `FR.28.3`). The game's own volume settings are never
+    /// touched.
+    pub(crate) fn set_muted(&self, on: bool, id: &SessionId) {
+        self.view.set_is_muted(on);
+        tracing::debug!(session = %id, muted = on, "view mute set");
     }
 
     /// Ends this view's rendering process. Dropping the [`EngineView`]

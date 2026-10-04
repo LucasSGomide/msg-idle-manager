@@ -2,7 +2,7 @@
 //! configuration until realize, the built `wry::WebView` after, and the
 //! bounds math wired to size-allocate and the toplevel's scale factor.
 
-use std::cell::{Cell, RefCell};
+use std::cell::{Cell, OnceCell, RefCell};
 use std::rc::Rc;
 
 use gtk::glib;
@@ -10,6 +10,8 @@ use gtk::prelude::*;
 use gtk::subclass::prelude::*;
 use gtk4 as gtk;
 use wry::WebViewExtWindows;
+
+use idle_manager_core::SessionId;
 
 use crate::web_engine::host_bounds::{self, Bounds};
 use crate::web_engine::ipc_message::IpcAction;
@@ -55,6 +57,11 @@ pub struct EngineHost {
     /// got back from [`EngineHost::new`], which realize has not necessarily
     /// run for yet.
     background: Cell<bool>,
+    /// The account this host belongs to, kept past realize — which consumes
+    /// [`PendingView`] and its `id` with it — so a failure logged later, from
+    /// [`EngineHost::set_muted`], still carries the `session` field (code
+    /// standards rule 15). Set once, by [`EngineHost::set_pending`].
+    session: OnceCell<SessionId>,
 }
 
 #[glib::object_subclass]
@@ -144,6 +151,9 @@ impl WidgetImpl for EngineHost {
 
 impl EngineHost {
     pub(super) fn set_pending(&self, pending: PendingView) {
+        // A second `set_pending` would carry the same account's id, so
+        // keeping the first loses nothing.
+        self.session.get_or_init(|| pending.id.clone());
         self.pending.replace(Some(pending));
     }
 
@@ -184,6 +194,22 @@ impl EngineHost {
             && let Err(error) = view.zoom(zoom)
         {
             tracing::warn!(%error, "could not apply zoom");
+        }
+    }
+
+    /// Applies `on` to the live view, or — before realize has built one —
+    /// writes it onto the pending view, so a toggle that arrives early is not
+    /// lost. Deliberately better than [`EngineHost::set_zoom`]'s no-op: zoom
+    /// reaches the pending view through `SessionView`'s own settings at the
+    /// next build, but a mute flipped between `start` and realize would
+    /// otherwise wait for the next park and restart.
+    pub(super) fn set_muted(&self, on: bool) {
+        if let Some(view) = self.view.borrow().as_ref() {
+            apply_muted(view, on, self.session.get());
+            return;
+        }
+        if let Some(pending) = self.pending.borrow_mut().as_mut() {
+            pending.muted = on;
         }
     }
 
@@ -428,6 +454,10 @@ impl EngineHost {
             tracing::warn!(%error, "could not disable WebView2's own zoom control");
         }
 
+        if pending.muted {
+            apply_muted(&view, true, Some(&pending.id));
+        }
+
         apply_background(&view, self.background.get());
 
         let controller = view.controller();
@@ -555,6 +585,21 @@ fn finish_once<T>(slot: &OneShot<T>, outcome: T) {
 fn apply_background(view: &wry::WebView, background: bool) {
     if let Err(error) = view.set_visible(!background) {
         tracing::warn!(%error, "could not apply the account's background state");
+    }
+}
+
+/// Applies `on` to `view`'s page through [`ffi::set_muted`] (`FR.28.2`). A
+/// runtime too old to carry `ICoreWebView2_8` refuses it: that is one warning
+/// naming the account and the runtime version, and nothing else — the page
+/// simply keeps its sound (code standards rules 14, 15).
+fn apply_muted(view: &wry::WebView, on: bool, session: Option<&SessionId>) {
+    if let Err(error) = ffi::set_muted(&view.webview(), on) {
+        tracing::warn!(
+            session = session.map_or("unknown", SessionId::as_str),
+            runtime = %wry::webview_version().unwrap_or_else(|_| "unknown".to_owned()),
+            %error,
+            "this WebView2 runtime cannot mute a page"
+        );
     }
 }
 
