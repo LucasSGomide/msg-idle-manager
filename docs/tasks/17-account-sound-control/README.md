@@ -16,5 +16,5 @@ sites — so they can run in parallel. 03 needs both and runs alone.
 | # | Task | Scope | Depends on | Criteria | Status |
 |---|---|---|---|---|---|
 | [01](01-the-muted-flag-in-the-domain-and-on-disk.md) | The muted flag in the domain and on disk | back-end | — | 9/9 | done |
-| [02](02-page-level-mute-on-both-engines-and-the-holder.md) | Page-level mute on both engines and the holder | front-end | — | 0/4 | not-started |
+| [02](02-page-level-mute-on-both-engines-and-the-holder.md) | Page-level mute on both engines and the holder | front-end | — | 3/4 | in-progress |
 | [03](03-the-muted-menu-item-the-window-and-restore.md) | The Muted menu item, the window handler and restore | front-end | 01, 02 | 0/6 | not-started |

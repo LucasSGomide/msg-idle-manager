@@ -83,9 +83,9 @@ account's stored flag.
 
 ## Acceptance criteria
 
-- [ ] `(integration)` `cargo test -p idle-manager-shell` passes on Linux with `muted` threaded through `build_view`, `dormant`, `new`, `start` and `set_muted`
-- [ ] `(integration)` `make fmt-check` and `make clippy` pass: no `unwrap`, no discarded `Result`, the refusal warning carries `session` and `runtime` fields
-- [ ] `(integration)` `make arch-check` holds: `set_is_muted`, `is_muted(` and `ICoreWebView2_8` appear only under `web_engine/`
+- [x] `(integration)` `cargo test -p idle-manager-shell` passes on Linux with `muted` threaded through `build_view`, `dormant`, `new`, `start` and `set_muted`
+- [x] `(integration)` `make fmt-check` and `make clippy` pass: no `unwrap`, no discarded `Result`, the refusal warning carries `session` and `runtime` fields
+- [x] `(integration)` `make arch-check` holds: `set_is_muted`, `is_muted(` and `ICoreWebView2_8` appear only under `web_engine/`
 - [ ] `(integration)` `make windows-check` compiles `ffi::set_muted`, `PendingView::muted` and `EngineHost::set_muted` (needs the LLVM cross toolchain; left unticked where it is absent, as the roadmap item's blocker records)
 
 ## References
