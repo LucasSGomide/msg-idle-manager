@@ -62,15 +62,15 @@ later slices do is checked against what this one stores.
 
 ## Acceptance criteria
 
-- [ ] `(unit)` an account added to the book starts with `is_muted() == false`
-- [ ] `(unit)` `set_muted` to the value already held returns `false` and leaves the book untouched
-- [ ] `(unit)` muting a live account returns `true` and leaves its liveness `Live`; muting a parked account leaves it `Parked`
-- [ ] `(unit)` the flag survives park, unpark, a layout change that moves the account between pages, and a move between workspaces
-- [ ] `(unit)` `set_muted` on an id no workspace holds returns `false`
-- [ ] `(unit)` a `workspace()` → `restore()` round trip preserves `is_muted` on every account
-- [ ] `(integration)` a workspace list with one muted account writes and reads back with that account muted and the rest not
-- [ ] `(integration)` an entry for an unmuted account carries no `muted` key, and `the_written_file_matches_its_snapshot_with_the_version_key` passes unchanged
-- [ ] `(integration)` a version 3 file with `muted = true` on one entry reads back with only that account muted
+- [x] `(unit)` an account added to the book starts with `is_muted() == false`
+- [x] `(unit)` `set_muted` to the value already held returns `false` and leaves the book untouched
+- [x] `(unit)` muting a live account returns `true` and leaves its liveness `Live`; muting a parked account leaves it `Parked`
+- [x] `(unit)` the flag survives park, unpark, a layout change that moves the account between pages, and a move between workspaces
+- [x] `(unit)` `set_muted` on an id no workspace holds returns `false`
+- [x] `(unit)` a `workspace()` → `restore()` round trip preserves `is_muted` on every account
+- [x] `(integration)` a workspace list with one muted account writes and reads back with that account muted and the rest not
+- [x] `(integration)` an entry for an unmuted account carries no `muted` key, and `the_written_file_matches_its_snapshot_with_the_version_key` passes unchanged
+- [x] `(integration)` a version 3 file with `muted = true` on one entry reads back with only that account muted
 
 ## References
 
