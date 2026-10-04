@@ -141,6 +141,10 @@ struct SessionEntry {
     liveness: LivenessRecord,
     /// Whether the account keeps running at full speed while hidden.
     keep_awake: bool,
+    /// Whether the account is silenced. Written only when `true` and read as
+    /// `false` when absent, so a file with no muted account is unchanged.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    muted: bool,
     /// A plain zoom multiplier — `zoom = 0.8` — exactly what the engine takes.
     zoom: f64,
     /// The identity to present to the game. Absent means the engine's own.
@@ -796,6 +800,7 @@ fn entry_to_account(entry: SessionEntry) -> Result<Account, String> {
         start_address: entry.url,
         liveness: entry.liveness.into(),
         is_kept_awake: entry.keep_awake,
+        is_muted: entry.muted,
         browser_identity,
         zoom,
     })
@@ -818,6 +823,7 @@ fn legacy_entry_to_account(entry: LegacySessionEntry) -> Result<(Account, Option
             start_address: entry.url,
             liveness: entry.liveness.into(),
             is_kept_awake: entry.keep_awake,
+            is_muted: false,
             browser_identity,
             zoom,
         },
@@ -847,6 +853,7 @@ fn account_to_entry(account: &Account) -> SessionEntry {
         url: account.start_address.clone(),
         liveness: account.liveness.into(),
         keep_awake: account.is_kept_awake,
+        muted: account.is_muted,
         zoom: account.zoom.multiplier(),
         user_agent: account.browser_identity.clone(),
     }
