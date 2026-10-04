@@ -14,3 +14,4 @@ item's header carries `Landed:` or `Merged:`. Items 01–07 and 09–15 are `don
 |---|---|---|---|---|
 | [13](13-phone-operation/) | Operating an account from a phone | 8 | 8/8 | done |
 | [16](16-release-pipeline-and-in-app-update/) | Releasing from GitHub, and updating from inside the app | 9 | 7/9 | in-progress |
+| [17](17-account-sound-control/) | Muting one account's sound | 3 | 0/3 | not-started |
