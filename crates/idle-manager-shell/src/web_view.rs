@@ -220,9 +220,6 @@ impl SessionView {
     /// has nothing to do with the window being minimised, so it neither
     /// takes nor touches the background state. Returns the live view, or
     /// `None` while the account is parked.
-    // Unused until task 03 wires the account menu's `Muted` item, same
-    // reasoning as `set_watched`.
-    #[allow(dead_code)]
     pub fn set_muted(&mut self, on: bool) -> Option<&EngineView> {
         self.muted = on;
         let view = self.view.as_ref()?;

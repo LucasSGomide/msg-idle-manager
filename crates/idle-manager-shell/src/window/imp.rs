@@ -45,6 +45,21 @@ use crate::web_view::{AccountSettings, SessionView, background_for};
 /// nothing to tick (roadmap item 16 task 07).
 const UPDATE_SCHEDULE_TICK_SECS: u64 = 60;
 
+/// One account as the restore loop reads it off the book before any holder
+/// is built: id, display name, start address, resolved zoom, browser
+/// identity, WebGL switch and muted flag. Collected first so the book borrow
+/// ends before the loop builds views; named only to keep clippy's
+/// `type_complexity` quiet.
+type RestoredAccount = (
+    SessionId,
+    String,
+    String,
+    ZoomLevel,
+    Option<String>,
+    bool,
+    bool,
+);
+
 /// What a workspace name window is for — [`Window::present_workspace_name_dialog`]
 /// covers both, since only the title, confirm label, starting text and what
 /// confirming does differ (item 11 task 06, `FR.15.8`, `FR.17.6`).
@@ -1131,7 +1146,7 @@ impl Window {
         // workspace's arrangement, not the game-file baseline (`FR.12.2`) —
         // every workspace may have a different layout, so each account is
         // resolved against the one it actually belongs to.
-        let accounts: Vec<(SessionId, String, String, ZoomLevel, Option<String>, bool)> = self
+        let accounts: Vec<RestoredAccount> = self
             .book
             .borrow()
             .workspaces()
@@ -1149,13 +1164,14 @@ impl Window {
                             session.zoom_for(layout),
                             session.browser_identity().map(str::to_owned),
                             session.is_webgl_enabled(),
+                            session.is_muted(),
                         )
                     })
                     .collect::<Vec<_>>()
             })
             .collect();
 
-        for (id, name, address, zoom, identity, webgl_enabled) in accounts {
+        for (id, name, address, zoom, identity, webgl_enabled, muted) in accounts {
             let directories = match locator.locate(&id) {
                 Ok(directories) => directories,
                 Err(error) => {
@@ -1173,8 +1189,7 @@ impl Window {
                     identity,
                     webgl_enabled,
                 },
-                // TODO(17): task 03 passes the account's stored flag.
-                false,
+                muted,
             );
             self.grid.add_dormant_session(&id, &name);
             self.holders.borrow_mut().insert(id, holder);
@@ -1715,12 +1730,13 @@ impl Window {
         };
         let layout = workspace.book().layout();
         let session = workspace.book().session(id).expect("just found above");
-        let (name, address, zoom, identity, webgl_enabled) = (
+        let (name, address, zoom, identity, webgl_enabled, muted) = (
             session.display_name().to_owned(),
             session.start_address().to_owned(),
             session.zoom_for(layout),
             session.browser_identity().map(str::to_owned),
             session.is_webgl_enabled(),
+            session.is_muted(),
         );
         drop(book);
 
@@ -1741,8 +1757,7 @@ impl Window {
                 identity,
                 webgl_enabled,
             },
-            // TODO(17): task 03 passes the account's stored flag.
-            false,
+            muted,
         );
         self.grid.add_dormant_session(id, &name);
         self.holders.borrow_mut().insert(id.clone(), holder);
@@ -1802,6 +1817,13 @@ impl Window {
         self.sidebar.connect_keep_awake_toggled(move |id, value| {
             if let Some(window) = window.upgrade() {
                 window.imp().toggle_keep_awake(&id, value);
+            }
+        });
+
+        let window = self.obj().downgrade();
+        self.sidebar.connect_muted_toggled(move |id, value| {
+            if let Some(window) = window.upgrade() {
+                window.imp().toggle_muted(&id, value);
             }
         });
 
@@ -2022,12 +2044,13 @@ impl Window {
         };
         let layout = workspace.book().layout();
         let session = workspace.book().session(id).expect("just found above");
-        let (name, address, zoom, identity, webgl_enabled) = (
+        let (name, address, zoom, identity, webgl_enabled, muted) = (
             session.display_name().to_owned(),
             session.start_address().to_owned(),
             session.zoom_for(layout),
             session.browser_identity().map(str::to_owned),
             session.is_webgl_enabled(),
+            session.is_muted(),
         );
         drop(book);
 
@@ -2049,8 +2072,7 @@ impl Window {
                 webgl_enabled,
             },
             self.minimised.get(),
-            // TODO(17): task 03 passes the account's stored flag.
-            false,
+            muted,
         );
         let Some(view) = holder.view() else {
             tracing::error!(session = %id, "the new account's view was not built");
@@ -2324,6 +2346,30 @@ impl Window {
                 window.imp().finish_starting(&owned_id);
             }
         });
+    }
+
+    /// The row menu's `Muted` item was chosen: the domain records the flag,
+    /// then the holder is made to match (architecture rule 8, `FR.28.1`,
+    /// `FR.28.2`). A no-op if the account already held `value` — the book
+    /// reports nothing changed, so nothing is saved or applied. Unlike
+    /// [`Self::toggle_keep_awake`] there is no reload to wait on: a live page
+    /// is silenced where it stands and the account never leaves `Live`
+    /// (`FR.28.3`), so no paint is awaited and no starting interval closed. A
+    /// parked account's holder only remembers the flag for its next view.
+    fn toggle_muted(&self, id: &SessionId, value: bool) {
+        let changed = self.book.borrow_mut().set_muted(id, value);
+        if !changed {
+            return;
+        }
+        self.redraw();
+        self.request_save();
+
+        let mut holders = self.holders.borrow_mut();
+        let Some(holder) = holders.get_mut(id) else {
+            tracing::error!(session = %id, "no holder to apply mute to");
+            return;
+        };
+        holder.set_muted(value);
     }
 
     /// The window was minimised or restored (roadmap item 12 task 04,

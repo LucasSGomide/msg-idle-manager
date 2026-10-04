@@ -59,6 +59,7 @@ impl Row {
             .property("action-accelerator", action_accelerator(liveness))
             .property("action-sensitive", action_sensitive(liveness))
             .property("is-kept-awake", session.is_kept_awake())
+            .property("is-muted", session.is_muted())
             .property("workspace-id", workspace_id)
             .property("workspace-name", workspace_name)
             .property("is-current", current)
@@ -365,5 +366,40 @@ mod tests {
         );
 
         assert_eq!(plain_key, awake_key);
+    }
+
+    #[test]
+    fn status_key_is_the_same_whether_or_not_the_account_is_muted() {
+        let mut book = SessionBook::new();
+        let plain = SessionId::new("session-0001");
+        book.add(&plain, "Plain", "https://example.test/plain");
+        let muted = SessionId::new("session-0002");
+        book.add(&muted, "Muted", "https://example.test/muted");
+        book.park(&plain);
+        book.park(&muted);
+        book.set_muted(&muted, true);
+
+        let sessions = book.sessions();
+        let plain_session = sessions
+            .iter()
+            .find(|s| s.id() == &plain)
+            .expect("just added to the book");
+        let muted_session = sessions
+            .iter()
+            .find(|s| s.id() == &muted)
+            .expect("just added to the book");
+
+        let plain_key = status_key(
+            plain_session.liveness(),
+            book.placement(&plain).expect("plain is in the book"),
+            false,
+        );
+        let muted_key = status_key(
+            muted_session.liveness(),
+            book.placement(&muted).expect("muted is in the book"),
+            false,
+        );
+
+        assert_eq!(plain_key, muted_key);
     }
 }
