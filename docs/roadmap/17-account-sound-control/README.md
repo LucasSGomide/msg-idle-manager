@@ -1,6 +1,6 @@
 # 17 — Muting one account's sound
 
-**Depends on:** 04, 07, 12 · **Status:** done · **Estimate:** 3
+**Depends on:** 04, 07, 12 · **Status:** done · **Estimate:** 3 · **Merged:** 2026-10-24
 
 ## Context
 
@@ -281,6 +281,33 @@ read `is_muted` off the session and pass it to `dormant` / `new`.
   `ICoreWebView2` is reached through `wry::WebViewExtWindows::webview`, and the
   cast is `webview.cast::<ICoreWebView2_8>()`.
 
+## As built
+
+- The flag is a plain `is_muted` on each account in `idle-manager-core`.
+  `WorkspaceBook::set_muted` returns whether anything changed and never
+  touches liveness, so muting a live account leaves it `Live` and a parked one
+  `Parked`. The flag rides through park, unpark, a layout move, a workspace
+  move and a `workspace()` → `restore()` round trip.
+- On disk it is a `muted = true` key on the account's entry, omitted when
+  false. A file with no muted account is byte-for-byte what it was, so the
+  snapshot test passed unchanged and no format version was bumped.
+- Both engines mute the page in place with no reload, covering media elements
+  and Web Audio alike, and never touch the game's own volume. WebKitGTK sets
+  `is-muted` on the view builder, so a muted page never plays a first sound.
+  WebView2 calls `SetIsMuted` on `ICoreWebView2_8`, which needs runtime
+  1.0.864.35 or newer. An older runtime logs one warning naming the account
+  and the runtime version, and the page keeps its sound.
+- The WebView2 host remembers a toggle that arrives before realize on its
+  pending view, rather than dropping it the way zoom does, and keeps the
+  account's id past realize so a late failure still logs it.
+- `SessionView::dormant` takes the flag, so a restored account's holder is
+  built muted. This deliberately avoids the keep-awake restore gap recorded
+  below.
+- The row menu's first section reads `Park`, `Keep running when hidden`,
+  `Muted`. The window's handler records the flag in the book, then makes the
+  holder match. No reload is awaited, and the row's status dot is unchanged
+  because `status_key` ignores the flag.
+
 ## Blockers
 
 - A restored account's holder is built with keep-awake off regardless of the
@@ -290,6 +317,8 @@ read `is_muted` off the session and pass it to `dormant` / `new`.
   this, which is why `dormant` takes the flag. Whether to fix keep-awake the
   same way is a separate decision, not this item's.
 - The Windows path (`webview2/ffi.rs`, `webview2/host/imp.rs`) cannot be run on
-  this machine: `make windows-check` compiles and lints only, and `docs/ditched/01`
-  records that nobody on the project has a Windows machine. FR.28.7 says this is
-  recorded, not claimed.
+  the Linux development machine. The owner reported on 2026-10-24 that mute and
+  unmute work on their Windows PC, and the Windows steps were ticked on that
+  report. `make windows-check` has still never run here: `clang-cl` and
+  `lld-link` are missing, so the Windows lint is unverified until CI or a
+  machine with LLVM runs it.
