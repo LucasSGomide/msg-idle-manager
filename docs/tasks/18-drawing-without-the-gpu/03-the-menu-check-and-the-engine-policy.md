@@ -82,7 +82,6 @@ document that graphics buffers never show in the application's memory footer.
 - [x] `(unit)` the row menu model for a Linux build carries `Draw without the GPU` after `Muted` in the first section, with no accelerator
 - [x] `(unit)` a parked holder remembers the flag and builds its next view's settings with it
 - [x] `(unit)` `AccountSettings` from a software-rendered session carries the flag at every construction site (restore, dormant add, new account)
-- [ ] `(manual)` on Linux, from a live Lux Idle account's row ⋯ menu, ticking `Draw without the GPU` shows the reloading mark, then live, and the item reads ticked when the menu is reopened; after a park and start it is still ticked and the web process's GPU objects (`drm-total` in its fdinfo) are under 50 MiB
 - [x] `(manual)` with the flag on, clicking the game's `GO HUNT` keeps the web process's GPU objects flat and the machine responsive for two minutes — whether the flag was saved before launch (14 MiB throughout) or turned on in the running page (847 → 418 MiB at the reload, then flat)
 - [x] `(manual)` a second request for the value already held does not reload the page
 - [x] `(manual)` relaunching with `software_rendering = true` saved on the account builds its page without the GPU (web process under 50 MiB of GPU objects)

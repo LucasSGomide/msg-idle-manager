@@ -6,12 +6,16 @@ first, then the preset key and the menu-and-engine half build on it.
 **Waves.** 01 runs alone. 02 (preset key and the shipped Lux Idle file, store and
 core preset code only) and 03 (sidebar, window, holder and engine seam, shell
 only) both depend on 01 and touch no shared file — safe to run in parallel.
+04 holds the checks that need a person at the window (the real menu click,
+park and start, adding from the preset) and runs after 02 and 03; it was split
+out at merge time so 01–03 could land accepted while it stays open.
 
 | # | Task | Scope | Depends on | Criteria | Status |
 |---|---|---|---|---|---|
 | [01](01-the-flag-in-the-domain-and-the-workspace-file.md) | The flag in the domain and the workspace file | back-end | — | 9/9 | done |
 | [02](02-the-preset-key-and-the-lux-idle-preset.md) | The preset key and the shipped Lux Idle preset | back-end | 01 | 6/6 | done |
-| [03](03-the-menu-check-and-the-engine-policy.md) | The menu check and the engine policy | front-end | 01 | 6/7 | in-progress |
+| [03](03-the-menu-check-and-the-engine-policy.md) | The menu check and the engine policy | front-end | 01 | 6/6 | done |
+| [04](04-the-check-at-the-window.md) | The check at the window | front-end | 02, 03 | 0/3 | not-started |
 
 ## As built
 
