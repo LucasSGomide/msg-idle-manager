@@ -27,6 +27,19 @@ ignore = [
   # entry the release a Velopack bump drops `derivative` from its own
   # dependency tree.
   "RUSTSEC-2024-0388",
+  # RUSTSEC-2026-0367, -0368 and -0369 (`zip` 8.6.0: SUID/SGID bits kept,
+  # symlinks created and permissions applied through symlinks on
+  # extraction). Reached only through `velopack` 1.2.158 → `zip` `^8.6`.
+  # All three are in `ZipArchive::extract` / `ZipStreamReader::extract`,
+  # which Velopack never calls: its `bundle.rs` reads each entry with
+  # `by_index` and writes the bytes into a `File::create` of its own, so no
+  # archive permission bits or archive symlinks reach the disk (read
+  # 2026-10-24). The fix is `zip` 9, and the only Velopack on it is the
+  # `1.3.39-g8d2844f` pre-release build. Remove these entries the release a
+  # stable Velopack moves to `zip` 9.
+  "RUSTSEC-2026-0367",
+  "RUSTSEC-2026-0368",
+  "RUSTSEC-2026-0369",
 ]
 
 [licenses]
