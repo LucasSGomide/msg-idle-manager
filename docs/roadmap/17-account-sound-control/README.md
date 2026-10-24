@@ -1,6 +1,6 @@
 # 17 — Muting one account's sound
 
-**Depends on:** 04, 07, 12 · **Status:** in-progress · **Estimate:** 3
+**Depends on:** 04, 07, 12 · **Status:** done · **Estimate:** 3
 
 ## Context
 

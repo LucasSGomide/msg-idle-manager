@@ -110,7 +110,6 @@ failure are shown inside a chooser without a modal of their own.
 |---|---|---|---|---|
 | [16](16-release-pipeline-and-in-app-update/README.md) | Releasing from GitHub, and updating from inside the app | 13 | 07, 12 | in-progress |
 | [08](08-crash-recovery/README.md) | Surviving a crashed game | 5 | 03 | not-started |
-| [17](17-account-sound-control/README.md) | Muting one account's sound | 3 | 04, 07, 12 | in-progress |
 
 ## Blocked
 
@@ -138,3 +137,4 @@ _(none)_
 | [13](13-phone-operation/README.md) | Operating an account from a phone | 13 | 11, 12 | done |
 | [14](14-keyboard-navigation/README.md) | Keyboard navigation and paged workspaces | 13 | 11, 12, 13 | done |
 | [15](15-window-shortcuts-and-focus/README.md) | Window shortcuts, and focus that hands over the keyboard | 5 | 14 | done |
+| [17](17-account-sound-control/README.md) | Muting one account's sound | 3 | 04, 07, 12 | done |

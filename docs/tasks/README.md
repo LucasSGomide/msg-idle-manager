@@ -8,10 +8,10 @@ this task's `test-script.md` section written and run.
 
 A folder lives from breakdown until the item's branch lands — through review and
 merge, not just until the boxes are ticked. It is retired only once the roadmap
-item's header carries `Landed:` or `Merged:`. Items 01–07 and 09–15 are `done`.
+item's header carries `Landed:` or `Merged:`. Items 01–07, 09–15 and 17 are `done`.
 
 | # | Roadmap item | Tasks | Progress | Status |
 |---|---|---|---|---|
 | [13](13-phone-operation/) | Operating an account from a phone | 8 | 8/8 | done |
 | [16](16-release-pipeline-and-in-app-update/) | Releasing from GitHub, and updating from inside the app | 9 | 7/9 | in-progress |
-| [17](17-account-sound-control/) | Muting one account's sound | 3 | 1/3 | in-progress |
+| [17](17-account-sound-control/) | Muting one account's sound | 3 | 3/3 | done |

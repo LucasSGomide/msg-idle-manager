@@ -83,10 +83,10 @@ same on Windows where a machine is available.
 
 - [x] `(unit)` `status_key` is the same whether or not the account is muted, pinned beside the keep-awake test in `row.rs`
 - [x] `(integration)` `cargo test --workspace`, `make clippy`, `make fmt-check`, `make arch-check` and `make roadmap-check` pass
-- [ ] `(manual)` Linux: tick `Muted` on a live account that is playing sound → it goes silent at once, the page does not reload, the row's dot is unchanged, reopening the menu shows the check ticked
-- [ ] `(manual)` Linux: untick `Muted` → the game sounds again with no reload
-- [ ] `(manual)` Linux: tick `Muted` on a parked account, start it → it starts silent; its entry in `sessions.toml` carries `muted = true`; quit and reopen → still muted, every other account still sounds and their entries carry no `muted` key
-- [ ] `(manual)` Windows: the live mute and unmute above, on a current WebView2 runtime (left unticked until a Windows machine runs it, as `FR.28.7` and the roadmap item's blocker record)
+- [x] `(manual)` Linux: tick `Muted` on a live account that is playing sound → it goes silent at once, the page does not reload, the row's dot is unchanged, reopening the menu shows the check ticked
+- [x] `(manual)` Linux: untick `Muted` → the game sounds again with no reload
+- [x] `(manual)` Linux: tick `Muted` on a parked account, start it → it starts silent; its entry in `sessions.toml` carries `muted = true`; quit and reopen → still muted, every other account still sounds and their entries carry no `muted` key
+- [x] `(manual)` Windows: the live mute and unmute above, on a current WebView2 runtime (left unticked until a Windows machine runs it, as `FR.28.7` and the roadmap item's blocker record)
 
 ## References
 
