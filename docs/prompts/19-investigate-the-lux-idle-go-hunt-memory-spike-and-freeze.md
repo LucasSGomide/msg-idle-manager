@@ -1,6 +1,6 @@
 # Goal: Find out why opening Lux Idle's "go hunt" tab makes memory spike and the whole application freeze inside idle-manager when the same steps in Microsoft Edge do not, and fix it in the application if the cause is there
 
-**Status:** not executed
+**Status:** executed 2026-10-24 — roadmap item 18, branch `fix/18-lux-idle-hunt-tab-spike`
 **Rating:** —
 
 ## Context
