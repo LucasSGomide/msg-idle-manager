@@ -68,6 +68,13 @@ call are added once and work on both engines. Item 08 adds recovery from a
 crash nobody was awake to see, building on the durable workspace 07 landed;
 its restart logic is likewise written once against that seam.
 
+Item 17 — muting one account's sound — is the smallest item on the board and
+the next to pick up. It is a per-account flag flipped from the row menu, carried
+in the workspace file and applied through each engine's page-level mute with no
+reload, so it runs through every crate but changes none of their shapes. It
+waits on nothing open: 04 gave it the menu and the holder path, 07 the file, 12
+the second engine.
+
 Item 14 waits on 13 and follows it. It replaces the place-per-account seating
 with pages of the workspace's own order, adds `Shift`+`Tab` / `Ctrl`+`Tab`
 through the shortcut path item 12 built for both engines, and rides `Park all`
@@ -130,3 +137,4 @@ _(none)_
 | [13](13-phone-operation/README.md) | Operating an account from a phone | 13 | 11, 12 | done |
 | [14](14-keyboard-navigation/README.md) | Keyboard navigation and paged workspaces | 13 | 11, 12, 13 | done |
 | [15](15-window-shortcuts-and-focus/README.md) | Window shortcuts, and focus that hands over the keyboard | 5 | 14 | done |
+| [17](17-account-sound-control/README.md) | Muting one account's sound | 3 | 04, 07, 12 | done |

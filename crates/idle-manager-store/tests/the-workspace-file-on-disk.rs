@@ -22,6 +22,7 @@ fn account(id: &str, name: &str) -> Account {
         start_address: format!("https://{id}.test/"),
         liveness: SavedLiveness::Running,
         is_kept_awake: false,
+        is_muted: false,
         browser_identity: None,
         zoom: ZoomLevel::DEFAULT,
     }
@@ -537,6 +538,107 @@ fn a_version_3_file_round_trips_focused_as_a_position_with_no_slot_key() {
         ),
         (true, false, list),
     );
+}
+
+/// A two-account workspace in which only the first account is muted.
+fn a_list_with_one_muted_account() -> WorkspaceList {
+    a_list(
+        vec![ungrouped(
+            vec![
+                Account {
+                    is_muted: true,
+                    ..account("session-0001", "Quiet")
+                },
+                account("session-0002", "Loud"),
+            ],
+            Layout::SideBySide,
+        )],
+        "ungrouped",
+    )
+}
+
+/// Acceptance: a workspace list with one muted account writes and reads back
+/// with that account muted and the rest not.
+#[test]
+fn a_workspace_list_with_one_muted_account_reads_back_with_only_that_account_muted() {
+    let dir = TempDir::new("workspace-muted-round-trip");
+    let store = TomlWorkspaceStore::under(dir.path());
+    let list = a_list_with_one_muted_account();
+
+    store.save(&list).expect("write the workspace list");
+    let loaded = store.load().expect("read the workspace list back");
+
+    let muted: Vec<bool> = loaded.workspaces[0]
+        .accounts
+        .iter()
+        .map(|a| a.is_muted)
+        .collect();
+    assert_eq!(muted, vec![true, false]);
+}
+
+/// Acceptance: only a muted account's entry carries a `muted` key.
+#[test]
+fn the_written_file_has_a_muted_key_on_the_muted_entry_only() {
+    let dir = TempDir::new("workspace-muted-key");
+    let store = TomlWorkspaceStore::under(dir.path());
+
+    store
+        .save(&a_list_with_one_muted_account())
+        .expect("write the workspace list");
+    let on_disk = std::fs::read_to_string(store.path()).expect("read the written file");
+
+    assert_eq!(on_disk.matches("muted").count(), 1);
+    assert!(on_disk.contains("muted = true"));
+}
+
+/// Acceptance: an unmuted account's entry carries no `muted` key.
+#[test]
+fn a_file_with_no_muted_account_has_no_muted_key() {
+    let dir = TempDir::new("workspace-unmuted-key");
+    let store = TomlWorkspaceStore::under(dir.path());
+    let list = a_list(
+        vec![ungrouped(
+            vec![account("session-0001", "Main")],
+            Layout::Single,
+        )],
+        "ungrouped",
+    );
+
+    store.save(&list).expect("write the workspace list");
+    let on_disk = std::fs::read_to_string(store.path()).expect("read the written file");
+
+    assert!(!on_disk.contains("muted"));
+}
+
+/// Acceptance: a version 3 file with `muted = true` on one entry reads back
+/// with only that account muted.
+#[test]
+fn a_version_3_file_with_muted_on_one_entry_reads_back_with_only_that_account_muted() {
+    let dir = TempDir::new("workspace-v3-muted-read");
+    let store = TomlWorkspaceStore::under(dir.path());
+    let list = a_list(
+        vec![ungrouped(
+            vec![
+                account("session-0001", "Main"),
+                account("session-0002", "Alt"),
+            ],
+            Layout::SideBySide,
+        )],
+        "ungrouped",
+    );
+    store.save(&list).expect("write the workspace list");
+    let written = std::fs::read_to_string(store.path()).expect("read the written file");
+    let edited = written.replacen("name = \"Alt\"", "muted = true\nname = \"Alt\"", 1);
+    dir.write("sessions.toml", &edited);
+
+    let loaded = store.load().expect("read the edited version 3 file");
+
+    let muted: Vec<bool> = loaded.workspaces[0]
+        .accounts
+        .iter()
+        .map(|a| a.is_muted)
+        .collect();
+    assert_eq!(muted, vec![false, true]);
 }
 
 /// Acceptance: a version 2 file whose `focused` slot is held by an account

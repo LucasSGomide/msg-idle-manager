@@ -509,6 +509,13 @@ impl WorkspaceBook {
             .is_some_and(|book| book.set_keep_awake(id, value))
     }
 
+    /// Sets `id`'s muted flag, wherever its workspace is. `false` for an id no
+    /// workspace holds. Never changes liveness.
+    pub fn set_muted(&mut self, id: &SessionId, value: bool) -> bool {
+        self.book_holding_mut(id)
+            .is_some_and(|book| book.set_muted(id, value))
+    }
+
     /// Renames `id`'s account, wherever its workspace is. `false` for an id no
     /// workspace holds or a name that trims to empty.
     pub fn rename(&mut self, id: &SessionId, name: &str) -> bool {
@@ -1104,9 +1111,10 @@ mod tests {
         Account {
             id: SessionId::new(id),
             display_name: name.to_owned(),
-            start_address: format!("https://example.test/{id}"),
             liveness: SavedLiveness::Running,
+            start_address: format!("https://example.test/{id}"),
             is_kept_awake: false,
+            is_muted: false,
             browser_identity: None,
             zoom: ZoomLevel::DEFAULT,
         }
@@ -1501,6 +1509,53 @@ mod tests {
             (switch, book.active_id()),
             (None, &WorkspaceId::ungrouped()),
         );
+    }
+
+    #[test]
+    fn muted_survives_a_move_between_workspaces() {
+        let list = a_list(
+            vec![named_workspace("workspace-0001", "W1", Vec::new())],
+            "ungrouped",
+        );
+        let mut book = WorkspaceBook::restore(list);
+        let member = book
+            .add(&WorkspaceId::ungrouped(), "A", "https://example.test/a")
+            .expect("ungrouped has room");
+        book.set_muted(&member, true);
+
+        book.move_accounts(&[member], &WorkspaceId::new("workspace-0001"))
+            .expect("w1 has room");
+
+        let destination = book
+            .book(&WorkspaceId::new("workspace-0001"))
+            .expect("w1 exists");
+        assert!(destination.sessions()[0].is_muted());
+    }
+
+    #[test]
+    fn setting_muted_on_an_id_no_workspace_holds_reports_no_change() {
+        let mut book = WorkspaceBook::restore(a_list(Vec::new(), "ungrouped"));
+
+        let changed = book.set_muted(&SessionId::new("session-9999"), true);
+
+        assert!(!changed);
+    }
+
+    #[test]
+    fn setting_muted_reaches_an_account_in_a_background_workspace() {
+        let list = a_list(
+            vec![named_workspace(
+                "workspace-0001",
+                "W1",
+                vec![saved_account("session-0001", "A")],
+            )],
+            "ungrouped",
+        );
+        let mut book = WorkspaceBook::restore(list);
+
+        let changed = book.set_muted(&SessionId::new("session-0001"), true);
+
+        assert!(changed);
     }
 
     /// Acceptance: after `move_accounts` puts one account into a workspace

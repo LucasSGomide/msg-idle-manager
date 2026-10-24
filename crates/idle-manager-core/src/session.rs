@@ -225,6 +225,9 @@ pub struct Session {
     start_address: String,
     liveness: Liveness,
     is_kept_awake: bool,
+    /// Whether the owner has silenced this account's page. Applied in place by
+    /// the engine, so it never touches liveness.
+    is_muted: bool,
     browser_identity: Option<String>,
     /// Whether this account's pages get a WebGL context, copied from its preset
     /// at creation (`FR.19.7`). A typed-address account gets `true` — the
@@ -268,6 +271,12 @@ impl Session {
     #[must_use]
     pub fn is_kept_awake(&self) -> bool {
         self.is_kept_awake
+    }
+
+    /// Whether the owner has silenced this account's page.
+    #[must_use]
+    pub fn is_muted(&self) -> bool {
+        self.is_muted
     }
 
     /// The identity the engine should present for this account, or `None` for
@@ -379,6 +388,7 @@ impl SessionBook {
                     SavedLiveness::Parked => Liveness::Parked,
                 },
                 is_kept_awake: account.is_kept_awake,
+                is_muted: account.is_muted,
                 browser_identity: account.browser_identity,
                 // The workspace does not persist WebGL yet; a restored account
                 // returns on the engine's default and a preset that disables it
@@ -438,6 +448,7 @@ impl SessionBook {
                     }
                 },
                 is_kept_awake: session.is_kept_awake,
+                is_muted: session.is_muted,
                 browser_identity: session.browser_identity.clone(),
                 zoom: session.preset_zoom,
             })
@@ -634,6 +645,7 @@ impl SessionBook {
             start_address: start_address.to_owned(),
             liveness: Liveness::Live,
             is_kept_awake: false,
+            is_muted: false,
             browser_identity: None,
             is_webgl_enabled: true,
             preset_zoom: ZoomLevel::DEFAULT,
@@ -663,6 +675,7 @@ impl SessionBook {
             start_address: preset.start_address.clone(),
             liveness: Liveness::Live,
             is_kept_awake: false,
+            is_muted: false,
             browser_identity: preset.browser_identity.clone(),
             is_webgl_enabled: preset.webgl_enabled,
             preset_zoom: preset.zoom,
@@ -751,6 +764,26 @@ impl SessionBook {
         if s.liveness == Liveness::Live {
             s.liveness = Liveness::Starting;
         }
+
+        true
+    }
+
+    /// Sets `session`'s muted flag to `value` and reports whether that changed
+    /// anything.
+    ///
+    /// Unlike [`SessionBook::set_keep_awake`] this never touches liveness: a
+    /// mute is applied to the live page in place, so no page reloads and
+    /// there is no starting interval to mark. An id not in the book changes
+    /// nothing and returns `false`.
+    pub fn set_muted(&mut self, session: &SessionId, value: bool) -> bool {
+        let Some(s) = self.sessions.iter_mut().find(|s| &s.id == session) else {
+            return false;
+        };
+        if s.is_muted == value {
+            return false;
+        }
+
+        s.is_muted = value;
 
         true
     }
@@ -1000,6 +1033,10 @@ mod tests {
 
     fn is_kept_awake(book: &SessionBook, id: &SessionId) -> bool {
         session(book, id).is_kept_awake()
+    }
+
+    fn is_muted(book: &SessionBook, id: &SessionId) -> bool {
+        session(book, id).is_muted()
     }
 
     fn order(book: &SessionBook) -> Vec<SessionId> {
@@ -1438,6 +1475,7 @@ mod tests {
             start_address: format!("https://example.test/{id}"),
             liveness: SavedLiveness::Running,
             is_kept_awake: false,
+            is_muted: false,
             browser_identity: None,
             zoom: ZoomLevel::DEFAULT,
         }
@@ -1922,6 +1960,194 @@ mod tests {
         book.set_keep_awake(&unknown, true);
 
         assert!(!is_kept_awake(&book, &id));
+    }
+
+    #[test]
+    fn an_account_added_to_the_book_starts_with_muted_off() {
+        let mut book = SessionBook::new();
+
+        let id = add(&mut book, "One", "https://example.test/one");
+
+        assert!(!is_muted(&book, &id));
+    }
+
+    #[test]
+    fn muting_an_account_that_was_not_muted_returns_true() {
+        let mut book = SessionBook::new();
+        let id = add(&mut book, "One", "https://example.test/one");
+
+        let changed = book.set_muted(&id, true);
+
+        assert!(changed);
+    }
+
+    #[test]
+    fn muting_an_account_that_was_not_muted_leaves_the_flag_on() {
+        let mut book = SessionBook::new();
+        let id = add(&mut book, "One", "https://example.test/one");
+
+        book.set_muted(&id, true);
+
+        assert!(is_muted(&book, &id));
+    }
+
+    #[test]
+    fn setting_muted_to_its_current_value_reports_no_change() {
+        let mut book = SessionBook::new();
+        let id = add(&mut book, "One", "https://example.test/one");
+
+        let changed = book.set_muted(&id, false);
+
+        assert!(!changed);
+    }
+
+    #[test]
+    fn setting_muted_to_its_current_value_leaves_the_book_untouched() {
+        let mut book = SessionBook::new();
+        let id = add(&mut book, "One", "https://example.test/one");
+        book.set_muted(&id, true);
+        let before = book.workspace(WorkspaceId::ungrouped(), "Ungrouped".to_owned(), true);
+
+        book.set_muted(&id, true);
+
+        assert_eq!(
+            book.workspace(WorkspaceId::ungrouped(), "Ungrouped".to_owned(), true),
+            before
+        );
+    }
+
+    #[test]
+    fn muting_a_live_account_leaves_it_live() {
+        let mut book = SessionBook::new();
+        let id = add(&mut book, "One", "https://example.test/one");
+
+        book.set_muted(&id, true);
+
+        assert_eq!(liveness_of(&book, &id), Liveness::Live);
+    }
+
+    #[test]
+    fn muting_a_parked_account_leaves_it_parked() {
+        let mut book = SessionBook::new();
+        let id = add(&mut book, "One", "https://example.test/one");
+        book.park(&id);
+
+        book.set_muted(&id, true);
+
+        assert_eq!(liveness_of(&book, &id), Liveness::Parked);
+    }
+
+    #[test]
+    fn unmuting_a_live_account_leaves_it_live() {
+        let mut book = SessionBook::new();
+        let id = add(&mut book, "One", "https://example.test/one");
+        book.set_muted(&id, true);
+
+        book.set_muted(&id, false);
+
+        assert_eq!(liveness_of(&book, &id), Liveness::Live);
+    }
+
+    #[test]
+    fn muted_survives_a_layout_change_that_moves_the_account_between_pages() {
+        let mut book = SessionBook::new();
+        book.set_layout(Layout::Grid);
+        let id = add(&mut book, "One", "https://example.test/one");
+        add(&mut book, "Two", "https://example.test/two");
+        add(&mut book, "Three", "https://example.test/three");
+        add(&mut book, "Four", "https://example.test/four");
+        book.set_muted(&id, true);
+
+        book.set_layout(Layout::SideBySide);
+        book.set_layout(Layout::Grid);
+
+        assert!(is_muted(&book, &id));
+    }
+
+    #[test]
+    fn muted_survives_being_parked() {
+        let mut book = SessionBook::new();
+        let id = add(&mut book, "One", "https://example.test/one");
+        book.set_muted(&id, true);
+
+        book.park(&id);
+
+        assert!(is_muted(&book, &id));
+    }
+
+    #[test]
+    fn muted_survives_being_unparked() {
+        let mut book = SessionBook::new();
+        let id = add(&mut book, "One", "https://example.test/one");
+        book.set_muted(&id, true);
+        book.park(&id);
+
+        book.unpark(&id);
+
+        assert!(is_muted(&book, &id));
+    }
+
+    #[test]
+    fn a_move_changes_no_accounts_muted_flag() {
+        let mut book = SessionBook::new();
+        book.set_layout(Layout::SideBySide);
+        let one = add(&mut book, "One", "https://example.test/one");
+        let two = add(&mut book, "Two", "https://example.test/two");
+        book.set_muted(&two, true);
+
+        book.move_to_slot(&one, SlotId::new(1));
+
+        assert!(is_muted(&book, &two));
+    }
+
+    #[test]
+    fn setting_muted_on_an_unknown_id_reports_no_change() {
+        let mut book = SessionBook::new();
+        let unknown = SessionId::new("session-9999");
+
+        let changed = book.set_muted(&unknown, true);
+
+        assert!(!changed);
+    }
+
+    #[test]
+    fn restoring_a_workspace_preserves_muted_on_exactly_the_muted_accounts() {
+        let workspace = Workspace {
+            accounts: vec![
+                Account {
+                    is_muted: true,
+                    ..saved_account("session-0001", "Quiet")
+                },
+                saved_account("session-0002", "Loud"),
+            ],
+            layout: Layout::SideBySide,
+            ..Workspace::default()
+        };
+
+        let book = SessionBook::restore(workspace);
+
+        let muted: Vec<bool> = book.sessions().iter().map(Session::is_muted).collect();
+        assert_eq!(muted, vec![true, false]);
+    }
+
+    #[test]
+    fn the_workspace_read_off_a_restored_book_keeps_muted_on_every_account() {
+        let workspace = Workspace {
+            accounts: vec![
+                Account {
+                    is_muted: true,
+                    ..saved_account("session-0001", "Quiet")
+                },
+                saved_account("session-0002", "Loud"),
+            ],
+            layout: Layout::SideBySide,
+            ..Workspace::default()
+        };
+        let restored = SessionBook::restore(workspace.clone());
+
+        let saved = restored.workspace(WorkspaceId::ungrouped(), "Ungrouped".to_owned(), true);
+
+        assert_eq!(saved, workspace);
     }
 
     fn accepted(multiplier: f64) -> ZoomLevel {

@@ -91,6 +91,15 @@ impl SessionSidebar {
             .replace(Some(Box::new(handler)));
     }
 
+    /// Registers `handler` to run with an account's id and the value asked
+    /// for when its row menu's `Muted` item is chosen. The menu reports only
+    /// the intent it was given; whether the flag actually changes, and
+    /// silencing the page, is the window's to decide (architecture rule 8).
+    /// Replaces any previous handler.
+    pub fn connect_muted_toggled(&self, handler: impl Fn(SessionId, bool) + 'static) {
+        self.imp().on_muted_toggled.replace(Some(Box::new(handler)));
+    }
+
     /// Registers `handler` to run with an account's id when its row menu's
     /// `Rename…` item is chosen. The row decides nothing else: the window
     /// opens the rename dialog and the book decides whether a typed name is

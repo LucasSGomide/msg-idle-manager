@@ -49,6 +49,8 @@ pub struct Account {
     pub liveness: SavedLiveness,
     /// Whether the account keeps running at full speed while hidden.
     pub is_kept_awake: bool,
+    /// Whether the owner has silenced the account's page.
+    pub is_muted: bool,
     /// The identity to present to the game, or `None` for the engine's own.
     pub browser_identity: Option<String>,
     /// How large to draw the account's page.

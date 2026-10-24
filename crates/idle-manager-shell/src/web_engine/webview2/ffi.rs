@@ -18,8 +18,8 @@ use webview2_com::Microsoft::Web::WebView2::Win32::{
     COREWEBVIEW2_KEY_EVENT_KIND_KEY_DOWN, COREWEBVIEW2_PHYSICAL_KEY_STATUS,
     COREWEBVIEW2_PROCESS_FAILED_KIND, COREWEBVIEW2_PROCESS_FAILED_KIND_BROWSER_PROCESS_EXITED,
     COREWEBVIEW2_PROCESS_FAILED_KIND_RENDER_PROCESS_EXITED,
-    COREWEBVIEW2_PROCESS_FAILED_KIND_RENDER_PROCESS_UNRESPONSIVE, ICoreWebView2, ICoreWebView2_13,
-    ICoreWebView2Controller, ICoreWebView2Profile8,
+    COREWEBVIEW2_PROCESS_FAILED_KIND_RENDER_PROCESS_UNRESPONSIVE, ICoreWebView2, ICoreWebView2_8,
+    ICoreWebView2_13, ICoreWebView2Controller, ICoreWebView2Profile8,
 };
 use webview2_com::{
     AcceleratorKeyPressedEventHandler, CapturePreviewCompletedHandler, ProcessFailedEventHandler,
@@ -203,6 +203,22 @@ pub(super) fn watch_process_failed(
     // this module built, and `handler` is a freshly created, single-owner
     // callback object of exactly the type `add_ProcessFailed` expects.
     unsafe { webview.add_ProcessFailed(&handler, &raw mut token) }
+}
+
+/// Mutes or unmutes everything `webview`'s page plays — media elements and
+/// Web Audio alike — in place, with no reload (`FR.28.2`, `FR.28.3`).
+///
+/// `IsMuted` lives on `ICoreWebView2_8`, which needs `WebView2` runtime
+/// 1.0.864.35 (June 2021) or newer: an older runtime fails the cast, and the
+/// `Err` is the caller's to log — nothing is half-applied by it (code
+/// standards rule 18).
+pub(super) fn set_muted(webview: &ICoreWebView2, muted: bool) -> windows::core::Result<()> {
+    let webview: ICoreWebView2_8 = webview.cast()?;
+    // SAFETY: `webview` is the live `ICoreWebView2_8` this module just cast
+    // from the `ICoreWebView2` behind a `wry::WebView` it built;
+    // `SetIsMuted` is an ordinary COM property call on it with no further
+    // preconditions.
+    unsafe { webview.SetIsMuted(muted) }
 }
 
 /// Asks `WebView2` to delete the profile `webview` runs under, running

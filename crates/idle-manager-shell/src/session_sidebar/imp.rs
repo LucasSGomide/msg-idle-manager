@@ -60,6 +60,12 @@ type ParkingHandler = Box<dyn Fn(SessionId)>;
 /// (architecture rule 8).
 type KeepAwakeHandler = Box<dyn Fn(SessionId, bool)>;
 
+/// A handler run with an account's id and the value asked for when its row
+/// menu's `Muted` item is chosen. Like [`KeepAwakeHandler`], the menu reports
+/// only the intent; whether the flag changes is the book's to decide
+/// (architecture rule 8).
+type MutedHandler = Box<dyn Fn(SessionId, bool)>;
+
 /// A handler run with an account's id when its row menu's `Rename…` item is
 /// chosen. The menu carries only the id; the window opens the dialog and the
 /// book decides whether a typed name is stored (architecture rule 8).
@@ -115,6 +121,9 @@ const PARKING_ACTION: &str = "parking";
 /// The stateful action a row's "Keep running when hidden" item is bound to,
 /// namespaced under [`ROW_ACTION_GROUP`] in the menu's detailed action name.
 const KEEP_AWAKE_ACTION: &str = "keep-awake";
+/// The stateful action a row's `Muted` item is bound to, namespaced under
+/// [`ROW_ACTION_GROUP`] in the menu's detailed action name.
+const MUTED_ACTION: &str = "muted";
 /// The action a row's `Rename…` item is bound to, namespaced under
 /// [`ROW_ACTION_GROUP`] in the menu's detailed action name. Stateless — it
 /// carries only the account's id, like [`PARKING_ACTION`] — and, unlike
@@ -194,6 +203,7 @@ pub struct SessionSidebar {
     pub(super) on_activated: RefCell<Option<ActivateHandler>>,
     pub(super) on_parking_toggled: RefCell<Option<ParkingHandler>>,
     pub(super) on_keep_awake_toggled: RefCell<Option<KeepAwakeHandler>>,
+    pub(super) on_muted_toggled: RefCell<Option<MutedHandler>>,
     pub(super) on_rename_requested: RefCell<Option<RenameHandler>>,
     pub(super) on_delete_requested: RefCell<Option<DeleteHandler>>,
     pub(super) on_expansion_toggled: RefCell<Option<ExpansionHandler>>,
@@ -791,11 +801,11 @@ fn wire_row_menu_gestures(row: &gtk::Box, settings: &gtk::MenuButton) {
 /// Neither action decides anything. `parking` carries only the account's id and
 /// leaves park-or-start to the window, read from liveness (architecture
 /// rule 8); it is disabled — the item shown, greyed — while the account is
-/// starting, so the start cannot be triggered twice. The `keep-awake` action's
-/// `change-state` handler reports the requested value as an intent and never
-/// calls [`gio::SimpleAction::set_state`] itself, so the checkbox only moves
-/// once the book's answer comes back through [`SessionSidebar::sync`] and this
-/// function runs again.
+/// starting, so the start cannot be triggered twice. The `keep-awake` and
+/// `muted` actions' `change-state` handlers report the requested value as an
+/// intent and never call [`gio::SimpleAction::set_state`] themselves, so each
+/// checkbox only moves once the book's answer comes back through
+/// [`SessionSidebar::sync`] and this function runs again.
 /// A menu item that names its keyboard chord beside its label.
 ///
 /// `GtkPopoverMenu` draws the `accel` attribute at the item's trailing edge,
@@ -810,8 +820,8 @@ fn accelerated_item(label: &str, action: &str, accelerator: &str) -> gio::MenuIt
 }
 
 /// Rebuilds `settings`'s menu model and action group from `data`'s current
-/// standing: `Park`/`Start` and `Keep running when hidden` in one section,
-/// `Move to ▸` and `Rename…` in a second, `Delete account…` set apart in a
+/// standing: `Park`/`Start`, `Keep running when hidden` and `Muted` in one
+/// section, `Move to ▸` and `Rename…` in a second, `Delete account…` set apart in a
 /// third (2.5's wireframe). `is_focused` is whether `data` is the sidebar's
 /// `current` row — only there do the Park/Start and `Rename…` items carry
 /// their accelerator (design rule 27); every other row's menu shows the same
@@ -834,8 +844,8 @@ fn bind_row_menu(
     );
 }
 
-/// Builds a row's menu model: `Park`/`Start` and `Keep running when hidden`
-/// in one section, `Move to ▸` and `Rename…` in a second, `Delete account…`
+/// Builds a row's menu model: `Park`/`Start`, `Keep running when hidden` and
+/// `Muted` in one section, `Move to ▸` and `Rename…` in a second, `Delete account…`
 /// set apart in a third (2.5's wireframe). `is_focused` is whether `data` is
 /// the sidebar's `current` row — only there do the Park/Start and `Rename…`
 /// items carry their accelerator (design rule 27); every other row's menu
@@ -869,6 +879,11 @@ fn build_row_menu_model(data: &Row, is_focused: bool, destinations: &Destination
         Some("Keep running when hidden"),
         Some(&format!("{ROW_ACTION_GROUP}.{KEEP_AWAKE_ACTION}")),
     );
+    // No accelerator: muting has no chord (design rule 27).
+    actions_section.append(
+        Some("Muted"),
+        Some(&format!("{ROW_ACTION_GROUP}.{MUTED_ACTION}")),
+    );
     menu.append_section(None, &actions_section);
 
     let move_section = gio::Menu::new();
@@ -899,16 +914,50 @@ fn build_row_menu_model(data: &Row, is_focused: bool, destinations: &Destination
     menu
 }
 
+/// A stateful check action named `name`, seeded with `state`, whose
+/// `change-state` handler hands `(id, requested)` to the callback cell
+/// `handler` picks off the sidebar (`KeepAwakeHandler` and `MutedHandler`
+/// are one type, so either cell fits). It never calls
+/// [`gio::SimpleAction::set_state`]: the check only moves once the book's
+/// answer comes back through [`SessionSidebar::sync`] and the row is bound
+/// again (architecture rule 8). Shared by `keep-awake` and `muted`, whose
+/// wiring is otherwise identical, and split out so
+/// [`build_row_action_group`] stays under clippy's line budget (code
+/// standards rule 6).
+fn intent_check_action(
+    name: &str,
+    state: bool,
+    id: &SessionId,
+    sidebar: &glib::WeakRef<super::SessionSidebar>,
+    handler: fn(&SessionSidebar) -> &RefCell<Option<KeepAwakeHandler>>,
+) -> gio::SimpleAction {
+    let action = gio::SimpleAction::new_stateful(name, None, &state.to_variant());
+    let sidebar = sidebar.clone();
+    let id = id.clone();
+    action.connect_change_state(move |_, requested| {
+        let Some(requested) = requested.and_then(glib::Variant::get::<bool>) else {
+            return;
+        };
+        let Some(sidebar) = sidebar.upgrade() else {
+            return;
+        };
+        if let Some(handler) = handler(sidebar.imp()).borrow().as_ref() {
+            handler(id.clone(), requested);
+        }
+    });
+    action
+}
+
 /// Builds the action group [`build_row_menu_model`]'s items activate: park,
-/// keep-awake, rename, delete, and `Move to ▸`'s two actions. Neither
+/// keep-awake, muted, rename, delete, and `Move to ▸`'s two actions. Neither
 /// `parking` nor `move_to`/`new_workspace` decides anything itself — each
 /// carries only the account's id (and, for `move_to`, the chosen
 /// workspace's), leaving the transition to the window (architecture
-/// rule 8). The `keep-awake` action's `change-state` handler reports the
-/// requested value as an intent and never calls
-/// [`gio::SimpleAction::set_state`] itself, so the checkbox only moves once
-/// the book's answer comes back through [`SessionSidebar::sync`] and this
-/// runs again.
+/// rule 8). The `keep-awake` and `muted` actions' `change-state` handlers
+/// report the requested value as an intent and never call
+/// [`gio::SimpleAction::set_state`] themselves, so each checkbox only moves
+/// once the book's answer comes back through [`SessionSidebar::sync`] and
+/// this runs again.
 fn build_row_action_group(
     data: &Row,
     destinations: &Destinations,
@@ -929,23 +978,15 @@ fn build_row_action_group(
         }
     });
 
-    let keep_awake = gio::SimpleAction::new_stateful(
+    let keep_awake = intent_check_action(
         KEEP_AWAKE_ACTION,
-        None,
-        &data.is_kept_awake().to_variant(),
+        data.is_kept_awake(),
+        &id,
+        sidebar,
+        |sidebar| &sidebar.on_keep_awake_toggled,
     );
-    let keep_awake_sidebar = sidebar.clone();
-    let keep_awake_id = id.clone();
-    keep_awake.connect_change_state(move |_, requested| {
-        let Some(requested) = requested.and_then(glib::Variant::get::<bool>) else {
-            return;
-        };
-        let Some(sidebar) = keep_awake_sidebar.upgrade() else {
-            return;
-        };
-        if let Some(handler) = sidebar.imp().on_keep_awake_toggled.borrow().as_ref() {
-            handler(keep_awake_id.clone(), requested);
-        }
+    let muted = intent_check_action(MUTED_ACTION, data.is_muted(), &id, sidebar, |sidebar| {
+        &sidebar.on_muted_toggled
     });
 
     let rename = gio::SimpleAction::new(RENAME_ACTION, None);
@@ -1014,6 +1055,7 @@ fn build_row_action_group(
     let group = gio::SimpleActionGroup::new();
     group.add_action(&parking);
     group.add_action(&keep_awake);
+    group.add_action(&muted);
     group.add_action(&rename);
     group.add_action(&delete);
     group.add_action(&move_to);

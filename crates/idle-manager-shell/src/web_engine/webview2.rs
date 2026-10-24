@@ -241,12 +241,15 @@ impl EngineProfile {
 
     /// Builds a fresh view for `start_address`, applying `settings`'
     /// identity and zoom, hosted by a new [`host::EngineHost`] widget.
+    /// `muted` rides on the pending view and is applied the moment the
+    /// `wry::WebView` exists (`FR.28.2`, `FR.28.3`).
     #[must_use]
     pub(crate) fn build_view(
         &self,
         start_address: &str,
         settings: &AccountSettings,
         keep_awake: bool,
+        muted: bool,
     ) -> EngineView {
         // WebView2 exposes no per-view WebGL toggle — Chromium's own
         // `--disable-webgl` is environment-wide, and every account shares one
@@ -268,6 +271,7 @@ impl EngineProfile {
             profile_name: self.id.as_str().to_owned(),
             zoom: settings.zoom.multiplier(),
             keep_awake,
+            muted,
         };
         EngineView {
             host: EngineHost::new(pending),
@@ -406,6 +410,16 @@ impl EngineView {
     /// Resizes this view to `zoom`, in place, with no reload.
     pub(crate) fn set_zoom(&self, zoom: ZoomLevel) {
         self.host.set_zoom(zoom.multiplier());
+    }
+
+    /// Mutes or unmutes everything this view's page plays through
+    /// `ICoreWebView2_8`'s `IsMuted`, in place, with no reload, so the
+    /// account's liveness is untouched (`FR.28.2`, `FR.28.3`). A runtime too
+    /// old to mute is logged by the host and otherwise ignored; a view not
+    /// built yet keeps the choice for when it is.
+    pub(crate) fn set_muted(&self, on: bool, id: &SessionId) {
+        self.host.set_muted(on);
+        tracing::debug!(session = %id, muted = on, "view mute set");
     }
 
     /// A no-op on Windows: every account shares one `WebView2` browser
