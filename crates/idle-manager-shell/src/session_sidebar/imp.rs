@@ -135,7 +135,7 @@ const MUTED_ACTION: &str = "muted";
 const SOFTWARE_RENDERING_ACTION: &str = "software-rendering";
 /// The label of that item. Shown only in the Linux build: `WebView2` has no
 /// per-account way off the graphics chip (`FR.29.6`).
-#[cfg(any(target_os = "linux", test))]
+#[cfg(target_os = "linux")]
 const SOFTWARE_RENDERING_LABEL: &str = "Draw without the GPU";
 /// The action a row's `Rename…` item is bound to, namespaced under
 /// [`ROW_ACTION_GROUP`] in the menu's detailed action name. Stateless — it
@@ -1290,7 +1290,9 @@ fn build_heading_action_group(
     group
 }
 
-#[cfg(test)]
+// Every test here reads the `Draw without the GPU` item, which only the
+// Linux menu carries.
+#[cfg(all(test, target_os = "linux"))]
 mod tests {
     use super::*;
 
@@ -1324,7 +1326,6 @@ mod tests {
     /// Acceptance (item 18 task 03): on Linux the settings section ends with
     /// `Draw without the GPU`, after `Muted`, and no accelerator is shown.
     #[test]
-    #[cfg(target_os = "linux")]
     fn the_row_menu_offers_draw_without_the_gpu_after_muted_with_no_accelerator() {
         let menu = build_row_menu_model(&a_row(), false, &Destinations::default());
 
@@ -1344,7 +1345,6 @@ mod tests {
     /// The focused row's menu adds a chord to `Park` only, never to the new
     /// item (design rule 27).
     #[test]
-    #[cfg(target_os = "linux")]
     fn the_focused_rows_menu_shows_no_accelerator_on_draw_without_the_gpu() {
         let row = a_row();
         row.set_action_accelerator("<Control>p");

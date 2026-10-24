@@ -436,6 +436,9 @@ impl EngineView {
     /// way off the graphics chip, `--disable-gpu`, is environment-wide and so
     /// shared by every account (`FR.1.3`). The stored flag still round-trips;
     /// the Windows menu never offers it.
+    // `&self` kept to stay call-compatible with `web_engine/webkit.rs`'s own
+    // `set_software_rendered`, which does need it.
+    #[allow(clippy::unused_self)]
     pub(crate) fn set_software_rendered(&self, on: bool, id: &SessionId) {
         tracing::debug!(
             session = %id,
