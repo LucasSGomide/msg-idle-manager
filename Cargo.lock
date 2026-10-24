@@ -1391,7 +1391,7 @@ dependencies = [
 
 [[package]]
 name = "idle-manager"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "anyhow",
  "async-channel",
@@ -1408,7 +1408,7 @@ dependencies = [
 
 [[package]]
 name = "idle-manager-core"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "rstest",
  "thiserror 2.0.20",
@@ -1416,7 +1416,7 @@ dependencies = [
 
 [[package]]
 name = "idle-manager-metrics"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "idle-manager-core",
  "rstest",
@@ -1427,7 +1427,7 @@ dependencies = [
 
 [[package]]
 name = "idle-manager-remote"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "async-channel",
  "base64 0.23.1",
@@ -1446,7 +1446,7 @@ dependencies = [
 
 [[package]]
 name = "idle-manager-shell"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "async-channel",
  "gdk4-win32",
@@ -1469,7 +1469,7 @@ dependencies = [
 
 [[package]]
 name = "idle-manager-store"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "directories",
  "idle-manager-core",
@@ -1483,7 +1483,7 @@ dependencies = [
 
 [[package]]
 name = "idle-manager-update"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "idle-manager-core",
  "minisign-verify",

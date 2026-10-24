@@ -3,6 +3,29 @@
 All notable changes to Idle Manager are documented in this file. Unreleased
 work lands at the top when `make release-prepare` runs.
 
+## [0.2.0] - 2026-10-24
+
+### New
+
+- Carry a per-account muted flag whose transition never touches liveness
+
+- Persist the account's muted key, omitted when false
+
+- Mute a page in place on both engines and carry the flag on the holder
+
+- Add a Muted check to the row menu and carry the saved flag through restore
+
+- Remember per account whether to draw a game without the GPU, and ship a Lux Idle preset that asks for it
+
+- Add a Draw without the GPU item to each account's menu so one game can be drawn by the processor
+
+
+### Fixed
+
+- Bump rustls, webpki and ctutils past their advisories and ignore the unreachable zip ones
+
+- Keep the Linux-only GPU menu item and its tests out of the Windows build
+
 ## [0.1.0] - 2026-09-24
 
 ### New
