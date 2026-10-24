@@ -1,0 +1,37 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>filtered cards in a scroller</title>
+<style>
+  body { margin: 0; background: #111; color: #ddd; font: 14px sans-serif; }
+  #modal { position: fixed; left: 50px; top: 50px; width: 978px; height: 646px; overflow-y: auto; background: #1b1b1f; }
+  #grid { display: grid; grid-template-columns: repeat(3, 308px); gap: 12px; padding: 12px; }
+  .card { height: 388px; border: 1px solid #555; border-radius: 4px; padding: 10px; box-sizing: border-box;
+          background: linear-gradient(160deg, #2a2a33, #15151a); }
+  .card.locked { filter: grayscale(.5) brightness(.7); }
+</style>
+<div id="modal"><div id="grid"></div></div>
+<script>
+  // Build the list 30 s after load, the same moment the game probe clicks.
+  const DELAY_MS = Number(new URLSearchParams(location.search).get('delay') ?? 30000);
+  const LOCKED = new URLSearchParams(location.search).get('locked') !== '0';
+  const ANIMATE = new URLSearchParams(location.search).get('animate') === '1';
+  // A 32x32 sprite redrawn every frame, the way the game animates its creatures.
+  const sprite = card => {
+    const cv = document.createElement('canvas'); cv.width = 32; cv.height = 32; cv.style.width = cv.style.height = '40px';
+    const g = cv.getContext('2d');
+    const draw = t => { if (!cv.isConnected) return; g.clearRect(0, 0, 32, 32); g.fillStyle = `hsl(${(t / 10) % 360} 70% 50%)`; g.fillRect(4 + (t / 100) % 8, 4, 16, 24); requestAnimationFrame(draw); };
+    requestAnimationFrame(draw);
+    card.append(cv);
+  };
+  setTimeout(() => {
+    const grid = document.getElementById('grid');
+    for (let i = 0; i < 90; i++) {
+      const c = document.createElement('div');
+      c.className = 'card' + (LOCKED && i >= 6 ? ' locked' : '');
+      c.innerHTML = `<h3>Hunt ${i}</h3><p>level ${i * 10}+</p><p>Lorem ipsum dolor sit amet, consectetur adipiscing elit.</p>`;
+      if (ANIMATE) for (let k = 0; k < 3; k++) sprite(c);
+      grid.append(c);
+    }
+    document.title = 'BUILT';
+  }, DELAY_MS);
+</script>

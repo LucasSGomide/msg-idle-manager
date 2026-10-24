@@ -264,6 +264,15 @@ impl EngineProfile {
             );
         }
 
+        // Same reason as WebGL above, and the same `--disable-gpu` limit
+        // (`FR.29.6`): nothing per account to set, so the field is only noted.
+        if settings.is_software_rendered {
+            tracing::debug!(
+                session = %self.id,
+                "this account asks to be drawn without the GPU, which WebView2 cannot do per account"
+            );
+        }
+
         let pending = PendingView {
             id: self.id.clone(),
             start_address: start_address.to_owned(),
@@ -420,6 +429,19 @@ impl EngineView {
     pub(crate) fn set_muted(&self, on: bool, id: &SessionId) {
         self.host.set_muted(on);
         tracing::debug!(session = %id, muted = on, "view mute set");
+    }
+
+    /// A no-op on Windows (`FR.29.6`): `WebView2` is the same Chromium as
+    /// Edge, where the fault this switch avoids was never seen, and its only
+    /// way off the graphics chip, `--disable-gpu`, is environment-wide and so
+    /// shared by every account (`FR.1.3`). The stored flag still round-trips;
+    /// the Windows menu never offers it.
+    pub(crate) fn set_software_rendered(&self, on: bool, id: &SessionId) {
+        tracing::debug!(
+            session = %id,
+            software_rendered = on,
+            "WebView2 cannot draw one account without the GPU; ignored"
+        );
     }
 
     /// A no-op on Windows: every account shares one `WebView2` browser

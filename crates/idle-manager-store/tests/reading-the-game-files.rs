@@ -233,3 +233,53 @@ fn a_non_boolean_webgl_key_falls_back_to_enabled_and_the_other_fields_still_load
         (0, true, true, ZoomLevel::new(0.8).expect("0.8 is accepted")),
     );
 }
+
+/// Acceptance (item 18 task 02): only the file that sets the key is software
+/// rendered.
+#[test]
+fn a_software_rendering_key_set_true_reads_back_on_and_a_file_without_the_key_reads_back_off() {
+    let dir = TempDir::new("presets-software-rendering");
+    dir.write(
+        "cpu.toml",
+        "name = \"Cpu\"\nurl = \"https://cpu.test/\"\nzoom = 1.0\nkeep_awake = false\nsoftware_rendering = true\n",
+    );
+    dir.write("huntera.toml", HUNTERA);
+
+    let reading = TomlPresetCatalogue::under(dir.path()).read();
+
+    let flags: Vec<(&str, bool)> = reading
+        .presets
+        .iter()
+        .map(|preset| (preset.display_name.as_str(), preset.is_software_rendered))
+        .collect();
+    assert_eq!(flags, [("Cpu", true), ("Huntera", false)]);
+}
+
+/// Acceptance (item 18 task 02): a non-boolean value falls back to off and the
+/// file's other fields still load.
+#[test]
+fn a_non_boolean_software_rendering_key_falls_back_to_off_and_the_other_fields_still_load() {
+    let dir = TempDir::new("presets-software-rendering-bad");
+    dir.write(
+        "weird.toml",
+        "name = \"Weird\"\nurl = \"https://weird.test/\"\nzoom = 0.8\nkeep_awake = true\nsoftware_rendering = \"yes\"\n",
+    );
+
+    let reading = TomlPresetCatalogue::under(dir.path()).read();
+
+    let preset = &reading.presets[0];
+    assert_eq!(
+        (
+            reading.failures.len(),
+            preset.is_software_rendered,
+            preset.keep_awake_default,
+            preset.zoom,
+        ),
+        (
+            0,
+            false,
+            true,
+            ZoomLevel::new(0.8).expect("0.8 is accepted")
+        ),
+    );
+}

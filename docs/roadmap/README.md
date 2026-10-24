@@ -110,6 +110,7 @@ failure are shown inside a chooser without a modal of their own.
 |---|---|---|---|---|
 | [16](16-release-pipeline-and-in-app-update/README.md) | Releasing from GitHub, and updating from inside the app | 13 | 07, 12 | in-progress |
 | [08](08-crash-recovery/README.md) | Surviving a crashed game | 5 | 03 | not-started |
+| [18](18-drawing-without-the-gpu/README.md) | Drawing one account without the GPU | 3 | 04, 06, 07, 17 | in-progress |
 
 ## Blocked
 

@@ -516,6 +516,14 @@ impl WorkspaceBook {
             .is_some_and(|book| book.set_muted(id, value))
     }
 
+    /// Sets `id`'s software-rendering flag, wherever its workspace is. `false`
+    /// for an id no workspace holds; a live account moves to `Starting`, as
+    /// [`WorkspaceBook::set_keep_awake`] does.
+    pub fn set_software_rendered(&mut self, id: &SessionId, value: bool) -> bool {
+        self.book_holding_mut(id)
+            .is_some_and(|book| book.set_software_rendered(id, value))
+    }
+
     /// Renames `id`'s account, wherever its workspace is. `false` for an id no
     /// workspace holds or a name that trims to empty.
     pub fn rename(&mut self, id: &SessionId, name: &str) -> bool {
@@ -1115,6 +1123,7 @@ mod tests {
             start_address: format!("https://example.test/{id}"),
             is_kept_awake: false,
             is_muted: false,
+            is_software_rendered: false,
             browser_identity: None,
             zoom: ZoomLevel::DEFAULT,
         }
@@ -1530,6 +1539,36 @@ mod tests {
             .book(&WorkspaceId::new("workspace-0001"))
             .expect("w1 exists");
         assert!(destination.sessions()[0].is_muted());
+    }
+
+    #[test]
+    fn software_rendering_survives_a_move_between_workspaces() {
+        let list = a_list(
+            vec![named_workspace("workspace-0001", "W1", Vec::new())],
+            "ungrouped",
+        );
+        let mut book = WorkspaceBook::restore(list);
+        let member = book
+            .add(&WorkspaceId::ungrouped(), "A", "https://example.test/a")
+            .expect("ungrouped has room");
+        book.set_software_rendered(&member, true);
+
+        book.move_accounts(&[member], &WorkspaceId::new("workspace-0001"))
+            .expect("w1 has room");
+
+        let destination = book
+            .book(&WorkspaceId::new("workspace-0001"))
+            .expect("w1 exists");
+        assert!(destination.sessions()[0].is_software_rendered());
+    }
+
+    #[test]
+    fn setting_software_rendering_on_an_id_no_workspace_holds_reports_no_change() {
+        let mut book = WorkspaceBook::restore(a_list(Vec::new(), "ungrouped"));
+
+        let changed = book.set_software_rendered(&SessionId::new("session-9999"), true);
+
+        assert!(!changed);
     }
 
     #[test]

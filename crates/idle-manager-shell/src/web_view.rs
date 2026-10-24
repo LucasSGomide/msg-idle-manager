@@ -1,7 +1,7 @@
 //! One account's engine objects. The network session and the account's settings
 //! outlive the view; the view itself is disposable and rebuilt on every start.
 
-use idle_manager_core::{ProfileDirectories, SessionId, ZoomLevel};
+use idle_manager_core::{ProfileDirectories, Session, SessionId, ZoomLevel};
 
 use crate::frame_dump::{self, FrameDump};
 use crate::web_engine::{CapturedFrame, EngineCaptureError, EngineProfile, EngineView};
@@ -32,6 +32,26 @@ pub struct AccountSettings {
     pub identity: Option<String>,
     /// Whether the account's pages get a WebGL context (`FR.19.7`).
     pub webgl_enabled: bool,
+    /// Whether the account's pages are drawn with the processor instead of the
+    /// graphics chip (`FR.29.2`). Unlike the three above it can change while
+    /// the account runs, through [`SessionView::set_software_rendered`].
+    pub is_software_rendered: bool,
+}
+
+impl AccountSettings {
+    /// The settings `session`'s view is built with, drawn at `zoom` — the size
+    /// the account's arrangement resolves to, which the session alone cannot
+    /// say. The one place every holder's settings are read off a session, so a
+    /// new per-account view setting reaches the restore, dormant-add and
+    /// new-account paths alike (`FR.29.4`).
+    pub fn of(session: &Session, zoom: ZoomLevel) -> Self {
+        Self {
+            zoom,
+            identity: session.browser_identity().map(str::to_owned),
+            webgl_enabled: session.is_webgl_enabled(),
+            is_software_rendered: session.is_software_rendered(),
+        }
+    }
 }
 
 /// One account's engine objects, held so the view can be destroyed and rebuilt
@@ -227,6 +247,23 @@ impl SessionView {
         Some(view)
     }
 
+    /// Draws this account's page with the processor (`on`) or with the
+    /// graphics chip again (`FR.29.2`, `FR.29.3`).
+    ///
+    /// Remembers `on` in the held settings whether or not a view exists, so a
+    /// parked, queued or starting account builds its next view with the
+    /// policy already set. When a view is live the engine is told and the page
+    /// reloads, because the engine fixes how a page is drawn when the page is
+    /// built; the caller ends the `Starting` interval the book opened at the
+    /// reload's first paint, exactly as for keep-awake. Returns the live view,
+    /// or `None` while the account is parked.
+    pub fn set_software_rendered(&mut self, on: bool) -> Option<&EngineView> {
+        self.settings.is_software_rendered = on;
+        let view = self.view.as_ref()?;
+        view.set_software_rendered(on, &self.id);
+        Some(view)
+    }
+
     /// Sets this account's page zoom to `zoom`.
     ///
     /// Remembers it on the holder whether or not a view exists, so a parked
@@ -320,6 +357,55 @@ pub(crate) fn watched_background(on: bool, keep_awake: bool, minimised: bool) ->
 #[cfg(test)]
 mod tests {
     use super::*;
+    use idle_manager_core::SessionBook;
+
+    fn settings_of_one_account(software_rendered: bool) -> AccountSettings {
+        let mut book = SessionBook::new();
+        let id = SessionId::new("session-0001");
+        book.add(&id, "Lux Idle", "https://luxidle.test/");
+        book.set_software_rendered(&id, software_rendered);
+        let session = &book.sessions()[0];
+
+        AccountSettings::of(session, ZoomLevel::DEFAULT)
+    }
+
+    /// Acceptance (item 18 task 03): a parked holder has no view to reload,
+    /// so it only remembers the flag, in the settings its next view is built
+    /// with.
+    #[test]
+    fn a_parked_holder_remembers_software_rendering_for_its_next_view() {
+        let root = std::env::temp_dir().join(format!(
+            "idle-manager-holder-software-rendering-{}",
+            std::process::id()
+        ));
+        let directories = ProfileDirectories {
+            data: root.join("data"),
+            cache: root.join("cache"),
+        };
+        let mut holder = SessionView::dormant(
+            &SessionId::new("session-0001"),
+            &directories,
+            "https://luxidle.test/",
+            settings_of_one_account(false),
+            false,
+        );
+
+        let applied_to = holder.set_software_rendered(true).is_some();
+
+        let remembered = holder.settings.is_software_rendered;
+        let _ = std::fs::remove_dir_all(&root);
+        assert_eq!((applied_to, remembered), (false, true));
+    }
+
+    #[test]
+    fn the_settings_of_a_software_rendered_session_carry_the_flag() {
+        assert!(settings_of_one_account(true).is_software_rendered);
+    }
+
+    #[test]
+    fn the_settings_of_an_ordinary_session_leave_the_flag_off() {
+        assert!(!settings_of_one_account(false).is_software_rendered);
+    }
 
     #[test]
     fn minimised_and_not_kept_awake_goes_to_the_background() {

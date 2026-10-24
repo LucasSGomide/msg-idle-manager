@@ -56,6 +56,12 @@ pub struct Row {
     /// book (naming rule 12).
     #[property(get, set)]
     is_muted: Cell<bool>,
+    /// Whether the account's pages are drawn without the graphics chip,
+    /// mirrored from [`idle_manager_core::Session::is_software_rendered`]. The
+    /// row menu's `Draw without the GPU` check item reads this on every bind
+    /// rather than reaching into the book (naming rule 12).
+    #[property(get, set)]
+    is_software_rendered: Cell<bool>,
     /// The workspace this account currently belongs to, as a plain id
     /// string. What the row's own `Move to ▸` submenu shows insensitive and
     /// marked "(here)" rather than as a live choice (design rule 23).

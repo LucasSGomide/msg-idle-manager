@@ -405,6 +405,23 @@ impl EngineView {
         tracing::debug!(session = %id, muted = on, "view mute set");
     }
 
+    /// Draws this view's page with the processor (`on`) or puts the engine's
+    /// own drawing policy back, then reloads (`FR.29.2`, `FR.29.3`): the
+    /// engine settles a page's drawing mode when the page is built, so the
+    /// reload is what makes the change take hold and gives the caller a first
+    /// paint to end the account's `Starting` interval on. The reload keeps the
+    /// page's rendering process, and with it the GPU objects that process
+    /// already held: measured 2026-10-24, a live Lux Idle account went from
+    /// 847 to 418 MiB and then stayed flat with the hunting list open, while a
+    /// view *built* with the flag (park and start, or a relaunch) holds 14 MiB.
+    pub(crate) fn set_software_rendered(&self, on: bool, id: &SessionId) {
+        let settings = webkit6::prelude::WebViewExt::settings(&self.view)
+            .expect("a web view always has a settings object");
+        apply_drawing_policy(&settings, on);
+        self.view.reload();
+        tracing::debug!(session = %id, software_rendered = on, "view drawing policy set");
+    }
+
     /// Ends this view's rendering process. Dropping the [`EngineView`]
     /// afterwards leaves the engine to decide when — and whether — the
     /// process dies otherwise, which is the difference between memory
@@ -675,12 +692,39 @@ fn apply_account_settings(view: &WebView, account: &AccountSettings) {
     // about the game, kept in its preset file (`FR.19.7`). Applied before the
     // first `load_uri` so a page is never drawn with a context it then loses.
     settings.set_enable_webgl(account.webgl_enabled);
+    if account.is_software_rendered {
+        apply_drawing_policy(&settings, true);
+    }
 
     let Some(identity) = account.identity.as_deref() else {
         return;
     };
     settings.set_user_agent(Some(identity));
     tracing::debug!(user_agent = identity, "account identity override applied");
+}
+
+/// Sets `settings`' hardware-acceleration policy for an account drawn with the
+/// processor (`software_rendered`) or with the graphics chip (`FR.29.2`).
+///
+/// `Never` makes the engine paint and composite the page on the CPU and ask
+/// the driver for no graphics buffers at all. It exists for one measured
+/// failure (2026-10-24, roadmap item 18): Lux Idle's hunting list — about
+/// eighty cards under a CSS `filter` in an 11,000-pixel scroller — made
+/// `WebKitGTK` 2.52.6's GPU path on the Intel Arc (`xe`, Mesa 26.0.8) laptop
+/// claim graphics buffers at roughly 10 GB a second, 0.9 to 5.8 GiB in 0.4 s,
+/// until the kernel killed the desktop; a bare `WebKitGTK` window reproduced it,
+/// and `Never` held the process at 14 MiB of GPU objects for about 0.15 more
+/// cores. It is per account, never engine-wide, because every other game is
+/// measured on the GPU path (code standards rule 18). Turning it back off
+/// restores the policy a fresh settings object reports rather than a
+/// hard-coded value, so an engine that changes its default is followed.
+fn apply_drawing_policy(settings: &webkit6::Settings, software_rendered: bool) {
+    let policy = if software_rendered {
+        webkit6::HardwareAccelerationPolicy::Never
+    } else {
+        webkit6::Settings::new().hardware_acceleration_policy()
+    };
+    settings.set_hardware_acceleration_policy(policy);
 }
 
 /// Copies `opener`'s user-agent string onto `popup`'s settings.

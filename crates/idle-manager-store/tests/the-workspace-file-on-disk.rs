@@ -23,6 +23,7 @@ fn account(id: &str, name: &str) -> Account {
         liveness: SavedLiveness::Running,
         is_kept_awake: false,
         is_muted: false,
+        is_software_rendered: false,
         browser_identity: None,
         zoom: ZoomLevel::DEFAULT,
     }
@@ -639,6 +640,102 @@ fn a_version_3_file_with_muted_on_one_entry_reads_back_with_only_that_account_mu
         .map(|a| a.is_muted)
         .collect();
     assert_eq!(muted, vec![false, true]);
+}
+
+/// A two-account workspace in which only the first account is drawn without
+/// the graphics chip.
+fn a_list_with_one_software_rendered_account() -> WorkspaceList {
+    a_list(
+        vec![ungrouped(
+            vec![
+                Account {
+                    is_software_rendered: true,
+                    ..account("session-0001", "Lux Idle")
+                },
+                account("session-0002", "Huntera"),
+            ],
+            Layout::SideBySide,
+        )],
+        "ungrouped",
+    )
+}
+
+/// Acceptance (item 18 task 01): a software-rendered account round-trips
+/// through `sessions.toml` and the other account stays off.
+#[test]
+fn a_workspace_list_with_one_software_rendered_account_reads_back_with_only_that_account_flagged() {
+    let dir = TempDir::new("workspace-software-rendering-round-trip");
+    let store = TomlWorkspaceStore::under(dir.path());
+
+    store
+        .save(&a_list_with_one_software_rendered_account())
+        .expect("write the workspace list");
+    let loaded = store.load().expect("read the workspace list back");
+
+    let flags: Vec<bool> = loaded.workspaces[0]
+        .accounts
+        .iter()
+        .map(|a| a.is_software_rendered)
+        .collect();
+    assert_eq!(flags, vec![true, false]);
+}
+
+/// Acceptance (item 18 task 01): only the flagged entry carries a
+/// `software_rendering` key; an entry without the flag has none.
+#[test]
+fn the_written_file_has_a_software_rendering_key_on_the_flagged_entry_only() {
+    let dir = TempDir::new("workspace-software-rendering-key");
+    let store = TomlWorkspaceStore::under(dir.path());
+
+    store
+        .save(&a_list_with_one_software_rendered_account())
+        .expect("write the workspace list");
+    let on_disk = std::fs::read_to_string(store.path()).expect("read the written file");
+
+    assert_eq!(
+        (
+            on_disk.matches("software_rendering").count(),
+            on_disk.contains("software_rendering = true"),
+        ),
+        (1, true),
+    );
+}
+
+/// Acceptance (item 18 task 01): a version 3 file with
+/// `software_rendering = true` on one entry reads back with only that account
+/// flagged.
+#[test]
+fn a_version_3_file_with_software_rendering_on_one_entry_reads_back_with_only_that_account_flagged()
+{
+    let dir = TempDir::new("workspace-v3-software-rendering-read");
+    let store = TomlWorkspaceStore::under(dir.path());
+    let list = a_list(
+        vec![ungrouped(
+            vec![
+                account("session-0001", "Main"),
+                account("session-0002", "Alt"),
+            ],
+            Layout::SideBySide,
+        )],
+        "ungrouped",
+    );
+    store.save(&list).expect("write the workspace list");
+    let written = std::fs::read_to_string(store.path()).expect("read the written file");
+    let edited = written.replacen(
+        "name = \"Alt\"",
+        "software_rendering = true\nname = \"Alt\"",
+        1,
+    );
+    dir.write("sessions.toml", &edited);
+
+    let loaded = store.load().expect("read the edited version 3 file");
+
+    let flags: Vec<bool> = loaded.workspaces[0]
+        .accounts
+        .iter()
+        .map(|a| a.is_software_rendered)
+        .collect();
+    assert_eq!(flags, vec![false, true]);
 }
 
 /// Acceptance: a version 2 file whose `focused` slot is held by an account

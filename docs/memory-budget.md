@@ -447,3 +447,30 @@ ended at 164,427 KiB against 180,991 KiB settled before the attach, i.e. no
 growth; the cost of a watching phone is processor time (≈ 49 % of one core
 against ≈ 9 % resting, `docs/roadmap/13-phone-operation/README.md`
 `## Measured`), not memory.
+
+## Graphics buffers the footer cannot see (item 18)
+
+Everything above is PSS, and PSS does not include graphics buffers. On the
+Intel Arc laptop the graphics chip shares system memory, so a buffer the
+engine asks the `xe` driver for is ordinary RAM gone, yet it appears in no
+process's PSS, in no cgroup's `memory.current` (kernel 7.0's `memory.stat`
+has no GPU key), and therefore never in the footer. It is visible only
+system-wide, as the `GPUActive` line of `/proc/meminfo` (which over-counts:
+51 GiB on a 30 GiB machine), and per process in
+`/proc/<pid>/fdinfo/<fd>`'s `drm-total-*` keys, deduplicated by
+`drm-client-id`.
+
+Measured 2026-10-24 (roadmap item 18): a Lux Idle account resting in town
+held ~850 MiB of `xe` objects in its rendering process beside ~650 MiB PSS
+— more than its PSS, and invisible to the footer. Opening the game's hunting
+list made that process claim GPU buffers at roughly 10 GB a second (0.9 →
+5.8 GiB in 0.4 s) until the kernel's OOM killer, at 27 GiB of `gpu_active`,
+took down the desktop; the footer would have shown nothing. The cause is
+WebKitGTK's GPU drawing of a CSS `filter` on that page, reproduced in a bare
+WebKitGTK window; the per-account `Draw without the GPU` switch holds the
+same process at 14 MiB of GPU objects and ~970 MiB PSS with the list open.
+GPU memory freed by a killed rendering process returned to the system only
+slowly (15.6 GiB unaccounted fell to 8 GiB over about 20 minutes).
+
+A footer that reads `drm-total` beside PSS is the honest fix for the
+blindness; it is not part of item 18.

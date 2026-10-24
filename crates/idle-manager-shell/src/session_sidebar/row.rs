@@ -60,6 +60,7 @@ impl Row {
             .property("action-sensitive", action_sensitive(liveness))
             .property("is-kept-awake", session.is_kept_awake())
             .property("is-muted", session.is_muted())
+            .property("is-software-rendered", session.is_software_rendered())
             .property("workspace-id", workspace_id)
             .property("workspace-name", workspace_name)
             .property("is-current", current)
