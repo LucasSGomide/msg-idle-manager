@@ -214,6 +214,32 @@ impl FromIterator<(Layout, ZoomLevel)> for RememberedZoom {
     }
 }
 
+/// How the engine draws one account's pages: with the graphics chip, the
+/// engine's own default, or with the processor (`FR.29.2`).
+///
+/// A two-variant enum rather than a fourth `bool` on [`Session`], which
+/// already carries three flags (code standards rule 27); the public surface
+/// stays the [`Session::is_software_rendered`] question and the boolean
+/// setter, since the on-disk record and the preset both speak `bool`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Rendering {
+    /// The engine's own drawing path, using the graphics chip.
+    Gpu,
+    /// Painted and composited by the processor.
+    Software,
+}
+
+impl Rendering {
+    /// The variant a `software_rendered` flag names.
+    fn of(software_rendered: bool) -> Self {
+        if software_rendered {
+            Rendering::Software
+        } else {
+            Rendering::Gpu
+        }
+    }
+}
+
 /// One game account: its minted identity, the name and start address it was
 /// created with, whether it is running, and the view settings it carries from
 /// its preset. Carries no seat of its own — [`SessionBook::placement`] derives
@@ -228,6 +254,10 @@ pub struct Session {
     /// Whether the owner has silenced this account's page. Applied in place by
     /// the engine, so it never touches liveness.
     is_muted: bool,
+    /// How the engine should draw this account's pages (`FR.29.2`). The shell
+    /// applies it when a view is built, so a change on a running account
+    /// reloads its page. Read through [`Session::is_software_rendered`].
+    rendering: Rendering,
     browser_identity: Option<String>,
     /// Whether this account's pages get a WebGL context, copied from its preset
     /// at creation (`FR.19.7`). A typed-address account gets `true` — the
@@ -277,6 +307,13 @@ impl Session {
     #[must_use]
     pub fn is_muted(&self) -> bool {
         self.is_muted
+    }
+
+    /// Whether the owner has asked for this account to be drawn without the
+    /// graphics chip (`FR.29.1`).
+    #[must_use]
+    pub fn is_software_rendered(&self) -> bool {
+        self.rendering == Rendering::Software
     }
 
     /// The identity the engine should present for this account, or `None` for
@@ -389,6 +426,7 @@ impl SessionBook {
                 },
                 is_kept_awake: account.is_kept_awake,
                 is_muted: account.is_muted,
+                rendering: Rendering::of(account.is_software_rendered),
                 browser_identity: account.browser_identity,
                 // The workspace does not persist WebGL yet; a restored account
                 // returns on the engine's default and a preset that disables it
@@ -449,6 +487,7 @@ impl SessionBook {
                 },
                 is_kept_awake: session.is_kept_awake,
                 is_muted: session.is_muted,
+                is_software_rendered: session.is_software_rendered(),
                 browser_identity: session.browser_identity.clone(),
                 zoom: session.preset_zoom,
             })
@@ -646,6 +685,7 @@ impl SessionBook {
             liveness: Liveness::Live,
             is_kept_awake: false,
             is_muted: false,
+            rendering: Rendering::Gpu,
             browser_identity: None,
             is_webgl_enabled: true,
             preset_zoom: ZoomLevel::DEFAULT,
@@ -676,6 +716,7 @@ impl SessionBook {
             liveness: Liveness::Live,
             is_kept_awake: false,
             is_muted: false,
+            rendering: Rendering::of(preset.is_software_rendered),
             browser_identity: preset.browser_identity.clone(),
             is_webgl_enabled: preset.webgl_enabled,
             preset_zoom: preset.zoom,
@@ -784,6 +825,33 @@ impl SessionBook {
         }
 
         s.is_muted = value;
+
+        true
+    }
+
+    /// Sets `session`'s software-rendering flag to `value` and reports whether
+    /// that changed anything (`FR.29.3`).
+    ///
+    /// The engine fixes how a page is drawn when the page is built, so the
+    /// shell's reaction to a change is a reload — exactly
+    /// [`SessionBook::set_keep_awake`]'s situation, and handled the same way: a
+    /// change on a live session moves it to [`Liveness::Starting`] until the
+    /// reload paints, and any other liveness is kept. An id not in the book, or
+    /// a value already held, changes nothing and returns `false`, so the caller
+    /// can skip the reload.
+    pub fn set_software_rendered(&mut self, session: &SessionId, value: bool) -> bool {
+        let Some(s) = self.sessions.iter_mut().find(|s| &s.id == session) else {
+            return false;
+        };
+        let rendering = Rendering::of(value);
+        if s.rendering == rendering {
+            return false;
+        }
+
+        s.rendering = rendering;
+        if s.liveness == Liveness::Live {
+            s.liveness = Liveness::Starting;
+        }
 
         true
     }
@@ -1347,6 +1415,7 @@ mod tests {
             zoom: ZoomLevel::new(0.8).expect("0.8 is an accepted multiplier"),
             keep_awake_default: false,
             webgl_enabled: true,
+            is_software_rendered: false,
         }
     }
 
@@ -1405,6 +1474,41 @@ mod tests {
         let id = add_from_preset(&mut book, "Alt", &preset);
 
         assert!(!session(&book, &id).is_webgl_enabled());
+    }
+
+    #[test]
+    fn an_account_from_a_preset_with_software_rendering_on_starts_software_rendered() {
+        let mut book = SessionBook::new();
+        let preset = Preset {
+            is_software_rendered: true,
+            ..a_preset()
+        };
+
+        let id = add_from_preset(&mut book, "Alt", &preset);
+
+        assert!(session(&book, &id).is_software_rendered());
+    }
+
+    #[test]
+    fn an_account_from_a_preset_without_software_rendering_is_not_software_rendered() {
+        let mut book = SessionBook::new();
+
+        let id = add_from_preset(&mut book, "Alt", &a_preset());
+
+        assert!(!session(&book, &id).is_software_rendered());
+    }
+
+    #[test]
+    fn an_account_from_a_software_rendered_preset_ends_live() {
+        let mut book = SessionBook::new();
+        let preset = Preset {
+            is_software_rendered: true,
+            ..a_preset()
+        };
+
+        let id = add_from_preset(&mut book, "Alt", &preset);
+
+        assert_eq!(liveness_of(&book, &id), Liveness::Live);
     }
 
     #[test]
@@ -1476,6 +1580,7 @@ mod tests {
             liveness: SavedLiveness::Running,
             is_kept_awake: false,
             is_muted: false,
+            is_software_rendered: false,
             browser_identity: None,
             zoom: ZoomLevel::DEFAULT,
         }
@@ -2139,6 +2244,173 @@ mod tests {
                     ..saved_account("session-0001", "Quiet")
                 },
                 saved_account("session-0002", "Loud"),
+            ],
+            layout: Layout::SideBySide,
+            ..Workspace::default()
+        };
+        let restored = SessionBook::restore(workspace.clone());
+
+        let saved = restored.workspace(WorkspaceId::ungrouped(), "Ungrouped".to_owned(), true);
+
+        assert_eq!(saved, workspace);
+    }
+
+    fn is_software_rendered(book: &SessionBook, id: &SessionId) -> bool {
+        session(book, id).is_software_rendered()
+    }
+
+    #[test]
+    fn an_account_added_to_the_book_is_not_software_rendered() {
+        let mut book = SessionBook::new();
+
+        let id = add(&mut book, "One", "https://example.test/one");
+
+        assert!(!is_software_rendered(&book, &id));
+    }
+
+    #[test]
+    fn setting_software_rendering_to_its_current_value_reports_no_change() {
+        let mut book = SessionBook::new();
+        let id = add(&mut book, "One", "https://example.test/one");
+
+        let changed = book.set_software_rendered(&id, false);
+
+        assert!(!changed);
+    }
+
+    #[test]
+    fn setting_software_rendering_to_its_current_value_leaves_a_live_account_live() {
+        let mut book = SessionBook::new();
+        let id = add(&mut book, "One", "https://example.test/one");
+
+        book.set_software_rendered(&id, false);
+
+        assert_eq!(liveness_of(&book, &id), Liveness::Live);
+    }
+
+    #[test]
+    fn turning_software_rendering_on_for_a_live_account_reports_a_change() {
+        let mut book = SessionBook::new();
+        let id = add(&mut book, "One", "https://example.test/one");
+
+        let changed = book.set_software_rendered(&id, true);
+
+        assert!(changed);
+    }
+
+    #[test]
+    fn turning_software_rendering_on_for_a_live_account_leaves_it_starting() {
+        let mut book = SessionBook::new();
+        let id = add(&mut book, "One", "https://example.test/one");
+
+        book.set_software_rendered(&id, true);
+
+        assert_eq!(liveness_of(&book, &id), Liveness::Starting);
+    }
+
+    #[test]
+    fn turning_software_rendering_on_for_a_live_account_leaves_the_flag_on() {
+        let mut book = SessionBook::new();
+        let id = add(&mut book, "One", "https://example.test/one");
+
+        book.set_software_rendered(&id, true);
+
+        assert!(is_software_rendered(&book, &id));
+    }
+
+    #[test]
+    fn turning_software_rendering_on_for_a_parked_account_leaves_it_parked() {
+        let mut book = SessionBook::new();
+        let id = add(&mut book, "One", "https://example.test/one");
+        book.park(&id);
+
+        book.set_software_rendered(&id, true);
+
+        assert_eq!(liveness_of(&book, &id), Liveness::Parked);
+    }
+
+    #[test]
+    fn software_rendering_survives_a_layout_change_that_moves_the_account_between_pages() {
+        let mut book = SessionBook::new();
+        book.set_layout(Layout::Grid);
+        let id = add(&mut book, "One", "https://example.test/one");
+        add(&mut book, "Two", "https://example.test/two");
+        add(&mut book, "Three", "https://example.test/three");
+        add(&mut book, "Four", "https://example.test/four");
+        book.set_software_rendered(&id, true);
+
+        book.set_layout(Layout::SideBySide);
+        book.set_layout(Layout::Grid);
+
+        assert!(is_software_rendered(&book, &id));
+    }
+
+    #[test]
+    fn software_rendering_survives_being_parked() {
+        let mut book = SessionBook::new();
+        let id = add(&mut book, "One", "https://example.test/one");
+        book.set_software_rendered(&id, true);
+
+        book.park(&id);
+
+        assert!(is_software_rendered(&book, &id));
+    }
+
+    #[test]
+    fn software_rendering_survives_being_unparked() {
+        let mut book = SessionBook::new();
+        let id = add(&mut book, "One", "https://example.test/one");
+        book.set_software_rendered(&id, true);
+        book.park(&id);
+
+        book.unpark(&id);
+
+        assert!(is_software_rendered(&book, &id));
+    }
+
+    #[test]
+    fn setting_software_rendering_on_an_unknown_id_reports_no_change() {
+        let mut book = SessionBook::new();
+        let unknown = SessionId::new("session-9999");
+
+        let changed = book.set_software_rendered(&unknown, true);
+
+        assert!(!changed);
+    }
+
+    #[test]
+    fn restoring_a_workspace_preserves_software_rendering_on_exactly_the_flagged_accounts() {
+        let workspace = Workspace {
+            accounts: vec![
+                Account {
+                    is_software_rendered: true,
+                    ..saved_account("session-0001", "Lux Idle")
+                },
+                saved_account("session-0002", "Huntera"),
+            ],
+            layout: Layout::SideBySide,
+            ..Workspace::default()
+        };
+
+        let book = SessionBook::restore(workspace);
+
+        let flags: Vec<bool> = book
+            .sessions()
+            .iter()
+            .map(Session::is_software_rendered)
+            .collect();
+        assert_eq!(flags, vec![true, false]);
+    }
+
+    #[test]
+    fn the_workspace_read_off_a_restored_book_keeps_software_rendering_on_every_account() {
+        let workspace = Workspace {
+            accounts: vec![
+                Account {
+                    is_software_rendered: true,
+                    ..saved_account("session-0001", "Lux Idle")
+                },
+                saved_account("session-0002", "Huntera"),
             ],
             layout: Layout::SideBySide,
             ..Workspace::default()

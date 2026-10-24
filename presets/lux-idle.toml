@@ -1,0 +1,25 @@
+# Lux Idle. One game per file; copy this one and edit the values below to add a
+# game the application has never heard of.
+
+name = "Lux Idle"
+url = "https://luxidle.com.br/jogar"
+
+# Page zoom as a plain multiplier: 1.0 is the engine's normal size, 0.8 smaller.
+zoom = 1.0
+
+# Whether this game must keep running at full speed while it is hidden. Turn it
+# on only for a game that loses progress when a background tab is throttled.
+keep_awake = false
+
+# Draw this game with the processor instead of the graphics chip. On for Lux
+# Idle because its hunting list, drawn by WebKitGTK's GPU path on an Intel Arc
+# laptop, claimed graphics memory at about 10 GB a second until the desktop
+# froze (measured 2026-10-24, roadmap item 18). Leave it out for any game that
+# draws fine; it costs some processor time.
+software_rendering = true
+
+# The browser identity to present to this game. Leave it commented out for the
+# engine's own identity, which is what works for every game tested so far; set a
+# string here only for a game measured to turn the engine away, chosen by trying
+# it against that game.
+# user_agent = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 …"

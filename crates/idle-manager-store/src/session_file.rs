@@ -145,6 +145,11 @@ struct SessionEntry {
     /// `false` when absent, so a file with no muted account is unchanged.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     muted: bool,
+    /// Whether the account's pages are drawn without the graphics chip
+    /// (`FR.29.4`). Written only when `true` and read as `false` when absent,
+    /// so a file with no such account is unchanged.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    software_rendering: bool,
     /// A plain zoom multiplier — `zoom = 0.8` — exactly what the engine takes.
     zoom: f64,
     /// The identity to present to the game. Absent means the engine's own.
@@ -801,6 +806,7 @@ fn entry_to_account(entry: SessionEntry) -> Result<Account, String> {
         liveness: entry.liveness.into(),
         is_kept_awake: entry.keep_awake,
         is_muted: entry.muted,
+        is_software_rendered: entry.software_rendering,
         browser_identity,
         zoom,
     })
@@ -824,6 +830,7 @@ fn legacy_entry_to_account(entry: LegacySessionEntry) -> Result<(Account, Option
             liveness: entry.liveness.into(),
             is_kept_awake: entry.keep_awake,
             is_muted: false,
+            is_software_rendered: false,
             browser_identity,
             zoom,
         },
@@ -854,6 +861,7 @@ fn account_to_entry(account: &Account) -> SessionEntry {
         liveness: account.liveness.into(),
         keep_awake: account.is_kept_awake,
         muted: account.is_muted,
+        software_rendering: account.is_software_rendered,
         zoom: account.zoom.multiplier(),
         user_agent: account.browser_identity.clone(),
     }

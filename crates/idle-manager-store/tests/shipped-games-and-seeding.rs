@@ -1,4 +1,4 @@
-//! `TomlPresetCatalogue` seeds the three shipped game files into the presets
+//! `TomlPresetCatalogue` seeds the four shipped game files into the presets
 //! directory the first time it is missing, and never touches the folder again.
 
 mod common;
@@ -9,7 +9,12 @@ use common::TempDir;
 use idle_manager_core::PresetCatalogue;
 use idle_manager_store::TomlPresetCatalogue;
 
-const SHIPPED_FILE_NAMES: [&str; 3] = ["baiaki-idle.toml", "huntera.toml", "lorvath.toml"];
+const SHIPPED_FILE_NAMES: [&str; 4] = [
+    "baiaki-idle.toml",
+    "huntera.toml",
+    "lorvath.toml",
+    "lux-idle.toml",
+];
 
 fn file_names(directory: &std::path::Path) -> Vec<String> {
     let mut names: Vec<String> = fs::read_dir(directory)
@@ -35,7 +40,7 @@ fn constructing_over_a_missing_path_creates_and_seeds_the_directory() {
 }
 
 #[test]
-fn the_seeded_directory_yields_the_three_shipped_games_sorted_by_name() {
+fn the_seeded_directory_yields_the_four_shipped_games_sorted_by_name() {
     let temp = TempDir::new("seed-read");
     let presets = temp.join("config/presets");
 
@@ -46,7 +51,7 @@ fn the_seeded_directory_yields_the_three_shipped_games_sorted_by_name() {
         .iter()
         .map(|preset| preset.display_name.as_str())
         .collect();
-    assert_eq!(names, ["Baiaki Idle", "Huntera", "Lorvath"]);
+    assert_eq!(names, ["Baiaki Idle", "Huntera", "Lorvath", "Lux Idle"]);
 }
 
 #[test]
@@ -73,6 +78,32 @@ fn each_shipped_file_carries_its_address_and_no_browser_identity() {
             ("Baiaki Idle", "https://baiakidle.com/", None),
             ("Huntera", "https://huntera.com.br/", None),
             ("Lorvath", "https://lorvath.com/", None),
+            ("Lux Idle", "https://luxidle.com.br/jogar", None),
+        ],
+    );
+}
+
+/// Acceptance (item 18 task 02): the shipped Lux Idle file reads back with
+/// software rendering on, and the other three with it off.
+#[test]
+fn only_the_shipped_lux_idle_file_asks_for_software_rendering() {
+    let temp = TempDir::new("seed-software-rendering");
+    let presets = temp.join("config/presets");
+
+    let reading = TomlPresetCatalogue::under(&presets).read();
+
+    let seen: Vec<(&str, bool)> = reading
+        .presets
+        .iter()
+        .map(|preset| (preset.display_name.as_str(), preset.is_software_rendered))
+        .collect();
+    assert_eq!(
+        seen,
+        [
+            ("Baiaki Idle", false),
+            ("Huntera", false),
+            ("Lorvath", false),
+            ("Lux Idle", true),
         ],
     );
 }
@@ -99,7 +130,7 @@ fn a_second_construction_writes_nothing_over_a_hand_edited_folder() {
         .collect();
     assert_eq!(
         names,
-        ["Baiaki Idle", "Huntera (mine)"],
+        ["Baiaki Idle", "Huntera (mine)", "Lux Idle"],
         "the edit is kept and the deletion stays; nothing is put back"
     );
 }

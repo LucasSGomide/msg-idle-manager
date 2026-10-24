@@ -157,6 +157,11 @@ pub struct Preset {
     /// — changes behaviour when this field lands; a game measured not to need
     /// it turns it off in its own file.
     pub webgl_enabled: bool,
+    /// Whether an account added from this game starts drawn without the
+    /// graphics chip (`FR.29.5`). Off unless the file asks: it exists for a
+    /// game measured to make the engine's GPU drawing run away with memory,
+    /// and only such a game's file turns it on.
+    pub is_software_rendered: bool,
 }
 
 #[cfg(test)]

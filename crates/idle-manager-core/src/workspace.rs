@@ -51,6 +51,8 @@ pub struct Account {
     pub is_kept_awake: bool,
     /// Whether the owner has silenced the account's page.
     pub is_muted: bool,
+    /// Whether the account's pages are drawn without the graphics chip.
+    pub is_software_rendered: bool,
     /// The identity to present to the game, or `None` for the engine's own.
     pub browser_identity: Option<String>,
     /// How large to draw the account's page.

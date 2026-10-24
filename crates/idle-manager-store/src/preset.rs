@@ -26,6 +26,12 @@ const PRESET_EXTENSION: &str = "toml";
 /// game file changes behaviour when the key lands.
 const WEBGL_DEFAULT_ENABLED: bool = true;
 
+/// What a preset's software-rendering setting is when its file leaves the key
+/// out, or sets it to something that is not a boolean (`FR.29.5`): off, so the
+/// engine keeps drawing with the graphics chip unless a game's own file asks
+/// otherwise.
+const SOFTWARE_RENDERING_DEFAULT: bool = false;
+
 /// The game files carried in the binary and written into the presets directory
 /// the first time it is found missing.
 ///
@@ -33,7 +39,7 @@ const WEBGL_DEFAULT_ENABLED: bool = true;
 /// their only reader, the read stays infallible, and nothing has to be installed
 /// beside the binary (code standards rule 18). After the first run the folder is
 /// the user's — these are never written again.
-const SHIPPED_PRESETS: [(&str, &str); 3] = [
+const SHIPPED_PRESETS: [(&str, &str); 4] = [
     (
         "huntera.toml",
         include_str!("../../../presets/huntera.toml"),
@@ -45,6 +51,10 @@ const SHIPPED_PRESETS: [(&str, &str); 3] = [
     (
         "lorvath.toml",
         include_str!("../../../presets/lorvath.toml"),
+    ),
+    (
+        "lux-idle.toml",
+        include_str!("../../../presets/lux-idle.toml"),
     ),
 ];
 
@@ -99,6 +109,10 @@ struct PresetFile {
     /// `zoom` does.
     #[serde(default)]
     webgl: Option<toml::Value>,
+    /// Whether an account added from this game is drawn without the graphics
+    /// chip (`FR.29.5`). Raw for the same tolerance `webgl` has.
+    #[serde(default)]
+    software_rendering: Option<toml::Value>,
 }
 
 /// Reads `file`'s `webgl` value into a domain boolean, defaulting a missing or
@@ -115,6 +129,25 @@ fn webgl_enabled(value: Option<&toml::Value>, entry: &str) -> bool {
                 "the webgl key is not true or false; defaulting it to enabled"
             );
             WEBGL_DEFAULT_ENABLED
+        }
+    }
+}
+
+/// Reads `file`'s `software_rendering` value into a domain boolean, defaulting
+/// a missing or non-boolean value to [`SOFTWARE_RENDERING_DEFAULT`] and warning
+/// in the latter case with `entry` — the file's own name — as
+/// [`webgl_enabled`] does.
+fn software_rendered(value: Option<&toml::Value>, entry: &str) -> bool {
+    match value {
+        None => SOFTWARE_RENDERING_DEFAULT,
+        Some(toml::Value::Boolean(on)) => *on,
+        Some(other) => {
+            tracing::warn!(
+                entry,
+                value = %other,
+                "the software_rendering key is not true or false; defaulting it to off"
+            );
+            SOFTWARE_RENDERING_DEFAULT
         }
     }
 }
@@ -259,6 +292,8 @@ fn read_preset_file(path: &Path) -> Result<Preset, PresetFileError> {
     };
     let zoom = ZoomLevel::new(file.zoom)?;
     let webgl_enabled = webgl_enabled(file.webgl.as_ref(), &file_name_of(path));
+    let is_software_rendered =
+        software_rendered(file.software_rendering.as_ref(), &file_name_of(path));
 
     Ok(Preset {
         id: PresetId::new(stem_of(path)),
@@ -268,6 +303,7 @@ fn read_preset_file(path: &Path) -> Result<Preset, PresetFileError> {
         zoom,
         keep_awake_default: file.keep_awake,
         webgl_enabled,
+        is_software_rendered,
     })
 }
 
@@ -306,5 +342,24 @@ mod tests {
         let nonsense = toml::Value::String("yes".to_owned());
 
         assert!(webgl_enabled(Some(&nonsense), "huntera.toml"));
+    }
+
+    #[test]
+    fn a_preset_file_with_no_software_rendering_key_reads_as_off() {
+        assert!(!software_rendered(None, "huntera.toml"));
+    }
+
+    #[test]
+    fn a_software_rendering_key_set_true_reads_back_as_on() {
+        let on = toml::Value::Boolean(true);
+
+        assert!(software_rendered(Some(&on), "lux-idle.toml"));
+    }
+
+    #[test]
+    fn a_non_boolean_software_rendering_key_falls_back_to_off() {
+        let nonsense = toml::Value::String("yes".to_owned());
+
+        assert!(!software_rendered(Some(&nonsense), "lux-idle.toml"));
     }
 }
