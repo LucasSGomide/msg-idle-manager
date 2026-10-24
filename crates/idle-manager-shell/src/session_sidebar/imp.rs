@@ -66,6 +66,12 @@ type KeepAwakeHandler = Box<dyn Fn(SessionId, bool)>;
 /// (architecture rule 8).
 type MutedHandler = Box<dyn Fn(SessionId, bool)>;
 
+/// A handler run with an account's id and the value asked for when its row
+/// menu's `Draw without the GPU` item is chosen. Like [`KeepAwakeHandler`],
+/// the menu reports only the intent; whether the flag changes is the book's
+/// to decide (architecture rule 8).
+type SoftwareRenderingHandler = Box<dyn Fn(SessionId, bool)>;
+
 /// A handler run with an account's id when its row menu's `Rename…` item is
 /// chosen. The menu carries only the id; the window opens the dialog and the
 /// book decides whether a typed name is stored (architecture rule 8).
@@ -124,6 +130,13 @@ const KEEP_AWAKE_ACTION: &str = "keep-awake";
 /// The stateful action a row's `Muted` item is bound to, namespaced under
 /// [`ROW_ACTION_GROUP`] in the menu's detailed action name.
 const MUTED_ACTION: &str = "muted";
+/// The stateful action a row's `Draw without the GPU` item is bound to,
+/// namespaced under [`ROW_ACTION_GROUP`] in the menu's detailed action name.
+const SOFTWARE_RENDERING_ACTION: &str = "software-rendering";
+/// The label of that item. Shown only in the Linux build: `WebView2` has no
+/// per-account way off the graphics chip (`FR.29.6`).
+#[cfg(any(target_os = "linux", test))]
+const SOFTWARE_RENDERING_LABEL: &str = "Draw without the GPU";
 /// The action a row's `Rename…` item is bound to, namespaced under
 /// [`ROW_ACTION_GROUP`] in the menu's detailed action name. Stateless — it
 /// carries only the account's id, like [`PARKING_ACTION`] — and, unlike
@@ -204,6 +217,7 @@ pub struct SessionSidebar {
     pub(super) on_parking_toggled: RefCell<Option<ParkingHandler>>,
     pub(super) on_keep_awake_toggled: RefCell<Option<KeepAwakeHandler>>,
     pub(super) on_muted_toggled: RefCell<Option<MutedHandler>>,
+    pub(super) on_software_rendering_toggled: RefCell<Option<SoftwareRenderingHandler>>,
     pub(super) on_rename_requested: RefCell<Option<RenameHandler>>,
     pub(super) on_delete_requested: RefCell<Option<DeleteHandler>>,
     pub(super) on_expansion_toggled: RefCell<Option<ExpansionHandler>>,
@@ -820,8 +834,8 @@ fn accelerated_item(label: &str, action: &str, accelerator: &str) -> gio::MenuIt
 }
 
 /// Rebuilds `settings`'s menu model and action group from `data`'s current
-/// standing: `Park`/`Start`, `Keep running when hidden` and `Muted` in one
-/// section, `Move to ▸` and `Rename…` in a second, `Delete account…` set apart in a
+/// standing: `Park`/`Start`, `Keep running when hidden`, `Muted` and (Linux)
+/// `Draw without the GPU` in one section, `Move to ▸` and `Rename…` in a second, `Delete account…` set apart in a
 /// third (2.5's wireframe). `is_focused` is whether `data` is the sidebar's
 /// `current` row — only there do the Park/Start and `Rename…` items carry
 /// their accelerator (design rule 27); every other row's menu shows the same
@@ -844,8 +858,8 @@ fn bind_row_menu(
     );
 }
 
-/// Builds a row's menu model: `Park`/`Start`, `Keep running when hidden` and
-/// `Muted` in one section, `Move to ▸` and `Rename…` in a second, `Delete account…`
+/// Builds a row's menu model: `Park`/`Start`, `Keep running when hidden`,
+/// `Muted` and (Linux) `Draw without the GPU` in one section, `Move to ▸` and `Rename…` in a second, `Delete account…`
 /// set apart in a third (2.5's wireframe). `is_focused` is whether `data` is
 /// the sidebar's `current` row — only there do the Park/Start and `Rename…`
 /// items carry their accelerator (design rule 27); every other row's menu
@@ -884,6 +898,14 @@ fn build_row_menu_model(data: &Row, is_focused: bool, destinations: &Destination
         Some("Muted"),
         Some(&format!("{ROW_ACTION_GROUP}.{MUTED_ACTION}")),
     );
+    // No accelerator, and Linux only: the engine there can draw one account
+    // without the graphics chip, `WebView2` cannot (`FR.29.1`, `FR.29.6`,
+    // design rule 27).
+    #[cfg(target_os = "linux")]
+    actions_section.append(
+        Some(SOFTWARE_RENDERING_LABEL),
+        Some(&format!("{ROW_ACTION_GROUP}.{SOFTWARE_RENDERING_ACTION}")),
+    );
     menu.append_section(None, &actions_section);
 
     let move_section = gio::Menu::new();
@@ -916,8 +938,8 @@ fn build_row_menu_model(data: &Row, is_focused: bool, destinations: &Destination
 
 /// A stateful check action named `name`, seeded with `state`, whose
 /// `change-state` handler hands `(id, requested)` to the callback cell
-/// `handler` picks off the sidebar (`KeepAwakeHandler` and `MutedHandler`
-/// are one type, so either cell fits). It never calls
+/// `handler` picks off the sidebar (`KeepAwakeHandler`, `MutedHandler` and
+/// `SoftwareRenderingHandler` are one type, so any of the cells fits). It never calls
 /// [`gio::SimpleAction::set_state`]: the check only moves once the book's
 /// answer comes back through [`SessionSidebar::sync`] and the row is bound
 /// again (architecture rule 8). Shared by `keep-awake` and `muted`, whose
@@ -988,6 +1010,13 @@ fn build_row_action_group(
     let muted = intent_check_action(MUTED_ACTION, data.is_muted(), &id, sidebar, |sidebar| {
         &sidebar.on_muted_toggled
     });
+    let software_rendering = intent_check_action(
+        SOFTWARE_RENDERING_ACTION,
+        data.is_software_rendered(),
+        &id,
+        sidebar,
+        |sidebar| &sidebar.on_software_rendering_toggled,
+    );
 
     let rename = gio::SimpleAction::new(RENAME_ACTION, None);
     // Always sensitive: a rename is offered in every liveness, including
@@ -1056,6 +1085,7 @@ fn build_row_action_group(
     group.add_action(&parking);
     group.add_action(&keep_awake);
     group.add_action(&muted);
+    group.add_action(&software_rendering);
     group.add_action(&rename);
     group.add_action(&delete);
     group.add_action(&move_to);
@@ -1258,4 +1288,70 @@ fn build_heading_action_group(
     }
 
     group
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The labels and `accel` attributes of the row menu's first section, in
+    /// order — the section `Park`/`Start` and the per-account settings share.
+    fn first_section(menu: &gio::Menu) -> Vec<(String, Option<String>)> {
+        let section = menu
+            .item_link(0, "section")
+            .expect("the menu's first item is a section");
+        (0..section.n_items())
+            .map(|index| {
+                let label = section
+                    .item_attribute_value(index, "label", None)
+                    .and_then(|value| value.get::<String>())
+                    .expect("every item has a label");
+                let accel = section
+                    .item_attribute_value(index, "accel", None)
+                    .and_then(|value| value.get::<String>());
+                (label, accel)
+            })
+            .collect()
+    }
+
+    fn a_row() -> Row {
+        glib::Object::builder()
+            .property("id", "session-0001")
+            .property("action-label", "Park")
+            .build()
+    }
+
+    /// Acceptance (item 18 task 03): on Linux the settings section ends with
+    /// `Draw without the GPU`, after `Muted`, and no accelerator is shown.
+    #[test]
+    #[cfg(target_os = "linux")]
+    fn the_row_menu_offers_draw_without_the_gpu_after_muted_with_no_accelerator() {
+        let menu = build_row_menu_model(&a_row(), false, &Destinations::default());
+
+        let labels: Vec<(String, Option<String>)> = first_section(&menu);
+
+        assert_eq!(
+            labels,
+            [
+                ("Park".to_owned(), None),
+                ("Keep running when hidden".to_owned(), None),
+                ("Muted".to_owned(), None),
+                (SOFTWARE_RENDERING_LABEL.to_owned(), None),
+            ],
+        );
+    }
+
+    /// The focused row's menu adds a chord to `Park` only, never to the new
+    /// item (design rule 27).
+    #[test]
+    #[cfg(target_os = "linux")]
+    fn the_focused_rows_menu_shows_no_accelerator_on_draw_without_the_gpu() {
+        let row = a_row();
+        row.set_action_accelerator("<Control>p");
+
+        let menu = build_row_menu_model(&row, true, &Destinations::default());
+
+        let last = first_section(&menu).pop().expect("the section has items");
+        assert_eq!(last, (SOFTWARE_RENDERING_LABEL.to_owned(), None));
+    }
 }

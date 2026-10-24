@@ -47,18 +47,10 @@ const UPDATE_SCHEDULE_TICK_SECS: u64 = 60;
 
 /// One account as the restore loop reads it off the book before any holder
 /// is built: id, display name, start address, resolved zoom, browser
-/// identity, WebGL switch and muted flag. Collected first so the book borrow
+/// the view settings its holder is built with, and the muted flag. Collected first so the book borrow
 /// ends before the loop builds views; named only to keep clippy's
 /// `type_complexity` quiet.
-type RestoredAccount = (
-    SessionId,
-    String,
-    String,
-    ZoomLevel,
-    Option<String>,
-    bool,
-    bool,
-);
+type RestoredAccount = (SessionId, String, String, AccountSettings, bool);
 
 /// What a workspace name window is for — [`Window::present_workspace_name_dialog`]
 /// covers both, since only the title, confirm label, starting text and what
@@ -1161,9 +1153,7 @@ impl Window {
                             session.id().clone(),
                             session.display_name().to_owned(),
                             session.start_address().to_owned(),
-                            session.zoom_for(layout),
-                            session.browser_identity().map(str::to_owned),
-                            session.is_webgl_enabled(),
+                            AccountSettings::of(session, session.zoom_for(layout)),
                             session.is_muted(),
                         )
                     })
@@ -1171,7 +1161,7 @@ impl Window {
             })
             .collect();
 
-        for (id, name, address, zoom, identity, webgl_enabled, muted) in accounts {
+        for (id, name, address, settings, muted) in accounts {
             let directories = match locator.locate(&id) {
                 Ok(directories) => directories,
                 Err(error) => {
@@ -1180,17 +1170,7 @@ impl Window {
                 }
             };
 
-            let holder = SessionView::dormant(
-                &id,
-                &directories,
-                &address,
-                AccountSettings {
-                    zoom,
-                    identity,
-                    webgl_enabled,
-                },
-                muted,
-            );
+            let holder = SessionView::dormant(&id, &directories, &address, settings, muted);
             self.grid.add_dormant_session(&id, &name);
             self.holders.borrow_mut().insert(id, holder);
         }
@@ -1730,12 +1710,10 @@ impl Window {
         };
         let layout = workspace.book().layout();
         let session = workspace.book().session(id).expect("just found above");
-        let (name, address, zoom, identity, webgl_enabled, muted) = (
+        let (name, address, settings, muted) = (
             session.display_name().to_owned(),
             session.start_address().to_owned(),
-            session.zoom_for(layout),
-            session.browser_identity().map(str::to_owned),
-            session.is_webgl_enabled(),
+            AccountSettings::of(session, session.zoom_for(layout)),
             session.is_muted(),
         );
         drop(book);
@@ -1748,17 +1726,7 @@ impl Window {
             }
         };
 
-        let holder = SessionView::dormant(
-            id,
-            &directories,
-            &address,
-            AccountSettings {
-                zoom,
-                identity,
-                webgl_enabled,
-            },
-            muted,
-        );
+        let holder = SessionView::dormant(id, &directories, &address, settings, muted);
         self.grid.add_dormant_session(id, &name);
         self.holders.borrow_mut().insert(id.clone(), holder);
         self.redraw();
@@ -1826,6 +1794,14 @@ impl Window {
                 window.imp().toggle_muted(&id, value);
             }
         });
+
+        let window = self.obj().downgrade();
+        self.sidebar
+            .connect_software_rendering_toggled(move |id, value| {
+                if let Some(window) = window.upgrade() {
+                    window.imp().toggle_software_rendered(&id, value);
+                }
+            });
 
         let window = self.obj().downgrade();
         self.sidebar.connect_rename_requested(move |id| {
@@ -2044,12 +2020,10 @@ impl Window {
         };
         let layout = workspace.book().layout();
         let session = workspace.book().session(id).expect("just found above");
-        let (name, address, zoom, identity, webgl_enabled, muted) = (
+        let (name, address, settings, muted) = (
             session.display_name().to_owned(),
             session.start_address().to_owned(),
-            session.zoom_for(layout),
-            session.browser_identity().map(str::to_owned),
-            session.is_webgl_enabled(),
+            AccountSettings::of(session, session.zoom_for(layout)),
             session.is_muted(),
         );
         drop(book);
@@ -2066,11 +2040,7 @@ impl Window {
             id,
             &directories,
             &address,
-            AccountSettings {
-                zoom,
-                identity,
-                webgl_enabled,
-            },
+            settings,
             self.minimised.get(),
             muted,
         );
@@ -2339,6 +2309,44 @@ impl Window {
         // arming it again here on the same live view — on top of whatever
         // `start_session` or an earlier toggle already armed — never
         // accumulates a permanently-connected closure per toggle.
+        let window = self.obj().downgrade();
+        let owned_id = id.clone();
+        view.connect_painted(move || {
+            if let Some(window) = window.upgrade() {
+                window.imp().finish_starting(&owned_id);
+            }
+        });
+    }
+
+    /// The row menu's `Draw without the GPU` item was chosen (`FR.29.1`,
+    /// `FR.29.3`): the domain records the flag — moving a live account to
+    /// `Starting` — then the holder is made to match, which reloads a live
+    /// page with the new drawing policy. The same shape as
+    /// [`Self::toggle_keep_awake`], and for the same reason: the engine
+    /// settles how a page is drawn when it is built, so the starting interval
+    /// this opens ends at the reload's first paint. A no-op if the account
+    /// already held `value`; a parked account's holder only remembers it.
+    fn toggle_software_rendered(&self, id: &SessionId, value: bool) {
+        let changed = self.book.borrow_mut().set_software_rendered(id, value);
+        if !changed {
+            return;
+        }
+        self.redraw();
+        self.request_save();
+
+        let view = {
+            let mut holders = self.holders.borrow_mut();
+            let Some(holder) = holders.get_mut(id) else {
+                tracing::error!(session = %id, "no holder to apply the drawing policy to");
+                return;
+            };
+            holder.set_software_rendered(value).cloned()
+        };
+        let Some(view) = view else {
+            return;
+        };
+
+        // Self-disconnecting, as in `toggle_keep_awake`.
         let window = self.obj().downgrade();
         let owned_id = id.clone();
         view.connect_painted(move || {
